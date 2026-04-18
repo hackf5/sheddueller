@@ -1,0 +1,34 @@
+{
+    "editor.rulers": [
+        {
+            "column": 100,
+            "color": "#363636"
+        },
+        {
+            "column": 120,
+            "color": "#7e0000"
+        }
+    ],
+    "dotnet.defaultSolution": "src/Scheddueller.slnx",
+    "dotnet.codeLens.enableTestsCodeLens": true,
+    "dotnet.codeLens.enableReferencesCodeLens": true,
+    "dotnet.navigation.navigateToDecompiledSources": true,
+    "dotnet.completion.provideRegexCompletions": true,
+    "dotnet.completion.showNameCompletionSuggestions": true,
+    "dotnet.completion.showCompletionItemsFromUnimportedNamespaces": true,
+    "dotnet.inlayHints.enableInlayHintsForObjectCreationParameters": true,
+    "csharp.debug.logging.moduleLoad": false,
+    "csharp.debug.symbolOptions.searchMicrosoftSymbolServer": true,
+    "razor.format.enable": false,
+    "terminal.integrated.persistentSessionReviveProcess": "never",
+    "dotnet.typeMembers.propertyGenerationBehavior": "preferAutoProperties",
+    "[csharp]": {
+        "editor.defaultFormatter": "ms-dotnettools.csharp"
+    },
+    "editor.formatOnSave": true,
+    "cSpell.caseSensitive": false,
+    "cSpell.language": "en-US",
+    "cSpell.words": [
+        "Sheddueller"
+    ],
+}

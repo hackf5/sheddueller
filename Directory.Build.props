@@ -1,0 +1,45 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>Sheddueller</Product>
+    <Authors>Brian Tyler</Authors>
+    <Company>hackf5</Company>
+    <Description>Task scheduling library for .NET</Description>
+    <PackageTags>task-scheduling;scheduler;jobs;dotnet</PackageTags>
+    <RepositoryUrl>https://github.com/hackf5/sheddueller</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageId Condition="'$(PackageId)' == ''">$(MSBuildProjectName)</PackageId>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>All</AnalysisMode>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <SrcDirectory>$(MSBuildThisFileDirectory)src</SrcDirectory>
+    <TestDirectory>$(MSBuildThisFileDirectory)test</TestDirectory>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

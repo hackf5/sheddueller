@@ -1,0 +1,10 @@
+bin/
+obj/
+TestResults/
+.vs/
+.idea/
+*.user
+*.suo
+*.swp
+*.DS_Store
+*.lscache
