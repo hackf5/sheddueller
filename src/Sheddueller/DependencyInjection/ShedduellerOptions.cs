@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.DependencyInjection;
 
 /// <summary>
 /// Runtime options for Sheddueller.

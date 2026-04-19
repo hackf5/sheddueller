@@ -1,5 +1,8 @@
 namespace Sheddueller.Tests;
 
+using Sheddueller.Serialization;
+using Sheddueller.Storage;
+
 using Shouldly;
 
 public sealed class InMemoryTaskStoreTests

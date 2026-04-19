@@ -1,6 +1,6 @@
-#pragma warning disable IDE0130
+namespace Sheddueller.Storage;
 
-namespace Sheddueller;
+using Sheddueller.Serialization;
 
 /// <summary>
 /// Store request for enqueuing a task.

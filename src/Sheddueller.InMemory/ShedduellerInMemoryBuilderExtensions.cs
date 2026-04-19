@@ -1,7 +1,12 @@
-namespace Sheddueller;
+#pragma warning disable IDE0130
 
-using Microsoft.Extensions.DependencyInjection;
+namespace Microsoft.Extensions.DependencyInjection;
+
 using Microsoft.Extensions.DependencyInjection.Extensions;
+
+using Sheddueller;
+using Sheddueller.DependencyInjection;
+using Sheddueller.Storage;
 
 /// <summary>
 /// Registration extensions for the in-memory Sheddueller provider.

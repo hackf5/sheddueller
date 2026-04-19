@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Enqueueing;
 
 internal sealed record ParsedTask(
   string MethodName,

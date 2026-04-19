@@ -1,5 +1,8 @@
 namespace Sheddueller;
 
+using Sheddueller.Serialization;
+using Sheddueller.Storage;
+
 internal sealed class InMemoryTaskRecord(
   Guid taskId,
   TaskState state,

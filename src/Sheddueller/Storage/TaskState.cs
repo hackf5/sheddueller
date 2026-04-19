@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Storage;
 
 /// <summary>
 /// Persisted state of a Sheddueller task.

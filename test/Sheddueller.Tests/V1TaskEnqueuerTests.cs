@@ -2,6 +2,9 @@ namespace Sheddueller.Tests;
 
 using Microsoft.Extensions.DependencyInjection;
 
+using Sheddueller.Serialization;
+using Sheddueller.Storage;
+
 using Shouldly;
 
 public sealed class V1TaskEnqueuerTests

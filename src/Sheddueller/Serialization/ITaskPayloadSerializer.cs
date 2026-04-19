@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Serialization;
 
 /// <summary>
 /// Serializes and deserializes captured task method arguments.

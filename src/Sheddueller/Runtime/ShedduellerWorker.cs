@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Runtime;
 
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
@@ -9,6 +7,11 @@ using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+
+using Sheddueller.DependencyInjection;
+using Sheddueller.Enqueueing;
+using Sheddueller.Serialization;
+using Sheddueller.Storage;
 
 internal sealed class ShedduellerWorker(
     IServiceProvider serviceProvider,

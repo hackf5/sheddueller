@@ -1,7 +1,6 @@
 #pragma warning disable CA1034 // Nested types should not be visible
-#pragma warning disable IDE0130 // Namespace does not match folder structure
 
-namespace Sheddueller;
+namespace Sheddueller.Storage;
 
 /// <summary>
 /// Store result for claim attempts.

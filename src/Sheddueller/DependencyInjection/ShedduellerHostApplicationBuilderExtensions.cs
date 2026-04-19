@@ -4,7 +4,7 @@ namespace Microsoft.Extensions.Hosting;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using Sheddueller;
+using Sheddueller.DependencyInjection;
 
 /// <summary>
 /// Host application builder extensions for Sheddueller.

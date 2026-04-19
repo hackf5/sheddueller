@@ -1,9 +1,9 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.DependencyInjection;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+
+using Sheddueller.Serialization;
 
 /// <summary>
 /// Fluent configuration surface for Sheddueller registration.

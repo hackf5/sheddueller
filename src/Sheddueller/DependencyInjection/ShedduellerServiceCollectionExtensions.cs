@@ -6,6 +6,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 using Sheddueller;
+using Sheddueller.DependencyInjection;
+using Sheddueller.Enqueueing;
+using Sheddueller.Runtime;
+using Sheddueller.Serialization;
 
 /// <summary>
 /// Registration extensions for Sheddueller.

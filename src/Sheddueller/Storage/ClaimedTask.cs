@@ -1,6 +1,6 @@
-#pragma warning disable IDE0130
+namespace Sheddueller.Storage;
 
-namespace Sheddueller;
+using Sheddueller.Serialization;
 
 /// <summary>
 /// A task claimed by a worker node.

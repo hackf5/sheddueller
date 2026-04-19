@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Enqueueing;
 
 internal static class TypeNameFormatter
 {

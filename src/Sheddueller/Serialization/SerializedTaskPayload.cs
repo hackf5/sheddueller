@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Serialization;
 
 /// <summary>
 /// Opaque serialized task argument payload.

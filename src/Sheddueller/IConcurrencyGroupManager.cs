@@ -1,5 +1,3 @@
-#pragma warning disable IDE0130
-
 namespace Sheddueller;
 
 /// <summary>

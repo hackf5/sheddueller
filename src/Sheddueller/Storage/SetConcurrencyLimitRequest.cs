@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Storage;
 
 /// <summary>
 /// Store request for setting a concurrency-group limit.

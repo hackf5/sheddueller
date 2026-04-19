@@ -1,10 +1,11 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Runtime;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+
+using Sheddueller.DependencyInjection;
+using Sheddueller.Storage;
 
 internal sealed class ShedduellerStartupValidator(
     IServiceProvider serviceProvider,

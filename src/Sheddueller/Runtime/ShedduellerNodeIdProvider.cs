@@ -1,8 +1,8 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Runtime;
 
 using Microsoft.Extensions.Options;
+
+using Sheddueller.DependencyInjection;
 
 internal sealed class ShedduellerNodeIdProvider : IShedduellerNodeIdProvider
 {

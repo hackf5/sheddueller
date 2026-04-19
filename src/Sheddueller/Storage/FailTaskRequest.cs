@@ -1,6 +1,4 @@
-#pragma warning disable IDE0130
-
-namespace Sheddueller;
+namespace Sheddueller.Storage;
 
 /// <summary>
 /// Store request for marking a task as failed.
