@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Sheddueller.slnx
+
+      - name: Verify format
+        run: dotnet format Sheddueller.slnx --verify-no-changes --verbosity minimal
+
+      - name: Build
+        run: dotnet build Sheddueller.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --solution Sheddueller.slnx --configuration Release --no-build
