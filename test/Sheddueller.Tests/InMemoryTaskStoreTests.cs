@@ -1,6 +1,6 @@
-using Shouldly;
-
 namespace Sheddueller.Tests;
+
+using Shouldly;
 
 public sealed class InMemoryTaskStoreTests
 {

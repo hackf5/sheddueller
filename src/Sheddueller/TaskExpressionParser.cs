@@ -1,7 +1,6 @@
-using System.Linq.Expressions;
-using System.Reflection;
-
 namespace Sheddueller;
+
+using System.Linq.Expressions;
 
 internal static class TaskExpressionParser
 {
@@ -71,7 +70,7 @@ internal static class TaskExpressionParser
 
         return new ParsedTask(
           methodCall.Method.Name,
-          methodParameters.Select(parameter => TypeNameFormatter.Format(parameter.ParameterType)).ToArray(),
+          [.. methodParameters.Select(parameter => TypeNameFormatter.Format(parameter.ParameterType))],
           serializableArguments,
           serializableParameterTypes);
     }
@@ -131,9 +130,7 @@ internal static class TaskExpressionParser
     }
 
     private static bool IsSameParameter(Expression expression, ParameterExpression parameter)
-    {
-        return ReferenceEquals(StripConvert(expression), parameter);
-    }
+      => ReferenceEquals(StripConvert(expression), parameter);
 
     private static void ValidateSerializableParameterType(Type type, string parameterName)
     {
@@ -161,7 +158,7 @@ internal static class TaskExpressionParser
         {
             if (node == parameter)
             {
-                Found = true;
+                this.Found = true;
             }
 
             return node;

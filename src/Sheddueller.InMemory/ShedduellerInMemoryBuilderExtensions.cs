@@ -1,7 +1,7 @@
+namespace Sheddueller;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-
-namespace Sheddueller;
 
 /// <summary>
 /// Registration extensions for the in-memory Sheddueller provider.

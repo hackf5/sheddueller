@@ -1,7 +1,8 @@
-using Microsoft.Extensions.DependencyInjection;
-using Shouldly;
-
 namespace Sheddueller.Tests;
+
+using Microsoft.Extensions.DependencyInjection;
+
+using Shouldly;
 
 public sealed class V1TaskEnqueuerTests
 {

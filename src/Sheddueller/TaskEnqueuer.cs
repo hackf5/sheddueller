@@ -7,20 +7,16 @@ internal sealed class TaskEnqueuer(
   IShedduellerWakeSignal wakeSignal) : ITaskEnqueuer
 {
     public ValueTask<Guid> EnqueueAsync<TService>(
-    System.Linq.Expressions.Expression<Func<TService, CancellationToken, Task>> work,
-    TaskSubmission? submission = null,
-    CancellationToken cancellationToken = default)
-    {
-        return EnqueueCoreAsync(work, submission, cancellationToken);
-    }
+      System.Linq.Expressions.Expression<Func<TService, CancellationToken, Task>> work,
+      TaskSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.EnqueueCoreAsync(work, submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync<TService>(
       System.Linq.Expressions.Expression<Func<TService, CancellationToken, ValueTask>> work,
       TaskSubmission? submission = null,
       CancellationToken cancellationToken = default)
-    {
-        return EnqueueCoreAsync(work, submission, cancellationToken);
-    }
+      => this.EnqueueCoreAsync(work, submission, cancellationToken);
 
     private async ValueTask<Guid> EnqueueCoreAsync<TService, TResult>(
       System.Linq.Expressions.Expression<Func<TService, CancellationToken, TResult>> work,

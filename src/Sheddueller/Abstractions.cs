@@ -1,6 +1,6 @@
-using System.Linq.Expressions;
-
 namespace Sheddueller;
+
+using System.Linq.Expressions;
 
 /// <summary>
 /// Enqueues work for asynchronous execution by Sheddueller workers.

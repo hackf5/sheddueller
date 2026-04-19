@@ -51,8 +51,8 @@ public sealed record SerializedTaskPayload
     /// </summary>
     public SerializedTaskPayload(string contentType, byte[] data)
     {
-        ContentType = contentType;
-        Data = data;
+        this.ContentType = contentType;
+        this.Data = data;
     }
 
     /// <summary>

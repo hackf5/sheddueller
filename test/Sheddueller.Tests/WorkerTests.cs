@@ -1,9 +1,11 @@
+namespace Sheddueller.Tests;
+
 using System.Collections.Concurrent;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Shouldly;
 
-namespace Sheddueller.Tests;
+using Shouldly;
 
 public sealed class WorkerTests
 {

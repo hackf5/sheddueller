@@ -2,10 +2,10 @@ namespace Sheddueller;
 
 internal sealed class InMemoryTaskStore : ITaskStore
 {
-    private readonly Lock gate = new();
-    private readonly Dictionary<Guid, InMemoryTaskRecord> tasks = new();
-    private readonly Dictionary<string, int> concurrencyLimits = new(StringComparer.Ordinal);
-    private long nextEnqueueSequence;
+    private readonly Lock _gate = new();
+    private readonly Dictionary<Guid, InMemoryTaskRecord> _tasks = [];
+    private readonly Dictionary<string, int> _concurrencyLimits = new(StringComparer.Ordinal);
+    private long _nextEnqueueSequence;
 
     public ValueTask<EnqueueTaskResult> EnqueueAsync(
       EnqueueTaskRequest request,
@@ -14,9 +14,9 @@ internal sealed class InMemoryTaskStore : ITaskStore
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        lock (gate)
+        lock (this._gate)
         {
-            if (tasks.ContainsKey(request.TaskId))
+            if (this._tasks.ContainsKey(request.TaskId))
             {
                 throw new InvalidOperationException($"Task '{request.TaskId}' already exists.");
             }
@@ -26,20 +26,20 @@ internal sealed class InMemoryTaskStore : ITaskStore
                 SubmissionValidator.ValidateConcurrencyGroupKey(groupKey);
             }
 
-            var enqueueSequence = ++nextEnqueueSequence;
+            var enqueueSequence = ++this._nextEnqueueSequence;
             var record = new InMemoryTaskRecord(
-              request.TaskId,
-              TaskState.Queued,
-              request.Priority,
-              enqueueSequence,
-              request.EnqueuedAtUtc,
-              request.ServiceType,
-              request.MethodName,
-              request.MethodParameterTypes.ToArray(),
+                    request.TaskId,
+                    TaskState.Queued,
+                    request.Priority,
+                    enqueueSequence,
+                    request.EnqueuedAtUtc,
+                    request.ServiceType,
+                    request.MethodName,
+              [.. request.MethodParameterTypes],
               ClonePayload(request.SerializedArguments),
-              request.ConcurrencyGroupKeys.Distinct(StringComparer.Ordinal).ToArray());
+              [.. request.ConcurrencyGroupKeys.Distinct(StringComparer.Ordinal)]);
 
-            tasks.Add(request.TaskId, record);
+            this._tasks.Add(request.TaskId, record);
 
             return ValueTask.FromResult(new EnqueueTaskResult(request.TaskId, enqueueSequence));
         }
@@ -52,14 +52,14 @@ internal sealed class InMemoryTaskStore : ITaskStore
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        lock (gate)
+        lock (this._gate)
         {
-            foreach (var task in tasks.Values
+            foreach (var task in this._tasks.Values
               .Where(task => task.State == TaskState.Queued)
-              .OrderByDescending(task => task.Priority)
-              .ThenBy(task => task.EnqueueSequence))
+                    .OrderByDescending(task => task.Priority)
+                    .ThenBy(task => task.EnqueueSequence))
             {
-                if (!CanClaim(task))
+                if (!this.CanClaim(task))
                 {
                     continue;
                 }
@@ -74,9 +74,9 @@ internal sealed class InMemoryTaskStore : ITaskStore
                   task.Priority,
                   task.ServiceType,
                   task.MethodName,
-                  task.MethodParameterTypes.ToArray(),
-                  ClonePayload(task.SerializedArguments),
-                  task.ConcurrencyGroupKeys.ToArray())));
+            [.. task.MethodParameterTypes],
+            ClonePayload(task.SerializedArguments),
+            [.. task.ConcurrencyGroupKeys])));
             }
 
             return ValueTask.FromResult<ClaimTaskResult>(new ClaimTaskResult.NoTaskAvailable());
@@ -90,9 +90,9 @@ internal sealed class InMemoryTaskStore : ITaskStore
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        lock (gate)
+        lock (this._gate)
         {
-            var task = GetClaimedTaskForNode(request.TaskId, request.NodeId);
+            var task = this.GetClaimedTaskForNode(request.TaskId, request.NodeId);
             task.State = TaskState.Completed;
             task.CompletedAtUtc = request.CompletedAtUtc;
 
@@ -107,9 +107,9 @@ internal sealed class InMemoryTaskStore : ITaskStore
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        lock (gate)
+        lock (this._gate)
         {
-            var task = GetClaimedTaskForNode(request.TaskId, request.NodeId);
+            var task = this.GetClaimedTaskForNode(request.TaskId, request.NodeId);
             task.State = TaskState.Failed;
             task.FailedAtUtc = request.FailedAtUtc;
             task.Failure = request.Failure;
@@ -131,9 +131,9 @@ internal sealed class InMemoryTaskStore : ITaskStore
             throw new ArgumentOutOfRangeException(nameof(request), request.Limit, "Concurrency group limits must be positive.");
         }
 
-        lock (gate)
+        lock (this._gate)
         {
-            concurrencyLimits[request.GroupKey] = request.Limit;
+            this._concurrencyLimits[request.GroupKey] = request.Limit;
             return ValueTask.CompletedTask;
         }
     }
@@ -145,34 +145,34 @@ internal sealed class InMemoryTaskStore : ITaskStore
         cancellationToken.ThrowIfCancellationRequested();
         SubmissionValidator.ValidateConcurrencyGroupKey(groupKey);
 
-        lock (gate)
+        lock (this._gate)
         {
-            return ValueTask.FromResult(concurrencyLimits.TryGetValue(groupKey, out var limit) ? (int?)limit : null);
+            return ValueTask.FromResult(this._concurrencyLimits.TryGetValue(groupKey, out var limit) ? (int?)limit : null);
         }
     }
 
     internal InMemoryTaskSnapshot? GetSnapshot(Guid taskId)
     {
-        lock (gate)
+        lock (this._gate)
         {
-            return tasks.TryGetValue(taskId, out var task)
+            return this._tasks.TryGetValue(taskId, out var task)
               ? new InMemoryTaskSnapshot(
-                task.TaskId,
-                task.State,
-                task.Priority,
-                task.EnqueueSequence,
-                task.EnqueuedAtUtc,
-                task.ServiceType,
-                task.MethodName,
-                task.MethodParameterTypes.ToArray(),
+                      task.TaskId,
+                      task.State,
+                      task.Priority,
+                      task.EnqueueSequence,
+                      task.EnqueuedAtUtc,
+                      task.ServiceType,
+                      task.MethodName,
+                [.. task.MethodParameterTypes],
                 ClonePayload(task.SerializedArguments),
-                task.ConcurrencyGroupKeys.ToArray(),
-                task.ClaimedByNodeId,
-                task.ClaimedAtUtc,
-                task.CompletedAtUtc,
-                task.FailedAtUtc,
-                task.Failure)
-              : null;
+                [.. task.ConcurrencyGroupKeys],
+                      task.ClaimedByNodeId,
+                      task.ClaimedAtUtc,
+                      task.CompletedAtUtc,
+                      task.FailedAtUtc,
+                      task.Failure)
+                    : null;
         }
     }
 
@@ -180,10 +180,10 @@ internal sealed class InMemoryTaskStore : ITaskStore
     {
         foreach (var groupKey in task.ConcurrencyGroupKeys)
         {
-            var limit = concurrencyLimits.GetValueOrDefault(groupKey, 1);
-            var occupancy = tasks.Values.Count(candidate =>
-              candidate.State == TaskState.Claimed
-              && candidate.ConcurrencyGroupKeys.Contains(groupKey, StringComparer.Ordinal));
+            var limit = this._concurrencyLimits.GetValueOrDefault(groupKey, 1);
+            var occupancy = this._tasks.Values.Count(candidate =>
+                    candidate.State == TaskState.Claimed
+                    && candidate.ConcurrencyGroupKeys.Contains(groupKey, StringComparer.Ordinal));
 
             if (occupancy >= limit)
             {
@@ -196,7 +196,7 @@ internal sealed class InMemoryTaskStore : ITaskStore
 
     private InMemoryTaskRecord GetClaimedTaskForNode(Guid taskId, string nodeId)
     {
-        if (!tasks.TryGetValue(taskId, out var task))
+        if (!this._tasks.TryGetValue(taskId, out var task))
         {
             throw new InvalidOperationException($"Task '{taskId}' does not exist.");
         }
@@ -215,7 +215,5 @@ internal sealed class InMemoryTaskStore : ITaskStore
     }
 
     private static SerializedTaskPayload ClonePayload(SerializedTaskPayload payload)
-    {
-        return new SerializedTaskPayload(payload.ContentType, payload.Data.ToArray());
-    }
+      => new(payload.ContentType, [.. payload.Data]);
 }

@@ -1,11 +1,12 @@
+namespace Sheddueller;
+
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-
-namespace Sheddueller;
 
 internal interface IShedduellerWakeSignal
 {
@@ -21,29 +22,27 @@ internal interface IShedduellerNodeIdProvider
 
 internal sealed class ShedduellerWakeSignal : IShedduellerWakeSignal, IDisposable
 {
-    private readonly SemaphoreSlim signal = new(0);
-    private int signaled;
+    private readonly SemaphoreSlim _signal = new(0);
+    private int _signaled;
 
     public void Notify()
     {
-        if (Interlocked.Exchange(ref signaled, 1) == 0)
+        if (Interlocked.Exchange(ref this._signaled, 1) == 0)
         {
-            signal.Release();
+            this._signal.Release();
         }
     }
 
     public async ValueTask WaitAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
-        if (await signal.WaitAsync(timeout, cancellationToken).ConfigureAwait(false))
+        if (await this._signal.WaitAsync(timeout, cancellationToken).ConfigureAwait(false))
         {
-            Volatile.Write(ref signaled, 0);
+            Volatile.Write(ref this._signaled, 0);
         }
     }
 
     public void Dispose()
-    {
-        signal.Dispose();
-    }
+      => this._signal.Dispose();
 }
 
 internal sealed class ShedduellerNodeIdProvider : IShedduellerNodeIdProvider
@@ -51,19 +50,24 @@ internal sealed class ShedduellerNodeIdProvider : IShedduellerNodeIdProvider
     public ShedduellerNodeIdProvider(IOptions<ShedduellerOptions> options)
     {
         var configuredNodeId = options.Value.NodeId;
-        NodeId = string.IsNullOrWhiteSpace(configuredNodeId)
-          ? $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}"
-          : configuredNodeId;
+        this.NodeId = string.IsNullOrWhiteSpace(configuredNodeId)
+            ? $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}"
+            : configuredNodeId;
     }
 
     public string NodeId { get; }
 }
 
-internal sealed class ShedduellerStartupValidator(IServiceProvider serviceProvider, IOptions<ShedduellerOptions> options) : IHostedService
+internal sealed class ShedduellerStartupValidator(
+    IServiceProvider serviceProvider,
+    IOptions<ShedduellerOptions> options) : IHostedService
 {
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly IOptions<ShedduellerOptions> _options = options;
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var value = options.Value;
+        var value = this._options.Value;
 
         if (value.NodeId is not null && value.NodeId.Length == 0)
         {
@@ -80,7 +84,7 @@ internal sealed class ShedduellerStartupValidator(IServiceProvider serviceProvid
             throw new InvalidOperationException("ShedduellerOptions.IdlePollingInterval must be positive.");
         }
 
-        if (serviceProvider.GetService<ITaskStore>() is null)
+        if (this._serviceProvider.GetService<ITaskStore>() is null)
         {
             throw new InvalidOperationException("No Sheddueller task store provider has been registered.");
         }
@@ -89,36 +93,40 @@ internal sealed class ShedduellerStartupValidator(IServiceProvider serviceProvid
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
+      => Task.CompletedTask;
 }
 
 internal sealed class ShedduellerWorker(
-  IServiceProvider serviceProvider,
-  IServiceScopeFactory scopeFactory,
-  IOptions<ShedduellerOptions> options,
-  TimeProvider timeProvider,
-  IShedduellerWakeSignal wakeSignal,
-  IShedduellerNodeIdProvider nodeIdProvider) : BackgroundService
+    IServiceProvider serviceProvider,
+    IServiceScopeFactory scopeFactory,
+    IOptions<ShedduellerOptions> options,
+    TimeProvider timeProvider,
+    IShedduellerWakeSignal wakeSignal,
+    IShedduellerNodeIdProvider nodeIdProvider) : BackgroundService
 {
-    private readonly ConcurrentDictionary<Task, byte> runningTasks = new();
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+    private readonly IOptions<ShedduellerOptions> _options = options;
+    private readonly TimeProvider _timeProvider = timeProvider;
+    private readonly IShedduellerWakeSignal _wakeSignal = wakeSignal;
+    private readonly IShedduellerNodeIdProvider _nodeIdProvider = nodeIdProvider;
+    private readonly ConcurrentDictionary<Task, byte> _runningTasks = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var store = serviceProvider.GetRequiredService<ITaskStore>();
+        var store = this._serviceProvider.GetRequiredService<ITaskStore>();
 
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                PruneCompletedTasks();
+                this.PruneCompletedTasks();
 
                 var claimedTask = false;
-                while (!stoppingToken.IsCancellationRequested && runningTasks.Count < options.Value.MaxConcurrentExecutionsPerNode)
+                while (!stoppingToken.IsCancellationRequested && this._runningTasks.Count < this._options.Value.MaxConcurrentExecutionsPerNode)
                 {
                     var claimResult = await store
-                      .TryClaimNextAsync(new ClaimTaskRequest(nodeIdProvider.NodeId, timeProvider.GetUtcNow()), stoppingToken)
+                      .TryClaimNextAsync(new ClaimTaskRequest(this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), stoppingToken)
                       .ConfigureAwait(false);
 
                     if (claimResult is not ClaimTaskResult.Claimed claimed)
@@ -127,7 +135,7 @@ internal sealed class ShedduellerWorker(
                     }
 
                     claimedTask = true;
-                    TrackTask(ExecuteClaimedTaskAsync(store, claimed.Task, stoppingToken));
+                    this.TrackTask(this.ExecuteClaimedTaskAsync(store, claimed.Task, stoppingToken));
                 }
 
                 if (claimedTask)
@@ -135,7 +143,7 @@ internal sealed class ShedduellerWorker(
                     continue;
                 }
 
-                await WaitForWorkOrCapacityAsync(stoppingToken).ConfigureAwait(false);
+                await this.WaitForWorkOrCapacityAsync(stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -143,20 +151,20 @@ internal sealed class ShedduellerWorker(
             // Shutdown stops claiming. Running tasks are awaited below so terminal state can be recorded.
         }
 
-        await WaitForRunningTasksAsync().ConfigureAwait(false);
+        await this.WaitForRunningTasksAsync().ConfigureAwait(false);
     }
 
     private async ValueTask WaitForWorkOrCapacityAsync(CancellationToken stoppingToken)
     {
-        if (runningTasks.IsEmpty)
+        if (this._runningTasks.IsEmpty)
         {
-            await wakeSignal.WaitAsync(options.Value.IdlePollingInterval, stoppingToken).ConfigureAwait(false);
+            await this._wakeSignal.WaitAsync(this._options.Value.IdlePollingInterval, stoppingToken).ConfigureAwait(false);
             return;
         }
 
-        var delayTask = Task.Delay(options.Value.IdlePollingInterval, stoppingToken);
-        var signalTask = wakeSignal.WaitAsync(options.Value.IdlePollingInterval, stoppingToken).AsTask();
-        var completedRunningTask = await Task.WhenAny(runningTasks.Keys.Append(delayTask).Append(signalTask)).ConfigureAwait(false);
+        var delayTask = Task.Delay(this._options.Value.IdlePollingInterval, stoppingToken);
+        var signalTask = this._wakeSignal.WaitAsync(this._options.Value.IdlePollingInterval, stoppingToken).AsTask();
+        var completedRunningTask = await Task.WhenAny(this._runningTasks.Keys.Append(delayTask).Append(signalTask)).ConfigureAwait(false);
 
         if (completedRunningTask == signalTask)
         {
@@ -169,18 +177,18 @@ internal sealed class ShedduellerWorker(
     {
         try
         {
-            await InvokeClaimedTaskAsync(task, executionToken).ConfigureAwait(false);
+            await this.InvokeClaimedTaskAsync(task, executionToken).ConfigureAwait(false);
             await store
-              .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, nodeIdProvider.NodeId, timeProvider.GetUtcNow()), CancellationToken.None)
+              .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), CancellationToken.None)
               .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             await store
               .MarkFailedAsync(
-                new FailTaskRequest(task.TaskId, nodeIdProvider.NodeId, timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
-                CancellationToken.None)
-              .ConfigureAwait(false);
+          new FailTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
+          CancellationToken.None)
+        .ConfigureAwait(false);
         }
     }
 
@@ -190,7 +198,7 @@ internal sealed class ShedduellerWorker(
         var methodParameterTypes = task.MethodParameterTypes.Select(TypeNameFormatter.Resolve).ToArray();
         var serializableParameterTypes = methodParameterTypes.Where(type => type != typeof(CancellationToken)).ToArray();
 
-        var scope = scopeFactory.CreateAsyncScope();
+        var scope = this._scopeFactory.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
         {
             var service = scope.ServiceProvider.GetRequiredService(serviceType);
@@ -201,10 +209,7 @@ internal sealed class ShedduellerWorker(
               types: methodParameterTypes,
               modifiers: null);
 
-            if (method is null)
-            {
-                throw new InvalidOperationException($"Could not resolve task method '{task.MethodName}' on service type '{serviceType}'.");
-            }
+            _ = method ?? throw new InvalidOperationException($"Could not resolve task method '{task.MethodName}' on service type '{serviceType}'.");
 
             var deserializedArguments = await scope.ServiceProvider
               .GetRequiredService<ITaskPayloadSerializer>()
@@ -267,28 +272,28 @@ internal sealed class ShedduellerWorker(
 
     private void TrackTask(Task task)
     {
-        runningTasks.TryAdd(task, 0);
+        this._runningTasks.TryAdd(task, 0);
         task.ContinueWith(
-          completedTask => runningTasks.TryRemove(completedTask, out _),
-          CancellationToken.None,
-          TaskContinuationOptions.ExecuteSynchronously,
-          TaskScheduler.Default);
+          completedTask => this._runningTasks.TryRemove(completedTask, out _),
+              CancellationToken.None,
+              TaskContinuationOptions.ExecuteSynchronously,
+              TaskScheduler.Default);
     }
 
     private void PruneCompletedTasks()
     {
-        foreach (var task in runningTasks.Keys.Where(task => task.IsCompleted))
+        foreach (var task in this._runningTasks.Keys.Where(task => task.IsCompleted))
         {
-            runningTasks.TryRemove(task, out _);
+            this._runningTasks.TryRemove(task, out _);
         }
     }
 
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Individual execution tasks persist failure details before shutdown wait observes them.")]
     private async Task WaitForRunningTasksAsync()
     {
-        while (!runningTasks.IsEmpty)
+        while (!this._runningTasks.IsEmpty)
         {
-            Task[] snapshot = [.. runningTasks.Keys];
+            Task[] snapshot = [.. this._runningTasks.Keys];
             try
             {
                 await Task.WhenAll(snapshot).ConfigureAwait(false);
@@ -298,15 +303,13 @@ internal sealed class ShedduellerWorker(
                 // Individual execution tasks record their own failure state.
             }
 
-            PruneCompletedTasks();
+            this.PruneCompletedTasks();
         }
     }
 
     private static TaskFailureInfo CreateFailureInfo(Exception exception)
-    {
-        return new TaskFailureInfo(
-          exception.GetType().FullName ?? exception.GetType().Name,
-          exception.Message,
-          exception.StackTrace);
-    }
+      => new(
+        exception.GetType().FullName ?? exception.GetType().Name,
+        exception.Message,
+        exception.StackTrace);
 }

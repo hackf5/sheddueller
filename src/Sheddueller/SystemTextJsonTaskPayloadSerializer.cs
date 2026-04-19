@@ -1,6 +1,6 @@
-using System.Text.Json;
-
 namespace Sheddueller;
+
+using System.Text.Json;
 
 /// <summary>
 /// Default task payload serializer based on System.Text.Json.

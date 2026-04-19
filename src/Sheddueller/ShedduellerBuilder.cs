@@ -1,7 +1,7 @@
+namespace Sheddueller;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-
-namespace Sheddueller;
 
 /// <summary>
 /// Fluent configuration surface for Sheddueller registration.
@@ -9,9 +9,7 @@ namespace Sheddueller;
 public sealed class ShedduellerBuilder
 {
     internal ShedduellerBuilder(IServiceCollection services)
-    {
-        Services = services;
-    }
+      => this.Services = services;
 
     /// <summary>
     /// Gets the underlying service collection for provider extensions.
@@ -25,7 +23,7 @@ public sealed class ShedduellerBuilder
     {
         ArgumentNullException.ThrowIfNull(configure);
 
-        Services.Configure(configure);
+        this.Services.Configure(configure);
         return this;
     }
 
@@ -35,7 +33,7 @@ public sealed class ShedduellerBuilder
     public ShedduellerBuilder UseTaskPayloadSerializer<TSerializer>()
       where TSerializer : class, ITaskPayloadSerializer
     {
-        Services.Replace(ServiceDescriptor.Singleton<ITaskPayloadSerializer, TSerializer>());
+        this.Services.Replace(ServiceDescriptor.Singleton<ITaskPayloadSerializer, TSerializer>());
         return this;
     }
 
@@ -46,7 +44,7 @@ public sealed class ShedduellerBuilder
     {
         ArgumentNullException.ThrowIfNull(serializer);
 
-        Services.Replace(ServiceDescriptor.Singleton(serializer));
+        this.Services.Replace(ServiceDescriptor.Singleton(serializer));
         return this;
     }
 }

@@ -6,7 +6,7 @@ internal static class SubmissionValidator
     {
         if (groupKeys is null || groupKeys.Count == 0)
         {
-            return Array.Empty<string>();
+            return [];
         }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);

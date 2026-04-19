@@ -1,8 +1,9 @@
+namespace Sheddueller.Tests;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Shouldly;
 
-namespace Sheddueller.Tests;
+using Shouldly;
 
 public sealed class RegistrationTests
 {
