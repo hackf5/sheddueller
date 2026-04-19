@@ -7,6 +7,10 @@ A task scheduling library for .NET.
 ## Layout
 
 - `src/Sheddueller`: core library package
+- `docs/v1-spec.md`: v1 implementation specification
+- `docs/v2-spec.md`: v2 implementation specification
+- `docs/v3-spec.md`: v3 PostgreSQL backend specification
+- `docs/v4-spec.md`: v4 dashboard specification
 - `test/Sheddueller.Tests`: unit tests
 
 ## Commands
