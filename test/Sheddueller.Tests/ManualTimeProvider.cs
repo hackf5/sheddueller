@@ -1,21 +1,14 @@
 namespace Sheddueller.Tests;
 
-internal sealed class ManualTimeProvider : TimeProvider
+internal sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
 {
-  private DateTimeOffset utcNow;
+    public override DateTimeOffset GetUtcNow()
+    {
+        return utcNow;
+    }
 
-  public ManualTimeProvider(DateTimeOffset utcNow)
-  {
-    this.utcNow = utcNow;
-  }
-
-  public override DateTimeOffset GetUtcNow()
-  {
-    return utcNow;
-  }
-
-  public void SetUtcNow(DateTimeOffset value)
-  {
-    utcNow = value;
-  }
+    public void SetUtcNow(DateTimeOffset value)
+    {
+        utcNow = value;
+    }
 }

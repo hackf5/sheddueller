@@ -1,60 +1,46 @@
 namespace Sheddueller;
 
-internal sealed class InMemoryTaskRecord
+internal sealed class InMemoryTaskRecord(
+  Guid taskId,
+  TaskState state,
+  int priority,
+  long enqueueSequence,
+  DateTimeOffset enqueuedAtUtc,
+  string serviceType,
+  string methodName,
+  IReadOnlyList<string> methodParameterTypes,
+  SerializedTaskPayload serializedArguments,
+  IReadOnlyList<string> concurrencyGroupKeys)
 {
-  public InMemoryTaskRecord(
-    Guid taskId,
-    TaskState state,
-    int priority,
-    long enqueueSequence,
-    DateTimeOffset enqueuedAtUtc,
-    string serviceType,
-    string methodName,
-    IReadOnlyList<string> methodParameterTypes,
-    SerializedTaskPayload serializedArguments,
-    IReadOnlyList<string> concurrencyGroupKeys)
-  {
-    TaskId = taskId;
-    State = state;
-    Priority = priority;
-    EnqueueSequence = enqueueSequence;
-    EnqueuedAtUtc = enqueuedAtUtc;
-    ServiceType = serviceType;
-    MethodName = methodName;
-    MethodParameterTypes = methodParameterTypes;
-    SerializedArguments = serializedArguments;
-    ConcurrencyGroupKeys = concurrencyGroupKeys;
-  }
+    public Guid TaskId { get; } = taskId;
 
-  public Guid TaskId { get; }
+    public TaskState State { get; set; } = state;
 
-  public TaskState State { get; set; }
+    public int Priority { get; } = priority;
 
-  public int Priority { get; }
+    public long EnqueueSequence { get; } = enqueueSequence;
 
-  public long EnqueueSequence { get; }
+    public DateTimeOffset EnqueuedAtUtc { get; } = enqueuedAtUtc;
 
-  public DateTimeOffset EnqueuedAtUtc { get; }
+    public string ServiceType { get; } = serviceType;
 
-  public string ServiceType { get; }
+    public string MethodName { get; } = methodName;
 
-  public string MethodName { get; }
+    public IReadOnlyList<string> MethodParameterTypes { get; } = methodParameterTypes;
 
-  public IReadOnlyList<string> MethodParameterTypes { get; }
+    public SerializedTaskPayload SerializedArguments { get; } = serializedArguments;
 
-  public SerializedTaskPayload SerializedArguments { get; }
+    public IReadOnlyList<string> ConcurrencyGroupKeys { get; } = concurrencyGroupKeys;
 
-  public IReadOnlyList<string> ConcurrencyGroupKeys { get; }
+    public string? ClaimedByNodeId { get; set; }
 
-  public string? ClaimedByNodeId { get; set; }
+    public DateTimeOffset? ClaimedAtUtc { get; set; }
 
-  public DateTimeOffset? ClaimedAtUtc { get; set; }
+    public DateTimeOffset? CompletedAtUtc { get; set; }
 
-  public DateTimeOffset? CompletedAtUtc { get; set; }
+    public DateTimeOffset? FailedAtUtc { get; set; }
 
-  public DateTimeOffset? FailedAtUtc { get; set; }
-
-  public TaskFailureInfo? Failure { get; set; }
+    public TaskFailureInfo? Failure { get; set; }
 }
 
 internal sealed record InMemoryTaskSnapshot(

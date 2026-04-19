@@ -12,25 +12,25 @@ public sealed record TaskSubmission(
 /// </summary>
 public enum TaskState
 {
-  /// <summary>
-  /// The task is available for claiming.
-  /// </summary>
-  Queued,
+    /// <summary>
+    /// The task is available for claiming.
+    /// </summary>
+    Queued,
 
-  /// <summary>
-  /// The task is owned by a node and is counted against its concurrency groups.
-  /// </summary>
-  Claimed,
+    /// <summary>
+    /// The task is owned by a node and is counted against its concurrency groups.
+    /// </summary>
+    Claimed,
 
-  /// <summary>
-  /// The task completed successfully.
-  /// </summary>
-  Completed,
+    /// <summary>
+    /// The task completed successfully.
+    /// </summary>
+    Completed,
 
-  /// <summary>
-  /// The task failed.
-  /// </summary>
-  Failed,
+    /// <summary>
+    /// The task failed.
+    /// </summary>
+    Failed,
 }
 
 /// <summary>
@@ -46,25 +46,25 @@ public sealed record TaskFailureInfo(
 /// </summary>
 public sealed record SerializedTaskPayload
 {
-  /// <summary>
-  /// Initializes a new instance of the <see cref="SerializedTaskPayload"/> class.
-  /// </summary>
-  public SerializedTaskPayload(string contentType, byte[] data)
-  {
-    ContentType = contentType;
-    Data = data;
-  }
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SerializedTaskPayload"/> class.
+    /// </summary>
+    public SerializedTaskPayload(string contentType, byte[] data)
+    {
+        ContentType = contentType;
+        Data = data;
+    }
 
-  /// <summary>
-  /// Gets the serializer-owned content type.
-  /// </summary>
-  public string ContentType { get; init; }
+    /// <summary>
+    /// Gets the serializer-owned content type.
+    /// </summary>
+    public string ContentType { get; init; }
 
 #pragma warning disable CA1819
-  /// <summary>
-  /// Gets the serializer-owned payload bytes.
-  /// </summary>
-  public byte[] Data { get; init; }
+    /// <summary>
+    /// Gets the serializer-owned payload bytes.
+    /// </summary>
+    public byte[] Data { get; init; }
 #pragma warning restore CA1819
 }
 
@@ -100,15 +100,15 @@ public sealed record ClaimTaskRequest(
 /// </summary>
 public abstract record ClaimTaskResult
 {
-  /// <summary>
-  /// A task was claimed.
-  /// </summary>
-  public sealed record Claimed(ClaimedTask Task) : ClaimTaskResult;
+    /// <summary>
+    /// A task was claimed.
+    /// </summary>
+    public sealed record Claimed(ClaimedTask Task) : ClaimTaskResult;
 
-  /// <summary>
-  /// No task is currently claimable.
-  /// </summary>
-  public sealed record NoTaskAvailable : ClaimTaskResult;
+    /// <summary>
+    /// No task is currently claimable.
+    /// </summary>
+    public sealed record NoTaskAvailable : ClaimTaskResult;
 }
 
 /// <summary>
