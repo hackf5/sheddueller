@@ -1,7 +1,7 @@
 # Sheddueller v1 Specification
 
 Status: Accepted for implementation  
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 
 ## Summary
 
@@ -11,7 +11,7 @@ V1 is defined by four core capabilities:
 
 - Strict numeric task priority.
 - Dynamic cluster-wide concurrency groups.
-- Expression-based task submission against DI services.
+- Cancellation-aware expression-based task submission against DI services.
 - Backend-agnostic storage, proven first by an in-memory provider.
 
 Hosting integration is built around the standard .NET host model:
@@ -30,6 +30,8 @@ Hosting integration is built around the standard .NET host model:
 
 ## Non-Goals
 
+Non-goals are scoped to v1 unless explicitly marked permanent.
+
 - Delayed or scheduled execution.
 - Recurring or cron-based work.
 - Task chaining, workflows, or dependency graphs.
@@ -44,7 +46,7 @@ Hosting integration is built around the standard .NET host model:
 - Each node joins the cluster by registering Sheddueller in DI and running a hosted background worker.
 - All nodes share one logical `ITaskStore`.
 - Application code enqueues work through `ITaskEnqueuer`.
-- The worker claims tasks from the store, resolves the target service from DI, invokes the captured method, and reports terminal completion back to the store.
+- The worker claims tasks from the store, resolves the target service from DI, invokes the captured method with a scheduler-owned `CancellationToken`, and reports terminal completion back to the store.
 - Nodes execute up to `MaxConcurrentExecutionsPerNode` tasks concurrently. This node-local limit is separate from cluster-wide concurrency groups.
 
 ## Public API Shape
@@ -87,12 +89,12 @@ Requirements:
 public interface ITaskEnqueuer
 {
     ValueTask<Guid> EnqueueAsync<TService>(
-        Expression<Func<TService, Task>> work,
+        Expression<Func<TService, CancellationToken, Task>> work,
         TaskSubmission? submission = null,
         CancellationToken cancellationToken = default);
 
     ValueTask<Guid> EnqueueAsync<TService>(
-        Expression<Func<TService, ValueTask>> work,
+        Expression<Func<TService, CancellationToken, ValueTask>> work,
         TaskSubmission? submission = null,
         CancellationToken cancellationToken = default);
 }
@@ -107,6 +109,9 @@ Requirements:
 - The expression must be a single instance-method call on `TService`.
 - `TService` must be resolvable from DI at execution time.
 - Supported task methods return `Task` or `ValueTask`.
+- The expression must accept the scheduler-provided `CancellationToken` and forward it to the target service method call.
+- The scheduler-provided `CancellationToken` is runtime-owned and is never serialized as part of the task payload.
+- Callers must not capture an external `CancellationToken` for execution control inside the submitted expression.
 - Method arguments are captured at enqueue time and serialized through `ITaskPayloadSerializer`.
 - Captured argument values must be serializer-compatible.
 - `TaskSubmission.Priority` is an unconstrained sortable integer. Higher values mean higher priority.
@@ -119,7 +124,7 @@ Unsupported expression forms:
 - Static method calls.
 - Property access without a terminal method call.
 - Lambdas containing control flow, loops, or multiple method calls.
-- Captures of live service instances, delegates, streams, or other unserializable runtime-only objects.
+- Captures of live service instances, delegates, cancellation tokens, streams, or other unserializable runtime-only objects.
 
 ### Runtime Concurrency Management
 
@@ -274,7 +279,7 @@ Requirements:
 
 The v1 implementation is complete only when the following scenarios pass:
 
-1. Enqueueing `service => service.DoWork(arg)` persists the correct service identity, method identity, and serialized argument payload.
+1. Enqueueing `(service, cancellationToken) => service.DoWorkAsync(arg, cancellationToken)` persists the correct service identity, method identity, and serialized argument payload without serializing the cancellation token.
 2. Unsupported expression forms are rejected during enqueue.
 3. Between two tasks with the same priority, the earlier `EnqueueSequence` is claimed first.
 4. A higher-priority task is claimed before any lower-priority task that would otherwise be eligible.
@@ -286,14 +291,4 @@ The v1 implementation is complete only when the following scenarios pass:
 10. Lowering a group limit below current occupancy does not cancel running work, but it blocks future claims for that group until occupancy drops.
 11. Successful execution moves the task to `Completed` and releases all held group occupancy.
 12. A thrown exception moves the task to `Failed`, stores failure details, and does not retry.
-13. A task claimed by a node that dies remains stuck in `Claimed`; the behavior is documented and tested as a v1 limitation.
-
-## Known Limitations
-
-- V1 intentionally has no delayed scheduling.
-- V1 intentionally has no recurring jobs.
-- V1 intentionally has no task dependency model.
-- V1 intentionally has no retries.
-- V1 intentionally has no result retrieval API.
-- V1 intentionally has no automatic recovery for dead-node claims.
-- V1 intentionally keeps observability minimal; richer inspection APIs can be added in a later version without changing the core scheduling model.
+13. A task claimed by a node that dies remains stuck in `Claimed`; the behavior is documented and tested as a v1 milestone constraint.

@@ -1,7 +1,7 @@
 # Sheddueller v3 Specification
 
 Status: Accepted for implementation  
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 
 ## Relationship To V1 And V2
 
@@ -33,6 +33,8 @@ V3 keeps the backend abstraction in place, but PostgreSQL becomes the first dura
 - Support explicit schema creation and upgrades without silently mutating production databases during normal scheduler startup.
 
 ## Non-Goals
+
+Non-goals are scoped to v3 unless explicitly marked permanent.
 
 - New scheduler semantics beyond what v2 already defined.
 - MySQL, SQLite, or other relational providers.
@@ -143,6 +145,9 @@ Required columns:
 | `failure_stack_trace` | `text` | Best-effort failure stack trace. |
 | `source_schedule_key` | `text` | Recurring schedule key when materialized from a schedule. |
 | `scheduled_fire_at_utc` | `timestamptz` | Cron fire time that produced the task. |
+| `retry_clone_source_task_id` | `uuid` | Original failed task when created by a later retry-clone operation; nullable in v3 behavior. |
+| `cancellation_requested_at_utc` | `timestamptz` | Later dashboard-driven cancellation request timestamp; nullable in v3 behavior. |
+| `cancellation_observed_at_utc` | `timestamptz` | Later cooperative cancellation observation timestamp; nullable in v3 behavior. |
 
 ### `task_concurrency_groups`
 
@@ -219,6 +224,26 @@ Required columns:
 Primary key:
 
 - (`schedule_key`, `group_key`)
+
+### Forward-Compatible Dashboard Tables
+
+Purpose:
+
+- Avoid immediate schema churn when implementing the planned v4/v5 dashboard, telemetry, and trusted operations features.
+
+Provider implementations may create these tables during the v3 schema even though strict v3 runtime behavior does not yet depend on them:
+
+- `task_tags`: normalized task tag key/value pairs.
+- `schedule_tags`: normalized schedule tag key/value pairs.
+- `dashboard_events`: durable job, schedule, node, and system events.
+- `worker_nodes`: worker node heartbeat and concurrency state.
+- `schedule_occurrences`: materialized schedule occurrence history.
+
+Requirements:
+
+- These tables must not change v3 scheduler behavior.
+- Opaque serialized payload bodies must not be copied into dashboard/event tables.
+- Implementations targeting only the strict v3 feature set may leave these tables unused until v4/v5 features are implemented.
 
 ### Required Indexes
 
@@ -346,11 +371,3 @@ The v3 implementation is complete only when the following scenarios pass against
 12. `LISTEN/NOTIFY` wakes sleeping workers promptly after an operation that makes work immediately claimable.
 13. Polling still discovers delayed, retried, or scheduled work when notifications are missed.
 14. PostgreSQL integration tests verify persisted task, schedule, concurrency, and schema-version state through test-assembly-only SQL helpers rather than public provider inspection APIs.
-
-## Known Limitations
-
-- V3 intentionally standardizes only PostgreSQL.
-- V3 intentionally keeps provider tuning surface minimal.
-- V3 intentionally does not expose a public task, schedule, or schema inspection API.
-- V3 intentionally relies on the recorded schema version number rather than deep schema validation.
-- V3 intentionally keeps payload bodies opaque to PostgreSQL and to any test-only inspection helpers.

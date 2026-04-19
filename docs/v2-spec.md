@@ -1,11 +1,11 @@
 # Sheddueller v2 Specification
 
 Status: Accepted for implementation  
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 
 ## Relationship To V1
 
-This document extends [v1](v1-spec.md). V2 keeps the v1 priority, concurrency, and clustering model, but it makes one deliberate breaking change to task submission: handlers are now expressed with a scheduler-supplied `CancellationToken` parameter.
+This document extends [v1](v1-spec.md). V2 keeps the v1 priority, concurrency, clustering, and cancellation-aware task submission model, then adds resilience and scheduling.
 
 ## Summary
 
@@ -24,7 +24,7 @@ V2 continues to target `net10.0`, any number of homogeneous nodes, and backend-a
 
 ## Goals
 
-- Make task execution cancellation-aware through a required scheduler-supplied `CancellationToken`.
+- Extend v1's cancellation-aware execution model to delayed, retried, recovered, and recurring-materialized work.
 - Support delayed one-shot execution through the same enqueue pipeline used for immediate work.
 - Support recurring schedules that materialize ordinary task instances.
 - Recover abandoned work after node failure.
@@ -32,6 +32,8 @@ V2 continues to target `net10.0`, any number of homogeneous nodes, and backend-a
 - Keep schedule ownership cluster-safe without introducing a leader node.
 
 ## Non-Goals
+
+Non-goals are scoped to v2 unless explicitly marked permanent.
 
 - Task dependencies or workflow orchestration.
 - Exactly-once execution.
@@ -97,7 +99,7 @@ public sealed record TaskSubmission(
 
 Requirements:
 
-- V2 makes a hard break from v1: submitted work must accept the scheduler-provided `CancellationToken`.
+- Submitted work continues to accept the scheduler-provided `CancellationToken` defined in v1.
 - `NotBeforeUtc` is optional. If omitted or in the past, the task is immediately eligible for claim.
 - `NotBeforeUtc` must be normalized to UTC before persistence.
 - Per-task `RetryPolicy` overrides `ShedduellerOptions.DefaultRetryPolicy`.
@@ -429,13 +431,3 @@ The v2 implementation is complete only when the following scenarios pass:
 20. Enqueue and recurring-schedule registration reject expressions that do not use the scheduler-provided `CancellationToken`.
 21. When host shutdown begins, in-flight handlers receive a canceled execution token and the node stops claiming new tasks.
 22. When a node loses local ownership of a claimed task, the local execution token is canceled.
-
-## Known Limitations
-
-- V2 intentionally does not add dependency graphs or workflows.
-- V2 intentionally does not provide exactly-once execution guarantees.
-- V2 intentionally does not support cron time zones or local-time evaluation.
-- V2 intentionally does not support second-level cron.
-- V2 intentionally does not backfill missed recurring fires.
-- V2 intentionally does not support user-initiated cancellation of already claimed work.
-- V2 still expects application-level idempotency where duplicate execution would be harmful.

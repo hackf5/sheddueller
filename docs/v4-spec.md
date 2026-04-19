@@ -9,6 +9,8 @@ This document extends [v1](v1-spec.md), [v2](v2-spec.md), and [v3](v3-spec.md). 
 
 V4 is intentionally scoped to observation, not operation. The dashboard is read-only and focused on jobs.
 
+Terminology: earlier specs use task for the runtime/storage unit. V4 uses job for the dashboard/user-facing representation of a task.
+
 ## Summary
 
 Sheddueller v4 is about a first-class dashboard.
@@ -37,6 +39,8 @@ V4 exists to solve two concrete operator problems:
 - Keep v4 read-only and defer operator actions to later versions.
 
 ## Non-Goals
+
+Non-goals are scoped to v4 unless explicitly marked permanent.
 
 - A standalone dashboard application.
 - Schedule management or schedule views.
@@ -275,7 +279,7 @@ The scheduler already knows task id, handler type, method name, source schedule 
 
 V4 adds optional job-context-aware handler invocation.
 
-`CancellationToken` remains the required special runtime parameter from v2. `IJobContext` is an optional special runtime parameter used only when the invoked handler method accepts it.
+`CancellationToken` remains the required special runtime parameter from v1. `IJobContext` is an optional special runtime parameter used only when the invoked handler method accepts it.
 
 ```csharp
 public interface IJobContext
@@ -495,7 +499,7 @@ The dashboard must not include:
 - concurrency-limit edit controls
 - running-job kill controls
 
-Later versions may add operator actions after the authorization and audit model is specified.
+Later versions may add trusted-team operator actions without requiring a compliance-oriented authorization or audit model.
 
 ## Provider Requirements
 
@@ -532,14 +536,3 @@ The v4 implementation is complete only when the following scenarios pass:
 14. Event retention removes old dashboard events after the configured TTL once the owning task is terminal.
 15. The dashboard never displays opaque serialized payload bodies.
 16. The dashboard exposes no mutating job, schedule, or concurrency controls.
-
-## Known Limitations
-
-- V4 is jobs-only.
-- V4 is read-only.
-- V4 does not include schedule views.
-- V4 does not include cluster or node health views.
-- V4 does not include concurrency-group views.
-- V4 does not implement built-in authentication or authorization.
-- V4 does not search serialized payloads or method arguments.
-- V4 does not replace external logging, tracing, or metrics systems.
