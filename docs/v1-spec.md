@@ -74,6 +74,7 @@ public sealed class ShedduellerOptions
 {
     public string? NodeId { get; set; }
     public int MaxConcurrentExecutionsPerNode { get; set; } = Environment.ProcessorCount;
+    public TimeSpan IdlePollingInterval { get; set; } = TimeSpan.FromSeconds(1);
 }
 ```
 
@@ -82,6 +83,39 @@ Requirements:
 - `AddSheddueller` must register the scheduler services, the hosted worker, and the default app-facing interfaces.
 - `NodeId` is optional. If not configured, Sheddueller must generate a unique process-instance identifier at startup.
 - `MaxConcurrentExecutionsPerNode` must be a positive integer. Its default is `Environment.ProcessorCount`.
+- `IdlePollingInterval` must be positive. It is the fallback poll cadence when no wake signal is received.
+- The core package must register `TimeProvider.System` by default when no `TimeProvider` is already registered.
+- Runtime-generated timestamps passed to `ITaskStore` must come from the registered `TimeProvider`.
+
+### Builder
+
+```csharp
+public sealed class ShedduellerBuilder
+{
+    public IServiceCollection Services { get; }
+
+    public ShedduellerBuilder ConfigureOptions(
+        Action<ShedduellerOptions> configure);
+
+    public ShedduellerBuilder UseTaskPayloadSerializer<TSerializer>()
+        where TSerializer : class, ITaskPayloadSerializer;
+
+    public ShedduellerBuilder UseTaskPayloadSerializer(
+        ITaskPayloadSerializer serializer);
+}
+```
+
+Requirements:
+
+- `ShedduellerBuilder` is the fluent configuration surface used by `AddSheddueller`.
+- `Services` exposes the underlying service collection for provider packages.
+- `ConfigureOptions` composes with other option configuration.
+- `UseTaskPayloadSerializer<TSerializer>` registers a singleton serializer implementation.
+- `UseTaskPayloadSerializer(ITaskPayloadSerializer)` registers the provided serializer instance as singleton.
+- If no serializer is configured, Sheddueller must use the built-in `SystemTextJsonTaskPayloadSerializer`.
+- Store providers must extend `ShedduellerBuilder` from their own package. V1's in-memory provider exposes `UseInMemoryStore`.
+- `AddSheddueller` must fail during startup validation if no `ITaskStore` provider has been registered.
+- Startup validation should run before hosted workers begin claiming work.
 
 ### Task Submission
 
@@ -112,6 +146,10 @@ Requirements:
 - The expression must accept the scheduler-provided `CancellationToken` and forward it to the target service method call.
 - The scheduler-provided `CancellationToken` is runtime-owned and is never serialized as part of the task payload.
 - Callers must not capture an external `CancellationToken` for execution control inside the submitted expression.
+- V1 supports non-generic instance method calls only.
+- V1 does not support open or closed generic target method calls.
+- Optional/default parameter behavior is not inferred. Every target method argument except the scheduler-owned cancellation token must appear explicitly in the method call expression.
+- Argument subexpressions are evaluated once at enqueue time and the resulting values are serialized.
 - Method arguments are captured at enqueue time and serialized through `ITaskPayloadSerializer`.
 - Captured argument values must be serializer-compatible.
 - `TaskSubmission.Priority` is an unconstrained sortable integer. Higher values mean higher priority.
@@ -122,9 +160,12 @@ Requirements:
 Unsupported expression forms:
 
 - Static method calls.
+- Generic method calls.
 - Property access without a terminal method call.
 - Lambdas containing control flow, loops, or multiple method calls.
 - Captures of live service instances, delegates, cancellation tokens, streams, or other unserializable runtime-only objects.
+
+Invalid expressions, invalid options, invalid group keys, invalid limits, missing store provider registration, and serializer failures must throw deterministic exceptions at the API or startup boundary.
 
 ### Runtime Concurrency Management
 
@@ -218,10 +259,22 @@ There is no separate `Running` state in v1. A claimed task is considered active 
 ### Execution
 
 - After claiming, the node resolves the target `TService` from DI.
-- The worker invokes the captured method using the deserialized arguments.
+- Each claimed task executes in a fresh `IServiceScope`.
+- The worker invokes the captured method using the deserialized arguments and a scheduler-owned execution `CancellationToken`.
 - On successful completion, the task transitions to `Completed`.
 - On exception, the task transitions to `Failed`.
+- If host shutdown cancels the execution token and user code observes it by throwing `OperationCanceledException` or returning a canceled task, v1 transitions the task to `Failed` with cancellation details because v1 has no `Canceled` state.
 - V1 does not retry failed tasks.
+
+### Worker Loop
+
+- The hosted worker must stop claiming new tasks when host shutdown begins.
+- The hosted worker must use signal-plus-poll waiting.
+- Enqueueing a task must signal workers that work may be available.
+- Updating a concurrency-group limit must signal workers that blocked work may now be available.
+- If a signal is missed, the worker must still make progress through fallback polling using `IdlePollingInterval`.
+- The wake signal is a core runtime service. It is not part of `ITaskStore`.
+- The worker must never execute more than `MaxConcurrentExecutionsPerNode` tasks concurrently.
 
 ### Node Failure
 
@@ -231,7 +284,86 @@ There is no separate `Running` state in v1. A claimed task is considered active 
 
 ## Storage Abstraction
 
-`ITaskStore` is a first-class extension point. V1 ships with an in-memory implementation, but the abstraction must be suitable for later relational providers.
+`ITaskStore` is a first-class extension point. V1 ships with an in-memory implementation in a separate provider package, but the abstraction must be suitable for later relational providers.
+
+```csharp
+public interface ITaskStore
+{
+    ValueTask<EnqueueTaskResult> EnqueueAsync(
+        EnqueueTaskRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<ClaimTaskResult> TryClaimNextAsync(
+        ClaimTaskRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask MarkCompletedAsync(
+        CompleteTaskRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask MarkFailedAsync(
+        FailTaskRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask SetConcurrencyLimitAsync(
+        SetConcurrencyLimitRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record EnqueueTaskRequest(
+    Guid TaskId,
+    int Priority,
+    string ServiceType,
+    string MethodName,
+    IReadOnlyList<string> MethodParameterTypes,
+    SerializedTaskPayload SerializedArguments,
+    IReadOnlyList<string> ConcurrencyGroupKeys,
+    DateTimeOffset EnqueuedAtUtc);
+
+public sealed record EnqueueTaskResult(
+    Guid TaskId,
+    long EnqueueSequence);
+
+public sealed record ClaimTaskRequest(
+    string NodeId,
+    DateTimeOffset ClaimedAtUtc);
+
+public abstract record ClaimTaskResult
+{
+    public sealed record Claimed(ClaimedTask Task) : ClaimTaskResult;
+    public sealed record NoTaskAvailable() : ClaimTaskResult;
+}
+
+public sealed record ClaimedTask(
+    Guid TaskId,
+    long EnqueueSequence,
+    int Priority,
+    string ServiceType,
+    string MethodName,
+    IReadOnlyList<string> MethodParameterTypes,
+    SerializedTaskPayload SerializedArguments,
+    IReadOnlyList<string> ConcurrencyGroupKeys);
+
+public sealed record CompleteTaskRequest(
+    Guid TaskId,
+    string NodeId,
+    DateTimeOffset CompletedAtUtc);
+
+public sealed record FailTaskRequest(
+    Guid TaskId,
+    string NodeId,
+    DateTimeOffset FailedAtUtc,
+    TaskFailureInfo Failure);
+
+public sealed record SetConcurrencyLimitRequest(
+    string GroupKey,
+    int Limit,
+    DateTimeOffset UpdatedAtUtc);
+```
 
 The store contract must provide these capabilities:
 
@@ -241,10 +373,12 @@ The store contract must provide these capabilities:
 - Persist terminal transitions to `Completed` and `Failed`.
 - Store and retrieve configured concurrency-group limits.
 - Read enough task state to enforce group occupancy across the cluster.
+- The operation timestamps supplied by the runtime are authoritative for v1 stores.
 
 Required behavioral rules:
 
 - Claim selection and group-capacity reservation must be one atomic store operation.
+- The store owns concurrency-group occupancy. The scheduler must not track cluster-wide group occupancy in memory.
 - Group occupancy is the number of tasks in `Claimed` that reference a given group key.
 - Terminal transitions must release all group occupancy held by that task.
 - The store abstraction must not encode PostgreSQL-, MySQL-, or provider-specific concepts into app-facing APIs.
@@ -255,21 +389,53 @@ The spec does not lock v1 to a particular SQL schema. It locks the behavior and 
 
 `ITaskPayloadSerializer` is a first-class extension point.
 
+```csharp
+public interface ITaskPayloadSerializer
+{
+    ValueTask<SerializedTaskPayload> SerializeAsync(
+        IReadOnlyList<object?> arguments,
+        IReadOnlyList<Type> parameterTypes,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<object?>> DeserializeAsync(
+        SerializedTaskPayload payload,
+        IReadOnlyList<Type> parameterTypes,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record SerializedTaskPayload(
+    string ContentType,
+    byte[] Data);
+
+public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer;
+```
+
 Requirements:
 
 - Serialization occurs at enqueue time from the parsed method-call expression.
 - Deserialization occurs immediately before invocation.
+- The serializer owns only the method argument array. It does not own service type, method identity, priority, state, or concurrency metadata.
 - The serializer must preserve enough type information to rebind method arguments unambiguously.
 - The serializer boundary must be used by the in-memory store as well as future durable stores.
+- `SystemTextJsonTaskPayloadSerializer` is the default serializer.
 
 The in-memory provider must not bypass the serializer by storing raw delegate closures or live object instances.
 
 ## In-Memory Provider
 
-V1 must ship with an in-memory provider used as the proof of concept for the storage abstraction.
+V1 must ship with an in-memory provider used as the proof of concept for the storage abstraction. The provider lives in a separate package/project, assumed to be `Sheddueller.InMemory`.
+
+```csharp
+public static class ShedduellerInMemoryBuilderExtensions
+{
+    public static ShedduellerBuilder UseInMemoryStore(
+        this ShedduellerBuilder builder);
+}
+```
 
 Requirements:
 
+- `UseInMemoryStore` registers the in-memory `ITaskStore`.
 - It must implement the same `ITaskStore` contract later providers will implement.
 - It must enforce the same atomic claim and concurrency-group rules as future durable providers.
 - It is acceptable for its data to be process-local and non-durable.
@@ -292,3 +458,18 @@ The v1 implementation is complete only when the following scenarios pass:
 11. Successful execution moves the task to `Completed` and releases all held group occupancy.
 12. A thrown exception moves the task to `Failed`, stores failure details, and does not retry.
 13. A task claimed by a node that dies remains stuck in `Claimed`; the behavior is documented and tested as a v1 milestone constraint.
+14. `AddSheddueller` registers the core runtime services, hosted worker, enqueuer, group manager, default JSON serializer, and configured store provider.
+15. Startup validation fails deterministically when no `ITaskStore` provider is registered.
+16. `UseInMemoryStore` from `Sheddueller.InMemory` wires the in-memory store as the active provider.
+17. `ShedduellerBuilder` composes option configuration and serializer configuration.
+18. The default `SystemTextJsonTaskPayloadSerializer` serializes/deserializes argument arrays through the serializer boundary.
+19. A custom `ITaskPayloadSerializer` can replace the default serializer.
+20. Argument subexpressions are evaluated exactly once at enqueue time.
+21. Generic target methods, static methods, missing cancellation-token forwarding, and captured runtime-only values are rejected during enqueue.
+22. `ITaskStore.TryClaimNextAsync` atomically claims the first claimable task and reserves all referenced concurrency groups.
+23. The scheduler does not maintain cluster-wide concurrency-group occupancy in memory.
+24. The hosted worker wakes after enqueue and after concurrency-limit updates.
+25. The hosted worker still claims available work after a missed wake signal through fallback polling.
+26. Each task execution resolves `TService` from a fresh `IServiceScope`.
+27. `TimeProvider` controls enqueue, claim, completion, and failure timestamps in tests.
+28. Host-shutdown-observed cancellation records the task as `Failed` with cancellation details.
