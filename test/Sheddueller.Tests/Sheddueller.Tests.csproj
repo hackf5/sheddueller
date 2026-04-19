@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.InMemory\Sheddueller.InMemory.csproj" />
     <ProjectReference Include="$(SrcDirectory)\Sheddueller\Sheddueller.csproj" />
   </ItemGroup>
 </Project>

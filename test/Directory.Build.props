@@ -8,6 +8,7 @@
     <OutputType>Exe</OutputType>
     <IsTestProject>true</IsTestProject>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);xUnit1051;CA1812;CA1822;CA2007</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

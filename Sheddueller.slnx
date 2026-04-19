@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Sheddueller.InMemory/Sheddueller.InMemory.csproj" />
     <Project Path="src/Sheddueller/Sheddueller.csproj" />
   </Folder>
   <Folder Name="/test/">
