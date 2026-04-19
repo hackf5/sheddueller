@@ -33,7 +33,9 @@ Prefer honest namespaces that match folders. Exceptions are DI extension methods
 
 Tests use xUnit v3, Microsoft.Testing.Platform, Shouldly, and project references to the library projects. Add or update tests for behavior changes, especially scheduler ordering, concurrency groups, serialization boundaries, worker lifecycle, and provider behavior.
 
-Name test classes by feature, for example `WorkerTests` or `InMemoryTaskStoreTests`. Test method names should describe the scenario being verified.
+Name test classes by feature, for example `WorkerTests` or `InMemoryTaskStoreTests`. Test method names use `Behaviour_Variant_Expectation`, with PascalCase inside each segment and underscores between segments. Prefer domain behavior over method names unless the method contract is the behavior, and do not suffix async test methods with `Async`.
+
+Examples: `DelayedTask_FutureNotBefore_IsNotClaimableUntilDue`, `LeaseOwner_StaleToken_CannotCompleteTask`, `RecurringSchedule_Overdue_MaterializesOneCatchUpOccurrence`.
 
 ## Commit & Pull Request Guidelines
 

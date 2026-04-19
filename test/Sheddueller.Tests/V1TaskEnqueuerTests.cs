@@ -10,7 +10,7 @@ using Shouldly;
 public sealed class V1TaskEnqueuerTests
 {
     [Fact]
-    public async Task EnqueueAsyncPersistsMethodIdentityAndSerializedArgumentsWithoutCancellationToken()
+    public async Task Enqueue_ServiceMethodCall_PersistsMethodIdentityAndArgumentsWithoutCancellationToken()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 10, 30, 0, TimeSpan.Zero);
         using var provider = CreateProvider(new ManualTimeProvider(timestamp));
@@ -42,7 +42,7 @@ public sealed class V1TaskEnqueuerTests
     }
 
     [Fact]
-    public async Task EnqueueAsyncEvaluatesArgumentSubexpressionsExactlyOnce()
+    public async Task Enqueue_ArgumentSubexpressions_EvaluatesExactlyOnce()
     {
         using var provider = CreateProvider();
         var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();
@@ -55,7 +55,7 @@ public sealed class V1TaskEnqueuerTests
     }
 
     [Fact]
-    public async Task EnqueueAsyncRejectsUnsupportedExpressionForms()
+    public async Task Enqueue_UnsupportedExpressionForms_ThrowsArgumentException()
     {
         using var provider = CreateProvider();
         var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();

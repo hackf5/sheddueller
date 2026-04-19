@@ -10,7 +10,7 @@ public sealed class V2InMemoryTaskStoreTests
     private static readonly DateTimeOffset Now = new(2026, 4, 19, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task DelayedTaskIsNotClaimableUntilNotBeforeUtc()
+    public async Task DelayedTask_FutureNotBefore_IsNotClaimableUntilDue()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -24,7 +24,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task FailedTaskWithoutRetriesFailsTerminally()
+    public async Task TaskFailure_NoRetryPolicy_FailsTerminally()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -41,7 +41,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task FailedTaskWithRetryPolicyRequeuesWithFixedBackoff()
+    public async Task TaskFailure_FixedRetryPolicy_RequeuesWithExpectedNotBefore()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -66,7 +66,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task FailedTaskWithRetryPolicyUsesCappedExponentialBackoff()
+    public async Task TaskFailure_ExponentialRetryPolicy_UsesCappedBackoff()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -87,7 +87,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task HeartbeatExtendsLeaseAndExpiredLeaseRecoveryConsumesAttempt()
+    public async Task Heartbeat_ExtendedLease_PreventsRecoveryUntilExpiry()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -106,7 +106,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task StaleOwnerCannotMutateReclaimedTask()
+    public async Task LeaseOwner_StaleToken_CannotMutateReclaimedTask()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -132,7 +132,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task CancelAsyncOnlyCancelsQueuedTasks()
+    public async Task Cancel_QueuedTaskOnly_CancelsBeforeClaim()
     {
         var store = new InMemoryTaskStore();
         var queued = Guid.NewGuid();
@@ -150,7 +150,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task SchedulerOwnedInterruptionRequeuesWithoutRetryBudgetConsumption()
+    public async Task SchedulerInterruption_CurrentLeaseOwner_RequeuesWithoutRetryBudgetConsumption()
     {
         var store = new InMemoryTaskStore();
         var taskId = Guid.NewGuid();
@@ -167,7 +167,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task RecurringScheduleUpsertPreservesPauseStateAndRecomputesOnResume()
+    public async Task RecurringSchedule_UpsertWhilePaused_PreservesPauseStateAndRecomputesOnResume()
     {
         var store = new InMemoryTaskStore();
 
@@ -189,7 +189,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task RecurringScheduleMaterializesAtMostOneCatchUpOccurrence()
+    public async Task RecurringSchedule_Overdue_MaterializesOneCatchUpOccurrence()
     {
         var store = new InMemoryTaskStore();
         await store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a"));
@@ -206,7 +206,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task RecurringOverlapSkipDropsOccurrenceWhenEarlierOccurrenceIsNonTerminal()
+    public async Task RecurringOverlap_Skip_DropsOccurrenceWhenEarlierOccurrenceIsNonTerminal()
     {
         var store = new InMemoryTaskStore();
         await store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a", overlapMode: RecurringOverlapMode.Skip));
@@ -219,7 +219,7 @@ public sealed class V2InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task RecurringOverlapAllowMaterializesMultipleNonTerminalOccurrences()
+    public async Task RecurringOverlap_Allow_MaterializesMultipleNonTerminalOccurrences()
     {
         var store = new InMemoryTaskStore();
         await store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a", overlapMode: RecurringOverlapMode.Allow));

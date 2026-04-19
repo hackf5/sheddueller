@@ -5,7 +5,7 @@ using Shouldly;
 public sealed class AssemblyMarkerTests
 {
     [Fact]
-    public void AssemblyMarkerLivesInShedduellerAssembly()
+    public void AssemblyMarker_Default_LivesInShedduellerAssembly()
     {
         var assemblyName = typeof(AssemblyMarker).Assembly.GetName().Name;
 

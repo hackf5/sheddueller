@@ -13,7 +13,7 @@ using Shouldly;
 public sealed class WorkerTests
 {
     [Fact]
-    public async Task HostedWorkerExecutesTasksFromFreshScopesAndCompletesThem()
+    public async Task HostedWorker_QueuedTasks_ExecutesFromFreshScopesAndCompletes()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 13, 0, 0, TimeSpan.Zero);
         using var host = CreateHost(new ManualTimeProvider(timestamp));
@@ -40,7 +40,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostedWorkerRecordsFailureDetailsWhenTaskThrows()
+    public async Task HostedWorker_ThrowingTask_RecordsFailureDetails()
     {
         using var host = CreateHost();
         await host.StartAsync();
@@ -60,7 +60,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostedWorkerClaimsDirectlyEnqueuedTaskThroughFallbackPolling()
+    public async Task HostedWorker_DirectStoreTask_ClaimsThroughFallbackPolling()
     {
         using var host = CreateHost();
         await host.StartAsync();
@@ -88,7 +88,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostShutdownObservedCancellationRequeuesTaskWithoutRetryBudgetConsumption()
+    public async Task HostShutdown_CooperativeCancellation_RequeuesWithoutRetryBudgetConsumption()
     {
         using var host = CreateHost();
         await host.StartAsync();
@@ -109,7 +109,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostedWorkerMaterializesAndExecutesDueRecurringSchedule()
+    public async Task HostedWorker_DueRecurringSchedule_MaterializesAndExecutesOccurrence()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 13, 0, 0, TimeSpan.Zero);
         var timeProvider = new ManualTimeProvider(timestamp);
@@ -131,7 +131,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task TaskManagerCancelsQueuedTask()
+    public async Task TaskManager_QueuedTask_CancelsTask()
     {
         using var host = CreateHost();
         var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
@@ -147,7 +147,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task RecurringScheduleRegistrationRejectsExpressionsThatDoNotUseSchedulerCancellationToken()
+    public async Task RecurringScheduleRegistration_MissingSchedulerToken_RejectsExpression()
     {
         using var host = CreateHost();
         var scheduleManager = host.Services.GetRequiredService<IRecurringScheduleManager>();

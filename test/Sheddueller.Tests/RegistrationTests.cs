@@ -11,7 +11,7 @@ using Shouldly;
 public sealed class RegistrationTests
 {
     [Fact]
-    public void AddShedduellerRegistersCoreServicesAndInMemoryProvider()
+    public void AddSheddueller_InMemoryProvider_RegistersCoreServicesAndProvider()
     {
         var serializer = new PassThroughSerializer();
         var services = new ServiceCollection();
@@ -31,7 +31,7 @@ public sealed class RegistrationTests
     }
 
     [Fact]
-    public async Task StartupValidationFailsWhenNoTaskStoreProviderIsRegistered()
+    public async Task StartupValidation_MissingTaskStoreProvider_FailsStart()
     {
         var services = new ServiceCollection();
         services.AddSheddueller();
@@ -50,7 +50,7 @@ public sealed class RegistrationTests
     }
 
     [Fact]
-    public async Task ConcurrencyGroupManagerPersistsDynamicLimits()
+    public async Task ConcurrencyGroupManager_DynamicLimit_PersistsConfiguredLimit()
     {
         var services = new ServiceCollection();
         services.AddSheddueller(builder => builder.UseInMemoryStore());
@@ -63,7 +63,7 @@ public sealed class RegistrationTests
     }
 
     [Fact]
-    public void HostApplicationBuilderExtensionRegistersSheddueller()
+    public void HostApplicationBuilder_AddSheddueller_RegistersScheduler()
     {
         var builder = Host.CreateApplicationBuilder();
         builder.AddSheddueller(sheddueller => sheddueller.UseInMemoryStore());

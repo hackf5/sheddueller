@@ -10,7 +10,7 @@ public sealed class InMemoryTaskStoreTests
     private static readonly DateTimeOffset Now = new(2026, 4, 19, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task TryClaimNextAsyncUsesPriorityThenFifoSequence()
+    public async Task TryClaimNext_PriorityAndFifo_ClaimsHigherPriorityThenOldest()
     {
         var store = new InMemoryTaskStore();
         var firstLow = Guid.NewGuid();
@@ -27,7 +27,7 @@ public sealed class InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task TryClaimNextAsyncSkipsBlockedHighPriorityTaskAndClaimsNextEligibleTask()
+    public async Task TryClaimNext_BlockedHighPriorityTask_ClaimsNextEligibleTask()
     {
         var store = new InMemoryTaskStore();
         var running = Guid.NewGuid();
@@ -44,7 +44,7 @@ public sealed class InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task TryClaimNextAsyncEnforcesClusterWideGroupLimitsAndMultipleGroups()
+    public async Task TryClaimNext_ConcurrencyGroups_EnforcesClusterWideLimits()
     {
         var store = new InMemoryTaskStore();
         var first = Guid.NewGuid();
@@ -71,7 +71,7 @@ public sealed class InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task LoweringLimitBelowOccupancyBlocksFutureClaimsWithoutPreemptingRunningWork()
+    public async Task ConcurrencyLimit_LoweredBelowOccupancy_BlocksFutureClaimsWithoutPreemptingRunningWork()
     {
         var store = new InMemoryTaskStore();
         var first = Guid.NewGuid();
@@ -99,7 +99,7 @@ public sealed class InMemoryTaskStoreTests
     }
 
     [Fact]
-    public async Task ConcurrentClaimAttemptsCannotClaimTheSameTaskTwice()
+    public async Task TryClaimNext_ConcurrentAttempts_ClaimsTaskOnlyOnce()
     {
         var store = new InMemoryTaskStore();
         await store.EnqueueAsync(CreateRequest(Guid.NewGuid(), priority: 0));
