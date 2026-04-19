@@ -1,3 +1,5 @@
+#pragma warning disable IDE0130
+
 namespace Sheddueller;
 
 using System.Collections.Concurrent;
@@ -7,94 +9,6 @@ using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-
-internal interface IShedduellerWakeSignal
-{
-    void Notify();
-
-    ValueTask WaitAsync(TimeSpan timeout, CancellationToken cancellationToken);
-}
-
-internal interface IShedduellerNodeIdProvider
-{
-    string NodeId { get; }
-}
-
-internal sealed class ShedduellerWakeSignal : IShedduellerWakeSignal, IDisposable
-{
-    private readonly SemaphoreSlim _signal = new(0);
-    private int _signaled;
-
-    public void Notify()
-    {
-        if (Interlocked.Exchange(ref this._signaled, 1) == 0)
-        {
-            this._signal.Release();
-        }
-    }
-
-    public async ValueTask WaitAsync(TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        if (await this._signal.WaitAsync(timeout, cancellationToken).ConfigureAwait(false))
-        {
-            Volatile.Write(ref this._signaled, 0);
-        }
-    }
-
-    public void Dispose()
-      => this._signal.Dispose();
-}
-
-internal sealed class ShedduellerNodeIdProvider : IShedduellerNodeIdProvider
-{
-    public ShedduellerNodeIdProvider(IOptions<ShedduellerOptions> options)
-    {
-        var configuredNodeId = options.Value.NodeId;
-        this.NodeId = string.IsNullOrWhiteSpace(configuredNodeId)
-            ? $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}"
-            : configuredNodeId;
-    }
-
-    public string NodeId { get; }
-}
-
-internal sealed class ShedduellerStartupValidator(
-    IServiceProvider serviceProvider,
-    IOptions<ShedduellerOptions> options) : IHostedService
-{
-    private readonly IServiceProvider _serviceProvider = serviceProvider;
-    private readonly IOptions<ShedduellerOptions> _options = options;
-
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        var value = this._options.Value;
-
-        if (value.NodeId is not null && value.NodeId.Length == 0)
-        {
-            throw new InvalidOperationException("ShedduellerOptions.NodeId must be null or a non-empty string.");
-        }
-
-        if (value.MaxConcurrentExecutionsPerNode <= 0)
-        {
-            throw new InvalidOperationException("ShedduellerOptions.MaxConcurrentExecutionsPerNode must be positive.");
-        }
-
-        if (value.IdlePollingInterval <= TimeSpan.Zero)
-        {
-            throw new InvalidOperationException("ShedduellerOptions.IdlePollingInterval must be positive.");
-        }
-
-        if (this._serviceProvider.GetService<ITaskStore>() is null)
-        {
-            throw new InvalidOperationException("No Sheddueller task store provider has been registered.");
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-      => Task.CompletedTask;
-}
 
 internal sealed class ShedduellerWorker(
     IServiceProvider serviceProvider,
@@ -126,8 +40,8 @@ internal sealed class ShedduellerWorker(
                 while (!stoppingToken.IsCancellationRequested && this._runningTasks.Count < this._options.Value.MaxConcurrentExecutionsPerNode)
                 {
                     var claimResult = await store
-                      .TryClaimNextAsync(new ClaimTaskRequest(this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), stoppingToken)
-                      .ConfigureAwait(false);
+                        .TryClaimNextAsync(new ClaimTaskRequest(this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), stoppingToken)
+                        .ConfigureAwait(false);
 
                     if (claimResult is not ClaimTaskResult.Claimed claimed)
                     {
@@ -179,16 +93,16 @@ internal sealed class ShedduellerWorker(
         {
             await this.InvokeClaimedTaskAsync(task, executionToken).ConfigureAwait(false);
             await store
-              .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), CancellationToken.None)
-              .ConfigureAwait(false);
+                .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), CancellationToken.None)
+                .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             await store
-              .MarkFailedAsync(
-          new FailTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
-          CancellationToken.None)
-        .ConfigureAwait(false);
+                .MarkFailedAsync(
+                    new FailTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
         }
     }
 
@@ -203,18 +117,18 @@ internal sealed class ShedduellerWorker(
         {
             var service = scope.ServiceProvider.GetRequiredService(serviceType);
             var method = serviceType.GetMethod(
-              task.MethodName,
-              System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-              binder: null,
-              types: methodParameterTypes,
-              modifiers: null);
+                task.MethodName,
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                binder: null,
+                types: methodParameterTypes,
+                modifiers: null);
 
             _ = method ?? throw new InvalidOperationException($"Could not resolve task method '{task.MethodName}' on service type '{serviceType}'.");
 
             var deserializedArguments = await scope.ServiceProvider
-              .GetRequiredService<ITaskPayloadSerializer>()
-              .DeserializeAsync(task.SerializedArguments, serializableParameterTypes, executionToken)
-              .ConfigureAwait(false);
+                .GetRequiredService<ITaskPayloadSerializer>()
+                .DeserializeAsync(task.SerializedArguments, serializableParameterTypes, executionToken)
+                .ConfigureAwait(false);
             var invocationArguments = BuildInvocationArguments(methodParameterTypes, deserializedArguments, executionToken);
             object? result;
 
@@ -243,9 +157,9 @@ internal sealed class ShedduellerWorker(
     }
 
     private static object?[] BuildInvocationArguments(
-      Type[] methodParameterTypes,
-      IReadOnlyList<object?> deserializedArguments,
-      CancellationToken executionToken)
+        Type[] methodParameterTypes,
+        IReadOnlyList<object?> deserializedArguments,
+        CancellationToken executionToken)
     {
         var invocationArguments = new object?[methodParameterTypes.Length];
         var deserializedIndex = 0;
@@ -274,10 +188,10 @@ internal sealed class ShedduellerWorker(
     {
         this._runningTasks.TryAdd(task, 0);
         task.ContinueWith(
-          completedTask => this._runningTasks.TryRemove(completedTask, out _),
-              CancellationToken.None,
-              TaskContinuationOptions.ExecuteSynchronously,
-              TaskScheduler.Default);
+            completedTask => this._runningTasks.TryRemove(completedTask, out _),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private void PruneCompletedTasks()
@@ -308,8 +222,8 @@ internal sealed class ShedduellerWorker(
     }
 
     private static TaskFailureInfo CreateFailureInfo(Exception exception)
-      => new(
-        exception.GetType().FullName ?? exception.GetType().Name,
-        exception.Message,
-        exception.StackTrace);
+        => new(
+            exception.GetType().FullName ?? exception.GetType().Name,
+            exception.Message,
+            exception.StackTrace);
 }

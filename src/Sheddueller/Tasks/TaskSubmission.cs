@@ -1,0 +1,10 @@
+#pragma warning disable IDE0130
+
+namespace Sheddueller;
+
+/// <summary>
+/// Submission options for an enqueued task.
+/// </summary>
+public sealed record TaskSubmission(
+    int Priority = 0,
+    IReadOnlyList<string>? ConcurrencyGroupKeys = null);

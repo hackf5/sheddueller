@@ -1,8 +1,11 @@
-namespace Sheddueller;
+#pragma warning disable IDE0130
 
-using Microsoft.Extensions.DependencyInjection;
+namespace Microsoft.Extensions.DependencyInjection;
+
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+
+using Sheddueller;
 
 /// <summary>
 /// Registration extensions for Sheddueller.
@@ -13,8 +16,8 @@ public static class ShedduellerServiceCollectionExtensions
     /// Adds Sheddueller services to the service collection.
     /// </summary>
     public static IServiceCollection AddSheddueller(
-      this IServiceCollection services,
-      Action<ShedduellerBuilder>? configure = null)
+        this IServiceCollection services,
+        Action<ShedduellerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -31,24 +34,5 @@ public static class ShedduellerServiceCollectionExtensions
         configure?.Invoke(new ShedduellerBuilder(services));
 
         return services;
-    }
-}
-
-/// <summary>
-/// Host application builder extensions for Sheddueller.
-/// </summary>
-public static class ShedduellerHostApplicationBuilderExtensions
-{
-    /// <summary>
-    /// Adds Sheddueller services to a host application builder.
-    /// </summary>
-    public static HostApplicationBuilder AddSheddueller(
-      this HostApplicationBuilder builder,
-      Action<ShedduellerBuilder>? configure = null)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-
-        builder.Services.AddSheddueller(configure);
-        return builder;
     }
 }

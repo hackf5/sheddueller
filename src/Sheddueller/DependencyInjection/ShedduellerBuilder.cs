@@ -1,3 +1,5 @@
+#pragma warning disable IDE0130
+
 namespace Sheddueller;
 
 using Microsoft.Extensions.DependencyInjection;
