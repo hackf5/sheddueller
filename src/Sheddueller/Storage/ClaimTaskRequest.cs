@@ -5,4 +5,5 @@ namespace Sheddueller.Storage;
 /// </summary>
 public sealed record ClaimTaskRequest(
     string NodeId,
-    DateTimeOffset ClaimedAtUtc);
+    DateTimeOffset ClaimedAtUtc,
+    DateTimeOffset LeaseExpiresAtUtc);

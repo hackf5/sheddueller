@@ -29,6 +29,8 @@ public static class ShedduellerServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ITaskPayloadSerializer, SystemTextJsonTaskPayloadSerializer>();
         services.TryAddSingleton<ITaskEnqueuer, TaskEnqueuer>();
+        services.TryAddSingleton<ITaskManager, TaskManager>();
+        services.TryAddSingleton<IRecurringScheduleManager, RecurringScheduleManager>();
         services.TryAddSingleton<IConcurrencyGroupManager, ConcurrencyGroupManager>();
         services.TryAddSingleton<IShedduellerWakeSignal, ShedduellerWakeSignal>();
         services.TryAddSingleton<IShedduellerNodeIdProvider, ShedduellerNodeIdProvider>();

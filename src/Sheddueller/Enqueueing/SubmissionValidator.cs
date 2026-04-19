@@ -32,4 +32,53 @@ internal static class SubmissionValidator
             throw new ArgumentException("Concurrency group keys must be non-empty strings.", nameof(groupKey));
         }
     }
+
+    public static void ValidateScheduleKey(string? scheduleKey)
+    {
+        if (string.IsNullOrEmpty(scheduleKey))
+        {
+            throw new ArgumentException("Recurring schedule keys must be non-empty strings.", nameof(scheduleKey));
+        }
+    }
+
+    public static void ValidateRetryPolicy(RetryPolicy? retryPolicy)
+    {
+        if (retryPolicy is null)
+        {
+            return;
+        }
+
+        if (retryPolicy.MaxAttempts < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryPolicy), retryPolicy.MaxAttempts, "Retry max attempts must be greater than or equal to 1.");
+        }
+
+        if (!Enum.IsDefined(retryPolicy.BackoffKind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryPolicy), retryPolicy.BackoffKind, "Retry backoff kind is not supported.");
+        }
+
+        if (retryPolicy.BaseDelay <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryPolicy), retryPolicy.BaseDelay, "Retry base delay must be positive.");
+        }
+
+        if (retryPolicy.MaxDelay is { } maxDelay && maxDelay < retryPolicy.BaseDelay)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryPolicy), maxDelay, "Retry max delay must be greater than or equal to the base delay.");
+        }
+    }
+
+    public static (int MaxAttempts, RetryBackoffKind? BackoffKind, TimeSpan? BaseDelay, TimeSpan? MaxDelay) NormalizeRetryPolicy(
+        RetryPolicy? retryPolicy)
+    {
+        ValidateRetryPolicy(retryPolicy);
+
+        if (retryPolicy is not { MaxAttempts: > 1 })
+        {
+            return (1, null, null, null);
+        }
+
+        return (retryPolicy.MaxAttempts, retryPolicy.BackoffKind, retryPolicy.BaseDelay, retryPolicy.MaxDelay);
+    }
 }

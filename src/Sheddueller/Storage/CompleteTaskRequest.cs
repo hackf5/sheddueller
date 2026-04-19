@@ -6,4 +6,5 @@ namespace Sheddueller.Storage;
 public sealed record CompleteTaskRequest(
     Guid TaskId,
     string NodeId,
+    Guid LeaseToken,
     DateTimeOffset CompletedAtUtc);

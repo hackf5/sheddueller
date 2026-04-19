@@ -5,4 +5,6 @@ namespace Sheddueller;
 /// </summary>
 public sealed record TaskSubmission(
     int Priority = 0,
-    IReadOnlyList<string>? ConcurrencyGroupKeys = null);
+    IReadOnlyList<string>? ConcurrencyGroupKeys = null,
+    DateTimeOffset? NotBeforeUtc = null,
+    RetryPolicy? RetryPolicy = null);

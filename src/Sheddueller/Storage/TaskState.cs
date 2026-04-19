@@ -24,4 +24,9 @@ public enum TaskState
     /// The task failed.
     /// </summary>
     Failed,
+
+    /// <summary>
+    /// The task was canceled before it was claimed.
+    /// </summary>
+    Canceled,
 }

@@ -13,4 +13,13 @@ public sealed record ClaimedTask(
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
     SerializedTaskPayload SerializedArguments,
-    IReadOnlyList<string> ConcurrencyGroupKeys);
+    IReadOnlyList<string> ConcurrencyGroupKeys,
+    int AttemptCount,
+    int MaxAttempts,
+    Guid LeaseToken,
+    DateTimeOffset LeaseExpiresAtUtc,
+    RetryBackoffKind? RetryBackoffKind,
+    TimeSpan? RetryBaseDelay,
+    TimeSpan? RetryMaxDelay,
+    string? SourceScheduleKey,
+    DateTimeOffset? ScheduledFireAtUtc);

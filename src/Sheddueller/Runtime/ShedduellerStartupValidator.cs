@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 using Sheddueller.DependencyInjection;
+using Sheddueller.Enqueueing;
 using Sheddueller.Storage;
 
 internal sealed class ShedduellerStartupValidator(
@@ -31,6 +32,30 @@ internal sealed class ShedduellerStartupValidator(
         if (value.IdlePollingInterval <= TimeSpan.Zero)
         {
             throw new InvalidOperationException("ShedduellerOptions.IdlePollingInterval must be positive.");
+        }
+
+        if (value.LeaseDuration <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.LeaseDuration must be positive.");
+        }
+
+        if (value.HeartbeatInterval <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.HeartbeatInterval must be positive.");
+        }
+
+        if (value.HeartbeatInterval >= value.LeaseDuration)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.HeartbeatInterval must be less than LeaseDuration.");
+        }
+
+        try
+        {
+            SubmissionValidator.ValidateRetryPolicy(value.DefaultRetryPolicy);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.DefaultRetryPolicy is invalid.", exception);
         }
 
         if (this._serviceProvider.GetService<ITaskStore>() is null)

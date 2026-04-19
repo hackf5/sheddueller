@@ -35,11 +35,10 @@ V2 continues to target `net10.0`, any number of homogeneous nodes, and backend-a
 
 Non-goals are scoped to v2 unless explicitly marked permanent.
 
-- Task dependencies or workflow orchestration.
 - Exactly-once execution.
 - Time-zone aware or local-time cron evaluation.
 - Second-level cron precision.
-- Automatic backfill of missed recurring fires.
+- Bulk backfill of missed recurring fires.
 - User-initiated cancellation of already claimed work beyond scheduler-owned shutdown and lease-loss signaling.
 - Result retrieval APIs.
 
@@ -62,6 +61,7 @@ public sealed class ShedduellerOptions
 {
     public string? NodeId { get; set; }
     public int MaxConcurrentExecutionsPerNode { get; set; } = Environment.ProcessorCount;
+    public TimeSpan IdlePollingInterval { get; set; } = TimeSpan.FromSeconds(1);
     public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(10);
     public RetryPolicy? DefaultRetryPolicy { get; set; }
@@ -70,6 +70,8 @@ public sealed class ShedduellerOptions
 
 Requirements:
 
+- `IdlePollingInterval` remains the v1 fallback poll cadence and is also used for expired-lease recovery scans and recurring schedule materialization checks.
+- `IdlePollingInterval` must be positive.
 - `LeaseDuration` must be positive.
 - `HeartbeatInterval` must be positive and strictly less than `LeaseDuration`.
 - `DefaultRetryPolicy` is optional. If it is `null`, tasks and schedules do not retry unless they provide their own retry policy.
@@ -127,6 +129,7 @@ public enum RetryBackoffKind
 Requirements:
 
 - `MaxAttempts` counts total execution attempts, including the first claim. It must be greater than or equal to `1`.
+- A safely released scheduler-owned interruption is not counted as an execution attempt for retry-budget purposes.
 - `BaseDelay` must be positive.
 - `MaxDelay`, when provided, must be greater than or equal to `BaseDelay`.
 - Backoff is computed after a failed or abandoned attempt `n`:
@@ -242,7 +245,7 @@ The v1 task record is extended with at least the following fields:
 | Field | Type | Notes |
 | --- | --- | --- |
 | `NotBeforeUtc` | `DateTimeOffset?` | Earliest claim time for delayed and retried tasks. |
-| `AttemptCount` | `int` | Number of attempts already consumed by prior claims. |
+| `AttemptCount` | `int` | Number of retry-budget attempts consumed by successful claims, excluding scheduler-owned interruptions that were safely released. |
 | `MaxAttempts` | `int` | Effective total attempt limit for this task. |
 | `RetryBackoffKind` | `RetryBackoffKind?` | Present only when retries are enabled. |
 | `RetryBaseDelay` | `TimeSpan?` | Present only when retries are enabled. |
@@ -266,8 +269,9 @@ Requirements:
 
 - Delayed tasks and retry-wait tasks remain in `Queued`. Eligibility is controlled by `NotBeforeUtc`.
 - `AttemptCount` increments when a claim succeeds.
+- A scheduler-owned interruption that is safely released rolls `AttemptCount` back to the value before the interrupted claim.
 - `LeaseToken` changes on every successful claim and reclaim.
-- Terminal transitions and heartbeats must validate the current `LeaseToken`. Stale owners must not be allowed to complete, fail, or renew a reclaimed task.
+- Terminal transitions, heartbeats, and scheduler-owned interruption releases must validate the current `LeaseToken`. Stale owners must not be allowed to complete, fail, renew, or release a reclaimed task.
 
 ## Scheduling And Eligibility
 
@@ -293,6 +297,7 @@ Requirements:
   - otherwise `ShedduellerOptions.DefaultRetryPolicy`, when present
   - otherwise no retries
 - A failed execution or expired lease consumes the already-issued attempt.
+- Scheduler-owned interruption is not a failed execution and does not consume retry budget when the owner safely releases the task before losing the current lease.
 - If `AttemptCount` is still less than `MaxAttempts` after failure processing, the task returns to `Queued` with a new `NotBeforeUtc` based on its retry backoff.
 - If `AttemptCount` is equal to `MaxAttempts` after failure processing, the task transitions to `Failed`.
 - Retry state is per materialized task instance. Recurring schedules do not share retry budget across occurrences.
@@ -323,7 +328,10 @@ Requirements:
 - When host shutdown begins, the node must stop claiming new tasks and cancel all in-flight execution tokens.
 - When local ownership is lost, the node must cancel the local execution token even if user code is still running.
 - Cooperative cancellation does not weaken the at-least-once contract. If the process exits before it records a safe state transition, normal lease-expiry recovery still applies.
-- If user code responds to the scheduler-owned token by throwing `OperationCanceledException` or returning a canceled task, Sheddueller must treat that as scheduler-requested interruption rather than a business exception when recording failure details.
+- If user code responds to the scheduler-owned token by throwing `OperationCanceledException` or returning a canceled task, Sheddueller must treat that as scheduler-requested interruption rather than a business exception.
+- A scheduler-requested interruption must attempt a lease-token-protected release that returns the task to `Queued`, clears current ownership fields, releases concurrency-group occupancy, removes any retry backoff delay caused by the interrupted attempt, and restores `AttemptCount` to the value before the interrupted claim.
+- If the release loses a race with lease expiry or reclaim, the store must reject it as a stale-owner transition and normal recovery applies.
+- If a handler returns successfully after the scheduler-owned token has been canceled, Sheddueller records normal completion as long as the lease token is still current.
 
 ### Lease Expiry
 
@@ -335,7 +343,7 @@ Requirements:
 ### Stale Owners
 
 - A node that loses its lease may continue running the handler briefly. This is allowed by the at-least-once contract.
-- If that stale node later attempts to complete, fail, or heartbeat the task with an old `LeaseToken`, the store must reject the transition.
+- If that stale node later attempts to complete, fail, heartbeat, or release the task with an old `LeaseToken`, the store must reject the transition.
 - Rejection of stale-owner transitions prevents old owners from corrupting the state of a reclaimed task. It does not prevent duplicate side effects outside Sheddueller.
 
 ## Recurring Schedules
@@ -344,6 +352,7 @@ Requirements:
 
 - V2 supports standard 5-field cron expressions with minute precision only.
 - Cron expressions are evaluated in UTC only.
+- V2 uses `Cronos` for cron parsing and occurrence calculation.
 - The first `NextFireAtUtc` for a new schedule is the first cron occurrence strictly after the creation time.
 
 ### Materialization
@@ -375,7 +384,8 @@ Requirements:
 - `CreateOrUpdateAsync` with result `Updated` recomputes `NextFireAtUtc` as the first cron occurrence strictly after the successful upsert time when the schedule is active.
 - `CreateOrUpdateAsync` with result `Unchanged` leaves `NextFireAtUtc` unchanged.
 - `CreateOrUpdateAsync` on a paused schedule updates the stored definition but does not resume the schedule; `ResumeAsync` remains responsible for recomputing `NextFireAtUtc`.
-- V2 is future-only: pause/resume, upsert, downtime, or prolonged blockage never backfills missed occurrences.
+- If a schedule is overdue because no node materialized it on time, v2 materializes at most the stored overdue occurrence once, then advances `NextFireAtUtc` to the next future cron occurrence.
+- Pause/resume, upsert, downtime, or prolonged blockage never bulk-backfills missed occurrences.
 - Deleting a schedule removes the definition and stops future materialization only.
 
 ### Failure Behavior
@@ -392,6 +402,7 @@ Requirements:
 - atomic claims with lease creation and `LeaseToken` issuance
 - heartbeat renewal by `LeaseToken`
 - stale-owner rejection for terminal transitions
+- lease-token-protected release of scheduler-owned interruptions without retry-budget consumption
 - expired-lease recovery
 - pending-task cancellation
 - atomic recurring schedule upsert and lifecycle management
@@ -400,6 +411,7 @@ Requirements:
 Required behavioral rules:
 
 - Claim selection, attempt increment, lease issuance, and concurrency-group reservation must be one atomic store operation.
+- Scheduler-owned interruption release must validate the current `LeaseToken` and release concurrency-group occupancy exactly once.
 - Lease expiry recovery must release concurrency-group occupancy exactly once.
 - A recurring occurrence must never be materialized more than once for the same schedule and fire time.
 - Schedule materialization and advancement of `NextFireAtUtc` must be one atomic store operation.
@@ -413,21 +425,24 @@ The v2 implementation is complete only when the following scenarios pass:
 2. A task with no effective retry policy fails terminally after its first failed attempt.
 3. A task with a retry policy is requeued with the correct `NotBeforeUtc` after a failed attempt, using fixed or exponential backoff as configured.
 4. `AttemptCount` increments on claim, not on terminal transition.
-5. A healthy node renews leases successfully and prevents reclaim while heartbeats continue.
-6. If a node stops heartbeating, another node eventually recovers the task after lease expiry.
-7. Lease expiry consumes the current attempt and either requeues or fails the task based on remaining attempts.
-8. A stale owner cannot complete, fail, or heartbeat a task after another node has reclaimed it.
-9. `CancelAsync` succeeds for a queued task and fails once a claim has already won the race.
-10. `CreateOrUpdateAsync` returns `Created` for a new schedule, `Updated` when the incoming definition changes an existing schedule, and `Unchanged` for an exact-idempotent reapplication.
-11. `CreateOrUpdateAsync` preserves pause state and does not cancel already materialized tasks.
-12. A recurring schedule with a due fire materializes exactly one ordinary task instance across the cluster.
-13. A paused schedule does not materialize new occurrences until resumed.
-14. `ResumeAsync` and `CreateOrUpdateAsync` with result `Updated` use the next future UTC cron occurrence only and do not backfill missed fires.
-15. `RecurringOverlapMode.Skip` drops an occurrence when an earlier occurrence from the same schedule is still non-terminal.
-16. `RecurringOverlapMode.Allow` permits multiple non-terminal occurrences from the same schedule.
-17. A recurring occurrence inherits priority, concurrency groups, and retry policy from the schedule definition.
-18. Deleting a recurring schedule stops future occurrences but does not cancel already materialized tasks.
-19. A failed recurring occurrence does not disable the recurring schedule.
-20. Enqueue and recurring-schedule registration reject expressions that do not use the scheduler-provided `CancellationToken`.
-21. When host shutdown begins, in-flight handlers receive a canceled execution token and the node stops claiming new tasks.
-22. When a node loses local ownership of a claimed task, the local execution token is canceled.
+5. Scheduler-owned interruption requeues the task without consuming retry budget when the current lease owner safely releases it.
+6. Host shutdown cancellation does not terminally fail a no-retry task when the handler cooperatively exits by cancellation and the release succeeds.
+7. A healthy node renews leases successfully and prevents reclaim while heartbeats continue.
+8. If a node stops heartbeating, another node eventually recovers the task after lease expiry.
+9. Lease expiry consumes the current attempt and either requeues or fails the task based on remaining attempts.
+10. A stale owner cannot complete, fail, heartbeat, or release a task after another node has reclaimed it.
+11. `CancelAsync` succeeds for a queued task and fails once a claim has already won the race.
+12. `CreateOrUpdateAsync` returns `Created` for a new schedule, `Updated` when the incoming definition changes an existing schedule, and `Unchanged` for an exact-idempotent reapplication.
+13. `CreateOrUpdateAsync` preserves pause state and does not cancel already materialized tasks.
+14. A recurring schedule with a due fire materializes exactly one ordinary task instance across the cluster.
+15. An overdue recurring schedule materializes at most one catch-up occurrence, then advances to the next future UTC occurrence.
+16. A paused schedule does not materialize new occurrences until resumed.
+17. `ResumeAsync` and `CreateOrUpdateAsync` with result `Updated` use the next future UTC cron occurrence only and do not bulk-backfill missed fires.
+18. `RecurringOverlapMode.Skip` drops an occurrence when an earlier occurrence from the same schedule is still non-terminal.
+19. `RecurringOverlapMode.Allow` permits multiple non-terminal occurrences from the same schedule.
+20. A recurring occurrence inherits priority, concurrency groups, and retry policy from the schedule definition.
+21. Deleting a recurring schedule stops future occurrences but does not cancel already materialized tasks.
+22. A failed recurring occurrence does not disable the recurring schedule.
+23. Enqueue and recurring-schedule registration reject expressions that do not use the scheduler-provided `CancellationToken`.
+24. When host shutdown begins, in-flight handlers receive a canceled execution token and the node stops claiming new tasks.
+25. When a node loses local ownership of a claimed task, the local execution token is canceled.

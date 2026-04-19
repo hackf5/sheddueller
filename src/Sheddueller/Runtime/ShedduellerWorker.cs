@@ -38,12 +38,14 @@ internal sealed class ShedduellerWorker(
             while (!stoppingToken.IsCancellationRequested)
             {
                 this.PruneCompletedTasks();
+                await this.RunPeriodicStoreWorkAsync(store, stoppingToken).ConfigureAwait(false);
 
                 var claimedTask = false;
                 while (!stoppingToken.IsCancellationRequested && this._runningTasks.Count < this._options.Value.MaxConcurrentExecutionsPerNode)
                 {
+                    var now = this._timeProvider.GetUtcNow();
                     var claimResult = await store
-                        .TryClaimNextAsync(new ClaimTaskRequest(this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), stoppingToken)
+                        .TryClaimNextAsync(new ClaimTaskRequest(this._nodeIdProvider.NodeId, now, now.Add(this._options.Value.LeaseDuration)), stoppingToken)
                         .ConfigureAwait(false);
 
                     if (claimResult is not ClaimTaskResult.Claimed claimed)
@@ -90,22 +92,37 @@ internal sealed class ShedduellerWorker(
     }
 
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Task failures must be persisted instead of escaping the worker.")]
-    private async Task ExecuteClaimedTaskAsync(ITaskStore store, ClaimedTask task, CancellationToken executionToken)
+    private async Task ExecuteClaimedTaskAsync(ITaskStore store, ClaimedTask task, CancellationToken stoppingToken)
     {
+        var executionTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var heartbeatTask = this.RenewLeaseUntilStoppedAsync(store, task, executionTokenSource);
+
         try
         {
-            await this.InvokeClaimedTaskAsync(task, executionToken).ConfigureAwait(false);
+            await this.InvokeClaimedTaskAsync(task, executionTokenSource.Token).ConfigureAwait(false);
             await store
-                .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow()), CancellationToken.None)
+                .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (executionTokenSource.IsCancellationRequested)
+        {
+            await store
+                .ReleaseTaskAsync(new ReleaseTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             await store
                 .MarkFailedAsync(
-                    new FailTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
+                    new FailTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        }
+        finally
+        {
+            await executionTokenSource.CancelAsync().ConfigureAwait(false);
+            await WaitForHeartbeatTaskAsync(heartbeatTask).ConfigureAwait(false);
+            executionTokenSource.Dispose();
         }
     }
 
@@ -195,6 +212,66 @@ internal sealed class ShedduellerWorker(
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    private async ValueTask RunPeriodicStoreWorkAsync(ITaskStore store, CancellationToken cancellationToken)
+    {
+        var now = this._timeProvider.GetUtcNow();
+        var recovered = await store
+            .RecoverExpiredLeasesAsync(new RecoverExpiredLeasesRequest(now), cancellationToken)
+            .ConfigureAwait(false);
+        var materialized = await store
+            .MaterializeDueRecurringSchedulesAsync(new MaterializeDueRecurringSchedulesRequest(now, this._options.Value.DefaultRetryPolicy), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (recovered > 0 || materialized > 0)
+        {
+            this._wakeSignal.Notify();
+        }
+    }
+
+    private async Task RenewLeaseUntilStoppedAsync(
+        ITaskStore store,
+        ClaimedTask task,
+        CancellationTokenSource executionTokenSource)
+    {
+        try
+        {
+            while (!executionTokenSource.IsCancellationRequested)
+            {
+                await Task.Delay(this._options.Value.HeartbeatInterval, executionTokenSource.Token).ConfigureAwait(false);
+
+                var now = this._timeProvider.GetUtcNow();
+                var renewed = await store
+                    .RenewLeaseAsync(
+                        new RenewLeaseRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, now, now.Add(this._options.Value.LeaseDuration)),
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (!renewed)
+                {
+                    await executionTokenSource.CancelAsync().ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (executionTokenSource.IsCancellationRequested)
+        {
+            // Expected when the task completes, the host stops, or ownership is lost.
+        }
+    }
+
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Heartbeat failures should not fault the task execution cleanup path.")]
+    private static async ValueTask WaitForHeartbeatTaskAsync(Task heartbeatTask)
+    {
+        try
+        {
+            await heartbeatTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            // Failure to renew will be handled by lease expiry recovery.
+        }
     }
 
     private void PruneCompletedTasks()

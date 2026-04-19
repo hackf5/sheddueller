@@ -88,7 +88,7 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostShutdownObservedCancellationRecordsFailedTask()
+    public async Task HostShutdownObservedCancellationRequeuesTaskWithoutRetryBudgetConsumption()
     {
         using var host = CreateHost();
         await host.StartAsync();
@@ -103,8 +103,61 @@ public sealed class WorkerTests
         await host.StopAsync();
 
         var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
-        snapshot.State.ShouldBe(TaskState.Failed);
-        snapshot.Failure.ShouldNotBeNull().ExceptionType.ShouldContain("CanceledException");
+        snapshot.State.ShouldBe(TaskState.Queued);
+        snapshot.AttemptCount.ShouldBe(0);
+        snapshot.Failure.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task HostedWorkerMaterializesAndExecutesDueRecurringSchedule()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 19, 13, 0, 0, TimeSpan.Zero);
+        var timeProvider = new ManualTimeProvider(timestamp);
+        using var host = CreateHost(timeProvider);
+        await host.StartAsync();
+        var scheduleManager = host.Services.GetRequiredService<IRecurringScheduleManager>();
+        var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
+
+        await scheduleManager.CreateOrUpdateAsync<WorkerTestService>(
+          "recurring-test",
+          "* * * * *",
+          (service, cancellationToken) => service.RecordAsync("recurring", cancellationToken));
+
+        timeProvider.SetUtcNow(timestamp.AddMinutes(1));
+
+        await WaitUntilAsync(() => recorder.Values.Contains("recurring"));
+
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task TaskManagerCancelsQueuedTask()
+    {
+        using var host = CreateHost();
+        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
+        var taskManager = host.Services.GetRequiredService<ITaskManager>();
+        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+
+        var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
+          (service, cancellationToken) => service.RecordAsync("cancel-me", cancellationToken),
+          new TaskSubmission(NotBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
+
+        (await taskManager.CancelAsync(taskId)).ShouldBeTrue();
+        store.GetSnapshot(taskId).ShouldNotBeNull().State.ShouldBe(TaskState.Canceled);
+    }
+
+    [Fact]
+    public async Task RecurringScheduleRegistrationRejectsExpressionsThatDoNotUseSchedulerCancellationToken()
+    {
+        using var host = CreateHost();
+        var scheduleManager = host.Services.GetRequiredService<IRecurringScheduleManager>();
+
+        await Should.ThrowAsync<ArgumentException>(() => scheduleManager
+          .CreateOrUpdateAsync<WorkerTestService>(
+            "invalid-recurring",
+            "* * * * *",
+            (service, _) => service.RecordAsync("invalid", CancellationToken.None))
+          .AsTask());
     }
 
     private static IHost CreateHost(TimeProvider? timeProvider = null)

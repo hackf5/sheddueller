@@ -13,4 +13,11 @@ public sealed record EnqueueTaskRequest(
     IReadOnlyList<string> MethodParameterTypes,
     SerializedTaskPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys,
-    DateTimeOffset EnqueuedAtUtc);
+    DateTimeOffset EnqueuedAtUtc,
+    DateTimeOffset? NotBeforeUtc = null,
+    int MaxAttempts = 1,
+    RetryBackoffKind? RetryBackoffKind = null,
+    TimeSpan? RetryBaseDelay = null,
+    TimeSpan? RetryMaxDelay = null,
+    string? SourceScheduleKey = null,
+    DateTimeOffset? ScheduledFireAtUtc = null);

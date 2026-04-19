@@ -6,5 +6,6 @@ namespace Sheddueller.Storage;
 public sealed record FailTaskRequest(
     Guid TaskId,
     string NodeId,
+    Guid LeaseToken,
     DateTimeOffset FailedAtUtc,
     TaskFailureInfo Failure);

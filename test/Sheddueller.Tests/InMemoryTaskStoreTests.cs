@@ -59,11 +59,12 @@ public sealed class InMemoryTaskStoreTests
         await store.EnqueueAsync(CreateRequest(waitingOnA, priority: 0, "a"));
         await store.EnqueueAsync(CreateRequest(waitingOnB, priority: 0, "b"));
 
-        (await ClaimAsync(store)).Task.TaskId.ShouldBe(first);
+        var firstClaim = await ClaimAsync(store);
+        firstClaim.Task.TaskId.ShouldBe(first);
         (await ClaimAsync(store)).Task.TaskId.ShouldBe(second);
-        (await store.TryClaimNextAsync(new ClaimTaskRequest("node-1", Now))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
 
-        await store.MarkCompletedAsync(new CompleteTaskRequest(first, "node-1", Now));
+        await store.MarkCompletedAsync(new CompleteTaskRequest(first, "node-1", firstClaim.Task.LeaseToken, Now));
 
         (await ClaimAsync(store)).Task.TaskId.ShouldBe(waitingOnA);
         (await ClaimAsync(store)).Task.TaskId.ShouldBe(waitingOnB);
@@ -82,16 +83,18 @@ public sealed class InMemoryTaskStoreTests
         await store.EnqueueAsync(CreateRequest(second, priority: 0, "critical"));
         await store.EnqueueAsync(CreateRequest(waiting, priority: 0, "critical"));
 
-        (await ClaimAsync(store)).Task.TaskId.ShouldBe(first);
-        (await ClaimAsync(store)).Task.TaskId.ShouldBe(second);
+        var firstClaim = await ClaimAsync(store);
+        firstClaim.Task.TaskId.ShouldBe(first);
+        var secondClaim = await ClaimAsync(store);
+        secondClaim.Task.TaskId.ShouldBe(second);
 
         await store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("critical", 1, Now));
-        (await store.TryClaimNextAsync(new ClaimTaskRequest("node-1", Now))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
 
-        await store.MarkCompletedAsync(new CompleteTaskRequest(first, "node-1", Now));
-        (await store.TryClaimNextAsync(new ClaimTaskRequest("node-1", Now))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        await store.MarkCompletedAsync(new CompleteTaskRequest(first, "node-1", firstClaim.Task.LeaseToken, Now));
+        (await store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
 
-        await store.MarkCompletedAsync(new CompleteTaskRequest(second, "node-1", Now));
+        await store.MarkCompletedAsync(new CompleteTaskRequest(second, "node-1", secondClaim.Task.LeaseToken, Now));
         (await ClaimAsync(store)).Task.TaskId.ShouldBe(waiting);
     }
 
@@ -102,7 +105,7 @@ public sealed class InMemoryTaskStoreTests
         await store.EnqueueAsync(CreateRequest(Guid.NewGuid(), priority: 0));
 
         var results = await Task.WhenAll(Enumerable.Range(0, 20)
-          .Select(index => store.TryClaimNextAsync(new ClaimTaskRequest($"node-{index}", Now)).AsTask()));
+          .Select(index => store.TryClaimNextAsync(CreateClaimRequest($"node-{index}")).AsTask()));
 
         results.Count(result => result is ClaimTaskResult.Claimed).ShouldBe(1);
         results.Count(result => result is ClaimTaskResult.NoTaskAvailable).ShouldBe(19);
@@ -110,8 +113,11 @@ public sealed class InMemoryTaskStoreTests
 
     private static async Task<ClaimTaskResult.Claimed> ClaimAsync(InMemoryTaskStore store)
     {
-        return (await store.TryClaimNextAsync(new ClaimTaskRequest("node-1", Now))).ShouldBeOfType<ClaimTaskResult.Claimed>();
+        return (await store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.Claimed>();
     }
+
+    private static ClaimTaskRequest CreateClaimRequest(string nodeId)
+      => new(nodeId, Now, Now.AddSeconds(30));
 
     private static EnqueueTaskRequest CreateRequest(Guid taskId, int priority, params string[] groupKeys)
     {
