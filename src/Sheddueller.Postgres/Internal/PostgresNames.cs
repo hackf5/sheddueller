@@ -1,3 +1,5 @@
+// spell-checker: ignore wakeup
+
 namespace Sheddueller.Postgres.Internal;
 
 internal sealed class PostgresNames

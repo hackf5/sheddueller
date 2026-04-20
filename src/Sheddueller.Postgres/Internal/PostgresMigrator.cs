@@ -1,3 +1,5 @@
+// spell-checker: ignore xact hashtext timestamptz bytea nonterminal
+
 namespace Sheddueller.Postgres.Internal;
 
 using System.Globalization;

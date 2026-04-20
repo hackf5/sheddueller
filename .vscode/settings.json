@@ -29,6 +29,7 @@
     "cSpell.caseSensitive": false,
     "cSpell.language": "en-US",
     "cSpell.words": [
+        "Npgsql",
         "Sheddueller",
         "Shouldly",
         "Upserted"

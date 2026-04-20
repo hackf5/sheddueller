@@ -99,6 +99,27 @@ public sealed class PostgresProviderTests(PostgresFixture fixture) : IClassFixtu
     }
 
     [Fact]
+    public async Task TryClaim_SaturatedGroupPrefixBeyondOldCandidateLimit_ClaimsLaterEligibleTask()
+    {
+        await using var provider = await CreateMigratedProviderAsync();
+        var store = provider.GetRequiredService<ITaskStore>();
+        var running = Guid.NewGuid();
+        var eligible = Guid.NewGuid();
+
+        await store.EnqueueAsync(CreateRequest(running, priority: 100, groupKeys: ["shared"]));
+        (await ClaimAsync(store)).TaskId.ShouldBe(running);
+
+        for (var i = 0; i < 64; i++)
+        {
+            await store.EnqueueAsync(CreateRequest(Guid.NewGuid(), priority: 100, groupKeys: ["shared"]));
+        }
+
+        await store.EnqueueAsync(CreateRequest(eligible, priority: 0));
+
+        (await ClaimAsync(store)).TaskId.ShouldBe(eligible);
+    }
+
+    [Fact]
     public async Task LeaseRecovery_ExpiredClaim_RequeuesThenFailsByRetryPolicy()
     {
         await using var provider = await CreateMigratedProviderAsync();

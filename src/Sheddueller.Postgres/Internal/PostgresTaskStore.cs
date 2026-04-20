@@ -11,7 +11,7 @@ using Sheddueller.Storage;
 
 internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options) : ITaskStore
 {
-    private const int ClaimCandidateLimit = 64;
+    private const int ClaimCandidateLimit = 8;
 
     private readonly ShedduellerPostgresOptions _options = options;
     private readonly PostgresNames _names = new(options.SchemaName);
@@ -656,12 +656,19 @@ internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options) : IT
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          select task_id
-          from {this._names.Tasks}
-          where state = 'Queued'
-            and (not_before_utc is null or not_before_utc <= transaction_timestamp())
-          order by priority desc, enqueue_sequence asc
-          for update skip locked
+          select task.task_id
+          from {this._names.Tasks} task
+          where task.state = 'Queued'
+            and (task.not_before_utc is null or task.not_before_utc <= transaction_timestamp())
+            and not exists (
+                select 1
+                from {this._names.TaskConcurrencyGroups} task_group
+                join {this._names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = task_group.group_key
+                where task_group.task_id = task.task_id
+                  and concurrency_group.in_use_count >= coalesce(concurrency_group.configured_limit, 1)
+            )
+          order by task.priority desc, task.enqueue_sequence asc
+          for update of task skip locked
           limit @candidate_limit;
           """;
         command.Parameters.AddWithValue("candidate_limit", ClaimCandidateLimit);
