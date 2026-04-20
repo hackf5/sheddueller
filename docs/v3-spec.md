@@ -24,6 +24,8 @@ V3 is defined by six capabilities:
 
 V3 keeps the backend abstraction in place, but PostgreSQL becomes the first durable provider with a fully specified runtime model.
 
+V3 supports PostgreSQL 14 and later. PostgreSQL 14 is the minimum because it is the oldest community-supported PostgreSQL major version at the time of implementation and includes all provider primitives required by v3, including `FOR UPDATE SKIP LOCKED`, advisory locks, `LISTEN/NOTIFY`, arrays, `bytea`, `timestamptz`, and `transaction_timestamp()`.
+
 ## Goals
 
 - Deliver a production-grade PostgreSQL provider as a separate assembly.
@@ -244,6 +246,7 @@ Requirements:
 - These tables must not change v3 scheduler behavior.
 - Opaque serialized payload bodies must not be copied into dashboard/event tables.
 - Implementations targeting only the strict v3 feature set may leave these tables unused until v4/v5 features are implemented.
+- The v3 implementation creates the core v3 runtime schema only. Dashboard/event tables are deferred until their v4/v5 contracts are implemented.
 
 ### Required Indexes
 
@@ -352,6 +355,14 @@ The PostgreSQL provider must create indexes sufficient for these hot paths:
 - The provider assumes one logical Sheddueller cluster per configured schema, even when multiple schemas share the same PostgreSQL database.
 - Payload storage remains serializer-owned opaque `bytea`; PostgreSQL is not the canonical payload contract.
 - The provider assembly does not expose a public inspection API. Integration tests may use test-assembly-only SQL helpers or fixtures to assert persisted task, schedule, concurrency, and schema-version state.
+
+## Testing Model
+
+- PostgreSQL provider tests are black-box integration tests against real PostgreSQL infrastructure.
+- Local and CI tests use Testcontainers only.
+- The test PostgreSQL image is selected by `SHEDDUELLER_POSTGRES_IMAGE`.
+- When `SHEDDUELLER_POSTGRES_IMAGE` is not set, tests default to `postgres:14`.
+- CI must run PostgreSQL provider tests against `postgres:14`, `postgres:16`, and `postgres:18`.
 
 ## Acceptance Scenarios
 
