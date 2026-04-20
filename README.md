@@ -7,6 +7,7 @@ A task scheduling library for .NET.
 ## Layout
 
 - `src/Sheddueller`: core library package
+- `samples/Sheddueller.SampleHost`: local sample host for dashboard and job-launcher development
 - `docs/roadmap.md`: implementation roadmap and shared glossary
 - `docs/v1-spec.md`: v1 implementation specification
 - `docs/v2-spec.md`: v2 implementation specification

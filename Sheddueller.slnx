@@ -5,6 +5,9 @@
     <Project Path="src/Sheddueller.Postgres/Sheddueller.Postgres.csproj" />
     <Project Path="src/Sheddueller/Sheddueller.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Sheddueller.SampleHost/Sheddueller.SampleHost.csproj" />
+  </Folder>
   <Folder Name="/test/">
     <Project Path="test/Sheddueller.Postgres.Tests/Sheddueller.Postgres.Tests.csproj" />
     <Project Path="test/Sheddueller.Tests/Sheddueller.Tests.csproj" />

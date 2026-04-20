@@ -6,6 +6,7 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.202" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.6" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.6.2" />
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.2.1" />
     <PackageVersion Include="Cronos" Version="0.12.0" />

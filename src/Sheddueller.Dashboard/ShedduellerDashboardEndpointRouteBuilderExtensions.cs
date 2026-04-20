@@ -13,6 +13,35 @@ using Sheddueller.Dashboard.Internal;
 public static class ShedduellerDashboardEndpointRouteBuilderExtensions
 {
     /// <summary>
+    /// Maps the dashboard UI and live update hub under the supplied path using an application branch.
+    /// </summary>
+    public static IApplicationBuilder MapShedduellerDashboard(
+        this IApplicationBuilder app,
+        string path = "/sheddueller")
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        if (string.IsNullOrWhiteSpace(path) || path[0] != '/')
+        {
+            throw new ArgumentException("Dashboard path must be an absolute non-empty route path.", nameof(path));
+        }
+
+        app.Map(path, branch =>
+        {
+            branch.UseRouting();
+            branch.UseAntiforgery();
+            branch.UseEndpoints(endpoints =>
+            {
+                endpoints.MapRazorComponents<DashboardApp>()
+                  .AddInteractiveServerRenderMode();
+                endpoints.MapHub<DashboardUpdatesHub>("/live");
+            });
+        });
+
+        return app;
+    }
+
+    /// <summary>
     /// Maps the dashboard UI and live update hub under the supplied path.
     /// </summary>
     public static IEndpointConventionBuilder MapShedduellerDashboard(

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: sheddueller-postgres
+    environment:
+      POSTGRES_DB: sheddueller_sample
+      POSTGRES_USER: sheddueller
+      POSTGRES_PASSWORD: sheddueller
+    ports:
+      - "5432:5432"
+    volumes:
+      - sheddueller-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sheddueller -d sheddueller_sample"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sheddueller-postgres-data:
