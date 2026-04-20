@@ -3,12 +3,12 @@ namespace Sheddueller;
 using System.Linq.Expressions;
 
 /// <summary>
-/// Manages recurring schedules that materialize ordinary Sheddueller tasks.
+/// Manages recurring schedules that materialize ordinary Sheddueller jobs.
 /// </summary>
 public interface IRecurringScheduleManager
 {
     /// <summary>
-    /// Creates or replaces a task-returning recurring schedule definition.
+    /// Creates or replaces a Task-returning recurring schedule definition.
     /// </summary>
     ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
         string scheduleKey,
@@ -18,7 +18,7 @@ public interface IRecurringScheduleManager
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Creates or replaces a value-task-returning recurring schedule definition.
+    /// Creates or replaces a ValueTask-returning recurring schedule definition.
     /// </summary>
     ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
         string scheduleKey,

@@ -20,11 +20,11 @@ internal static class PostgresConversion
     public static RetryBackoffKind? ToRetryBackoffKind(object value)
       => value is DBNull ? null : Enum.Parse<RetryBackoffKind>((string)value);
 
-    public static string ToText(TaskState value)
+    public static string ToText(JobState value)
       => value.ToString();
 
-    public static TaskState ToTaskState(object value)
-      => Enum.Parse<TaskState>((string)value);
+    public static JobState ToJobState(object value)
+      => Enum.Parse<JobState>((string)value);
 
     public static string ToText(RecurringOverlapMode value)
       => value.ToString();
@@ -52,7 +52,7 @@ internal static class PostgresConversion
           _ => throw new InvalidOperationException($"Value of type '{value.GetType()}' is not a PostgreSQL timestamp."),
       };
 
-    public static SerializedTaskPayload ToPayload(object contentType, object data)
+    public static SerializedJobPayload ToPayload(object contentType, object data)
       => new((string)contentType, (byte[])data);
 
     public static RetryPolicy? ToRetryPolicy(bool configured, int maxAttempts, object backoffKind, object baseDelayMs, object maxDelayMs)
@@ -69,13 +69,13 @@ internal static class PostgresConversion
           FromMilliseconds(maxDelayMs));
     }
 
-    public static TaskFailureInfo? ToFailure(object typeName, object message, object stackTrace)
+    public static JobFailureInfo? ToFailure(object typeName, object message, object stackTrace)
     {
         if (typeName is DBNull || message is DBNull)
         {
             return null;
         }
 
-        return new TaskFailureInfo((string)typeName, (string)message, stackTrace is DBNull ? null : (string)stackTrace);
+        return new JobFailureInfo((string)typeName, (string)message, stackTrace is DBNull ? null : (string)stackTrace);
     }
 }

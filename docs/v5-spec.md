@@ -39,7 +39,7 @@ Non-goals are scoped to v5 unless explicitly marked permanent.
 - Audit trails with user attribution.
 - Role-based authorization or permission modeling.
 - Multi-tenancy or tenant isolation.
-- Task payload migration or handler version migration tooling.
+- Job payload migration or handler version migration tooling.
 - Workflows, dependencies, or orchestration graphs.
 - OpenTelemetry/exporter requirements.
 - Concurrency group editing in v5.
@@ -66,11 +66,11 @@ V5 adds provider-agnostic dashboard action contracts in the dashboard package or
 public interface IDashboardJobActions
 {
     ValueTask<RetryCloneResult> RetryFailedAsCloneAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 
     ValueTask<CancelJobResult> CancelJobAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 }
 
@@ -110,20 +110,20 @@ Requirements:
 
 ### Retry Failed As Clone
 
-Retrying a failed job creates a new linked task.
+Retrying a failed job creates a new linked job.
 
 ```csharp
 public sealed record RetryCloneResult(
     DashboardActionOutcome Outcome,
-    Guid? OriginalTaskId,
-    Guid? NewTaskId,
+    Guid? OriginalJobId,
+    Guid? NewJobId,
     string? Message = null);
 ```
 
 Requirements:
 
 - Only terminal `Failed` jobs are retry-clone candidates.
-- The original failed task remains unchanged.
+- The original failed job remains unchanged.
 - The clone preserves:
   - handler service type
   - method name
@@ -133,11 +133,11 @@ Requirements:
   - concurrency group keys
   - retry policy
   - tags
-- The clone receives a new task id and enqueue sequence.
-- The clone is immediately queued unless normal task eligibility rules require otherwise.
-- The clone stores `RetryCloneSourceTaskId` pointing to the original failed task.
+- The clone receives a new job id and enqueue sequence.
+- The clone is immediately queued unless normal job eligibility rules require otherwise.
+- The clone stores `RetryCloneSourceJobId` pointing to the original failed job.
 - The dashboard must show retry clone ancestry on both original and cloned jobs.
-- Retrying a non-failed, missing, or unserializable job must return a non-success outcome and must not create a task.
+- Retrying a non-failed, missing, or unserializable job must return a non-success outcome and must not create a job.
 
 ### Cancel Job
 
@@ -146,7 +146,7 @@ V5 extends cancellation from pending-only management into dashboard-driven coope
 ```csharp
 public sealed record CancelJobResult(
     DashboardActionOutcome Outcome,
-    Guid TaskId,
+    Guid JobId,
     CancelJobResultKind Kind,
     string? Message = null);
 
@@ -165,21 +165,21 @@ Requirements:
 - Queued, delayed, and retry-waiting jobs transition directly to `Canceled`.
 - Claimed/running jobs receive cancellation through the scheduler-owned execution token.
 - Running cancellation is cooperative. Sheddueller must not try to kill threads, processes, or service instances.
-- When cancellation is requested for a running job, the task records `CancellationRequestedAtUtc`.
-- If the handler observes cancellation by throwing `OperationCanceledException` or returning a canceled task from the scheduler-owned token, the task transitions to `Canceled`, records `CancellationObservedAtUtc`, and does not retry.
-- If the handler ignores cancellation, the task remains claimed and may complete, fail, or expire normally.
+- When cancellation is requested for a running job, the job records `CancellationRequestedAtUtc`.
+- If the handler observes cancellation by throwing `OperationCanceledException` or returning a canceled job from the scheduler-owned token, the job transitions to `Canceled`, records `CancellationObservedAtUtc`, and does not retry.
+- If the handler ignores cancellation, the job remains claimed and may complete, fail, or expire normally.
 - Canceling a terminal job returns `AlreadyTerminal`.
 - Canceling a missing job returns `NotFound`.
 - Runtime workers must detect cancellation requests for their claimed jobs and cancel the local scheduler-owned execution token.
 - Cancellation request detection may be implemented through provider notifications, polling, or the same heartbeat loop that renews leases.
 
-### Task Model Additions
+### Job Model Additions
 
-V5 extends task metadata with:
+V5 extends job metadata with:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `RetryCloneSourceTaskId` | `Guid?` | Original failed task when this task was created by retry clone. |
+| `RetryCloneSourceJobId` | `Guid?` | Original failed job when this job was created by retry clone. |
 | `CancellationRequestedAtUtc` | `DateTimeOffset?` | When a dashboard/user cancellation request was recorded. |
 | `CancellationObservedAtUtc` | `DateTimeOffset?` | When cooperative cancellation was observed by the handler/runtime. |
 
@@ -235,10 +235,10 @@ public sealed record DashboardScheduleDetail(
     DashboardScheduleOccurrence? LastFailedOccurrence);
 
 public sealed record DashboardScheduleOccurrence(
-    Guid TaskId,
+    Guid JobId,
     DateTimeOffset? ScheduledFireAtUtc,
     DashboardScheduleOccurrenceKind Kind,
-    TaskState State,
+    JobState State,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? CompletedAtUtc,
     DateTimeOffset? FailedAtUtc);
@@ -309,7 +309,7 @@ Requirements:
 public sealed record TriggerScheduleNowResult(
     DashboardActionOutcome Outcome,
     string ScheduleKey,
-    Guid? TaskId,
+    Guid? JobId,
     string? Message = null);
 ```
 
@@ -317,11 +317,11 @@ Requirements:
 
 - Trigger-now works even when the schedule is paused.
 - Trigger-now does not change `NextFireAtUtc`.
-- Trigger-now creates one ordinary task using the schedule's current handler descriptor, serialized arguments, priority, concurrency groups, retry policy, and tags.
+- Trigger-now creates one ordinary job using the schedule's current handler descriptor, serialized arguments, priority, concurrency groups, retry policy, and tags.
 - Trigger-now bypasses schedule overlap suppression. It is a manual fire, not a normal recurring occurrence.
-- The materialized task still obeys normal task priority, due-time, retry, and concurrency group rules when claimed.
-- Trigger-now tasks must record `SourceScheduleKey`.
-- Trigger-now tasks must be distinguishable from normal recurring occurrences in dashboard events and schedule detail.
+- The materialized job still obeys normal job priority, due-time, retry, and concurrency group rules when claimed.
+- Trigger-now jobs must record `SourceScheduleKey`.
+- Trigger-now jobs must be distinguishable from normal recurring occurrences in dashboard events and schedule detail.
 
 ## Concurrency Group Views
 
@@ -360,8 +360,8 @@ public sealed record DashboardConcurrencyGroupSummary(
 
 public sealed record DashboardConcurrencyGroupDetail(
     DashboardConcurrencyGroupSummary Summary,
-    IReadOnlyList<Guid> ClaimedTaskIds,
-    IReadOnlyList<Guid> BlockedTaskIds);
+    IReadOnlyList<Guid> ClaimedJobIds,
+    IReadOnlyList<Guid> BlockedJobIds);
 ```
 
 The concurrency group list/detail views show:
@@ -417,7 +417,7 @@ public sealed record DashboardNodeSummary(
 
 public sealed record DashboardNodeDetail(
     DashboardNodeSummary Summary,
-    IReadOnlyList<Guid> ClaimedTaskIds);
+    IReadOnlyList<Guid> ClaimedJobIds);
 ```
 
 The node list/detail views show:
@@ -445,7 +445,7 @@ Requirements:
 - Active/stale/dead state is derived from scheduler worker heartbeat records.
 - Stale and dead thresholds are provider/runtime options with sensible defaults based on lease duration.
 - Node health is about scheduler worker liveness, not full host machine observability.
-- V5 does not require provider/database health views beyond surfacing failures that prevent node heartbeat or task claiming.
+- V5 does not require provider/database health views beyond surfacing failures that prevent node heartbeat or job claiming.
 
 ## Rolling Metrics
 
@@ -515,7 +515,7 @@ Requirements:
 
 - Metrics are in-dashboard only in v5.
 - V5 does not require OpenTelemetry, Prometheus, or external exporter integration.
-- Providers may derive metrics from task rows/events or maintain aggregate tables, as long as the dashboard result is consistent with persisted scheduler state.
+- Providers may derive metrics from job rows/events or maintain aggregate tables, as long as the dashboard result is consistent with persisted scheduler state.
 - Metrics must be calculated over rolling time windows, not only lifetime counters.
 
 ## Dashboard Events
@@ -564,7 +564,7 @@ PostgreSQL is expected to be the first v5 operations-compatible provider.
 The v5 implementation is complete only when the following scenarios pass:
 
 1. A failed job can be retried as a clone.
-2. Retry clone creates a new linked task and leaves the original failed task unchanged.
+2. Retry clone creates a new linked job and leaves the original failed job unchanged.
 3. Retry clone preserves descriptor, arguments, priority, concurrency groups, retry policy, and tags.
 4. Retry clone ancestry is visible from the original and cloned job detail views.
 5. Canceling queued, delayed, or retry-waiting jobs transitions them to `Canceled`.
@@ -578,6 +578,6 @@ The v5 implementation is complete only when the following scenarios pass:
 13. Trigger-now does not change the schedule's next automatic fire time.
 14. Concurrency group views show configured limit, occupancy, blocked jobs, and saturation without exposing edit controls.
 15. Node views show active, stale, and dead workers from heartbeat state.
-16. Rolling metrics match persisted task/event data for the configured windows.
+16. Rolling metrics match persisted job/event data for the configured windows.
 17. Dashboard action events explain what happened without requiring user attribution, reason fields, or audit infrastructure.
-18. V5 adds no multi-tenancy, role/permission model, audit trail, task migration tooling, workflow engine, or external metrics exporter requirement.
+18. V5 adds no multi-tenancy, role/permission model, audit trail, job migration tooling, workflow engine, or external metrics exporter requirement.

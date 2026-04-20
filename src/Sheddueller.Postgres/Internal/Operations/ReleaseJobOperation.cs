@@ -3,37 +3,37 @@ namespace Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
-internal static class ReleaseTaskOperation
+internal static class ReleaseJobOperation
 {
     public static async ValueTask<bool> ExecuteAsync(
         PostgresOperationContext context,
-        ReleaseTaskRequest request,
+        ReleaseJobRequest request,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var task = await PostgresClaimedTasks.TryReadCurrentClaimForFailureAsync(
+        var job = await PostgresClaimedJobs.TryReadCurrentClaimForFailureAsync(
           context,
           connection,
           transaction,
-          request.TaskId,
+          request.JobId,
           request.NodeId,
           request.LeaseToken,
           cancellationToken)
           .ConfigureAwait(false);
 
-        if (task is null)
+        if (job is null)
         {
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
 
-        await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, task.GroupKeys, cancellationToken).ConfigureAwait(false);
+        await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
         var updated = await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
           $"""
-          update {context.Names.Tasks}
+          update {context.Names.Jobs}
           set state = 'Queued',
               attempt_count = greatest(0, attempt_count - 1),
               not_before_utc = null,
@@ -42,7 +42,7 @@ internal static class ReleaseTaskOperation
               lease_token = null,
               lease_expires_at_utc = null,
               last_heartbeat_at_utc = null
-          where task_id = @task_id
+          where job_id = @job_id
             and state = 'Claimed'
             and claimed_by_node_id = @node_id
             and lease_token = @lease_token
@@ -50,7 +50,7 @@ internal static class ReleaseTaskOperation
           """,
           command =>
           {
-              command.Parameters.AddWithValue("task_id", request.TaskId);
+              command.Parameters.AddWithValue("job_id", request.JobId);
               command.Parameters.AddWithValue("node_id", request.NodeId);
               command.Parameters.AddWithValue("lease_token", request.LeaseToken);
           },
@@ -63,7 +63,7 @@ internal static class ReleaseTaskOperation
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.Lifecycle, task.AttemptCount, Message: "Released"),
+              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.Lifecycle, job.AttemptCount, Message: "Released"),
               cancellationToken)
               .ConfigureAwait(false);
             await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

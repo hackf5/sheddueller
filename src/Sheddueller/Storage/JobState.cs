@@ -1,32 +1,32 @@
 namespace Sheddueller.Storage;
 
 /// <summary>
-/// Persisted state of a Sheddueller task.
+/// Persisted state of a Sheddueller job.
 /// </summary>
-public enum TaskState
+public enum JobState
 {
     /// <summary>
-    /// The task is available for claiming.
+    /// The job is available for claiming.
     /// </summary>
     Queued,
 
     /// <summary>
-    /// The task is owned by a node and is counted against its concurrency groups.
+    /// The job is owned by a node and is counted against its concurrency groups.
     /// </summary>
     Claimed,
 
     /// <summary>
-    /// The task completed successfully.
+    /// The job completed successfully.
     /// </summary>
     Completed,
 
     /// <summary>
-    /// The task failed.
+    /// The job failed.
     /// </summary>
     Failed,
 
     /// <summary>
-    /// The task was canceled before it was claimed.
+    /// The job was canceled before it was claimed.
     /// </summary>
     Canceled,
 }

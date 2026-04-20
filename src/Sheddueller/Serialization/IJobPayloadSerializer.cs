@@ -1,14 +1,14 @@
 namespace Sheddueller.Serialization;
 
 /// <summary>
-/// Serializes and deserializes captured task method arguments.
+/// Serializes and deserializes captured job method arguments.
 /// </summary>
-public interface ITaskPayloadSerializer
+public interface IJobPayloadSerializer
 {
     /// <summary>
     /// Serializes captured method arguments.
     /// </summary>
-    ValueTask<SerializedTaskPayload> SerializeAsync(
+    ValueTask<SerializedJobPayload> SerializeAsync(
         IReadOnlyList<object?> arguments,
         IReadOnlyList<Type> parameterTypes,
         CancellationToken cancellationToken = default);
@@ -17,7 +17,7 @@ public interface ITaskPayloadSerializer
     /// Deserializes captured method arguments.
     /// </summary>
     ValueTask<IReadOnlyList<object?>> DeserializeAsync(
-        SerializedTaskPayload payload,
+        SerializedJobPayload payload,
         IReadOnlyList<Type> parameterTypes,
         CancellationToken cancellationToken = default);
 }

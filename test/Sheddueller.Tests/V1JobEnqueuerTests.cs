@@ -7,23 +7,23 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class V1TaskEnqueuerTests
+public sealed class V1JobEnqueuerTests
 {
     [Fact]
     public async Task Enqueue_ServiceMethodCall_PersistsMethodIdentityAndArgumentsWithoutCancellationToken()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 10, 30, 0, TimeSpan.Zero);
         using var provider = CreateProvider(new ManualTimeProvider(timestamp));
-        var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();
-        var store = provider.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
         var payload = new SamplePayload("alpha", 42);
 
-        var taskId = await enqueuer.EnqueueAsync<EnqueueTestService>(
+        var jobId = await enqueuer.EnqueueAsync<EnqueueTestService>(
           (service, cancellationToken) => service.HandleAsync(payload, cancellationToken),
-          new TaskSubmission(7, ["group-a", "group-a"]));
+          new JobSubmission(7, ["group-a", "group-a"]));
 
-        var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
-        snapshot.State.ShouldBe(TaskState.Queued);
+        var snapshot = store.GetSnapshot(jobId).ShouldNotBeNull();
+        snapshot.State.ShouldBe(JobState.Queued);
         snapshot.Priority.ShouldBe(7);
         snapshot.EnqueuedAtUtc.ShouldBe(timestamp);
         snapshot.ServiceType.ShouldBe(typeof(EnqueueTestService).AssemblyQualifiedName);
@@ -34,7 +34,7 @@ public sealed class V1TaskEnqueuerTests
       typeof(CancellationToken).AssemblyQualifiedName!,
     ]);
 
-        var arguments = await provider.GetRequiredService<ITaskPayloadSerializer>()
+        var arguments = await provider.GetRequiredService<IJobPayloadSerializer>()
           .DeserializeAsync(snapshot.SerializedArguments, [typeof(SamplePayload)]);
 
         arguments.Count.ShouldBe(1);
@@ -45,21 +45,21 @@ public sealed class V1TaskEnqueuerTests
     public async Task Enqueue_JobContextAwareMethod_PersistsMethodIdentityWithoutSerializingContext()
     {
         using var provider = CreateProvider();
-        var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();
-        var store = provider.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
         var payload = new SamplePayload("alpha", 42);
 
-        var taskId = await enqueuer.EnqueueAsync<EnqueueTestService>(
+        var jobId = await enqueuer.EnqueueAsync<EnqueueTestService>(
           (service, cancellationToken) => service.HandleWithContextAsync(payload, Job.Context, cancellationToken));
 
-        var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
+        var snapshot = store.GetSnapshot(jobId).ShouldNotBeNull();
         snapshot.MethodParameterTypes.ShouldBe([
           typeof(SamplePayload).AssemblyQualifiedName!,
           typeof(IJobContext).AssemblyQualifiedName!,
           typeof(CancellationToken).AssemblyQualifiedName!,
         ]);
 
-        var arguments = await provider.GetRequiredService<ITaskPayloadSerializer>()
+        var arguments = await provider.GetRequiredService<IJobPayloadSerializer>()
           .DeserializeAsync(snapshot.SerializedArguments, [typeof(SamplePayload)]);
 
         arguments.Count.ShouldBe(1);
@@ -70,7 +70,7 @@ public sealed class V1TaskEnqueuerTests
     public async Task Enqueue_ArgumentSubexpressions_EvaluatesExactlyOnce()
     {
         using var provider = CreateProvider();
-        var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
         var valueFactory = new CountingValueFactory();
 
         await enqueuer.EnqueueAsync<EnqueueTestService>(
@@ -83,7 +83,7 @@ public sealed class V1TaskEnqueuerTests
     public async Task Enqueue_UnsupportedExpressionForms_ThrowsArgumentException()
     {
         using var provider = CreateProvider();
-        var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
         using var externalCancellationTokenSource = new CancellationTokenSource();
         var externalCancellationToken = externalCancellationTokenSource.Token;
         var payload = new SamplePayload("alpha", 42);
@@ -185,7 +185,7 @@ public sealed class V1TaskEnqueuerTests
 
     private sealed class StubJobContext : IJobContext
     {
-        public Guid TaskId => Guid.Empty;
+        public Guid JobId => Guid.Empty;
 
         public int AttemptNumber => 0;
 

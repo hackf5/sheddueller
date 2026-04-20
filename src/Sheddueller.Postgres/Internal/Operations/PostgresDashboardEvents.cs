@@ -39,7 +39,7 @@ internal static class PostgresDashboardEvents
 
     public static async ValueTask<DashboardJobEvent?> ReadEventAsync(
         PostgresOperationContext context,
-        Guid taskId,
+        Guid jobId,
         long eventSequence,
         CancellationToken cancellationToken)
     {
@@ -49,7 +49,7 @@ internal static class PostgresDashboardEvents
           $"""
           select
               event_id,
-              task_id,
+              job_id,
               event_sequence,
               kind,
               occurred_at_utc,
@@ -59,10 +59,10 @@ internal static class PostgresDashboardEvents
               progress_percent,
               fields
           from {context.Names.DashboardEvents}
-          where task_id = @task_id
+          where job_id = @job_id
             and event_sequence = @event_sequence;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("event_sequence", eventSequence);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -92,14 +92,14 @@ internal static class PostgresDashboardEvents
         CancellationToken cancellationToken)
     {
         ValidateRequest(request);
-        var eventSequence = await IncrementEventSequenceAsync(context, connection, transaction, request.TaskId, cancellationToken).ConfigureAwait(false);
+        var eventSequence = await IncrementEventSequenceAsync(context, connection, transaction, request.JobId, cancellationToken).ConfigureAwait(false);
         var eventId = Guid.NewGuid();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
           $"""
           insert into {context.Names.DashboardEvents} (
-              task_id,
+              job_id,
               event_sequence,
               event_id,
               kind,
@@ -110,7 +110,7 @@ internal static class PostgresDashboardEvents
               progress_percent,
               fields)
           values (
-              @task_id,
+              @job_id,
               @event_sequence,
               @event_id,
               @kind,
@@ -122,7 +122,7 @@ internal static class PostgresDashboardEvents
               @fields)
           returning occurred_at_utc;
           """;
-        command.Parameters.AddWithValue("task_id", request.TaskId);
+        command.Parameters.AddWithValue("job_id", request.JobId);
         command.Parameters.AddWithValue("event_sequence", eventSequence);
         command.Parameters.AddWithValue("event_id", eventId);
         command.Parameters.AddWithValue("kind", PostgresConversion.ToText(request.Kind));
@@ -145,7 +145,7 @@ internal static class PostgresDashboardEvents
 
         return new DashboardJobEvent(
           eventId,
-          request.TaskId,
+          request.JobId,
           eventSequence,
           request.Kind,
           occurredAtUtc,
@@ -160,22 +160,22 @@ internal static class PostgresDashboardEvents
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          update {context.Names.Tasks}
+          update {context.Names.Jobs}
           set dashboard_event_sequence = dashboard_event_sequence + 1
-          where task_id = @task_id
+          where job_id = @job_id
           returning dashboard_event_sequence;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-          ?? throw new InvalidOperationException($"Task '{taskId}' does not exist.");
+          ?? throw new InvalidOperationException($"Job '{jobId}' does not exist.");
         return Convert.ToInt64(result, CultureInfo.InvariantCulture);
     }
 
@@ -192,7 +192,7 @@ internal static class PostgresDashboardEvents
         command =>
         {
             command.Parameters.AddWithValue("channel", PostgresNames.DashboardEventChannel);
-            command.Parameters.AddWithValue("payload", $"{context.Options.SchemaName}|{jobEvent.TaskId:N}|{jobEvent.EventSequence}");
+            command.Parameters.AddWithValue("payload", $"{context.Options.SchemaName}|{jobEvent.JobId:N}|{jobEvent.EventSequence}");
         },
         cancellationToken)
       .ConfigureAwait(false);

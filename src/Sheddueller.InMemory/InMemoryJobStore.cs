@@ -9,24 +9,24 @@ using Sheddueller.Scheduling;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
-internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdatePublisher)
-    : ITaskStore, IDashboardJobReader, IDashboardEventSink, IDashboardEventRetentionStore
+internal sealed class InMemoryJobStore(IDashboardLiveUpdatePublisher liveUpdatePublisher)
+    : IJobStore, IDashboardJobReader, IDashboardEventSink, IDashboardEventRetentionStore
 {
     private readonly Lock _gate = new();
     private readonly IDashboardLiveUpdatePublisher _liveUpdatePublisher = liveUpdatePublisher;
-    private readonly Dictionary<Guid, InMemoryTaskRecord> _tasks = [];
+    private readonly Dictionary<Guid, InMemoryJobRecord> _jobs = [];
     private readonly List<DashboardJobEvent> _events = [];
     private readonly Dictionary<string, InMemoryRecurringScheduleRecord> _recurringSchedules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _concurrencyLimits = new(StringComparer.Ordinal);
     private long _nextEnqueueSequence;
 
-    public InMemoryTaskStore()
+    public InMemoryJobStore()
       : this(new InMemoryNoOpDashboardLiveUpdatePublisher())
     {
     }
 
-    public async ValueTask<EnqueueTaskResult> EnqueueAsync(
-      EnqueueTaskRequest request,
+    public async ValueTask<EnqueueJobResult> EnqueueAsync(
+      EnqueueJobRequest request,
       CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -34,31 +34,31 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         ValidateEnqueueRequest(request);
 
         DashboardJobEvent jobEvent;
-        EnqueueTaskResult result;
+        EnqueueJobResult result;
         lock (this._gate)
         {
-            if (this._tasks.ContainsKey(request.TaskId))
+            if (this._jobs.ContainsKey(request.JobId))
             {
-                throw new InvalidOperationException($"Task '{request.TaskId}' already exists.");
+                throw new InvalidOperationException($"Job '{request.JobId}' already exists.");
             }
 
             var enqueueSequence = ++this._nextEnqueueSequence;
-            var task = CreateTaskRecord(request, enqueueSequence);
-            this._tasks.Add(request.TaskId, task);
+            var job = CreateTaskRecord(request, enqueueSequence);
+            this._jobs.Add(request.JobId, job);
             jobEvent = this.AppendEventNoLock(
-              task,
+              job,
               DashboardJobEventKind.Lifecycle,
               attemptNumber: 0,
               message: "Queued");
-            result = new EnqueueTaskResult(request.TaskId, enqueueSequence);
+            result = new EnqueueJobResult(request.JobId, enqueueSequence);
         }
 
         await this.PublishAsync(jobEvent, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
-    public async ValueTask<ClaimTaskResult> TryClaimNextAsync(
-      ClaimTaskRequest request,
+    public async ValueTask<ClaimJobResult> TryClaimNextAsync(
+      ClaimJobRequest request,
       CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -70,34 +70,34 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         }
 
         DashboardJobEvent? jobEvent = null;
-        ClaimTaskResult result = new ClaimTaskResult.NoTaskAvailable();
+        ClaimJobResult result = new ClaimJobResult.NoJobAvailable();
         lock (this._gate)
         {
-            foreach (var task in this._tasks.Values
-              .Where(task => task.State == TaskState.Queued)
-              .Where(task => task.NotBeforeUtc is null || task.NotBeforeUtc <= request.ClaimedAtUtc)
-              .OrderByDescending(task => task.Priority)
-              .ThenBy(task => task.EnqueueSequence))
+            foreach (var job in this._jobs.Values
+              .Where(job => job.State == JobState.Queued)
+              .Where(job => job.NotBeforeUtc is null || job.NotBeforeUtc <= request.ClaimedAtUtc)
+              .OrderByDescending(job => job.Priority)
+              .ThenBy(job => job.EnqueueSequence))
             {
-                if (!this.CanClaim(task))
+                if (!this.CanClaim(job))
                 {
                     continue;
                 }
 
-                task.State = TaskState.Claimed;
-                task.AttemptCount++;
-                task.ClaimedByNodeId = request.NodeId;
-                task.ClaimedAtUtc = request.ClaimedAtUtc;
-                task.LeaseToken = Guid.NewGuid();
-                task.LeaseExpiresAtUtc = request.LeaseExpiresAtUtc;
-                task.LastHeartbeatAtUtc = null;
+                job.State = JobState.Claimed;
+                job.AttemptCount++;
+                job.ClaimedByNodeId = request.NodeId;
+                job.ClaimedAtUtc = request.ClaimedAtUtc;
+                job.LeaseToken = Guid.NewGuid();
+                job.LeaseExpiresAtUtc = request.LeaseExpiresAtUtc;
+                job.LastHeartbeatAtUtc = null;
 
                 jobEvent = this.AppendEventNoLock(
-                  task,
+                  job,
                   DashboardJobEventKind.AttemptStarted,
-                  task.AttemptCount,
+                  job.AttemptCount,
                   "Attempt started");
-                result = new ClaimTaskResult.Claimed(CreateClaimedTask(task));
+                result = new ClaimJobResult.Claimed(CreateClaimedJob(job));
                 break;
             }
         }
@@ -111,7 +111,7 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
     }
 
     public async ValueTask<bool> MarkCompletedAsync(
-      CompleteTaskRequest request,
+      CompleteJobRequest request,
       CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -120,17 +120,17 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         IReadOnlyList<DashboardJobEvent> events;
         lock (this._gate)
         {
-            if (!this.TryGetCurrentClaim(request.TaskId, request.NodeId, request.LeaseToken, request.CompletedAtUtc, out var task))
+            if (!this.TryGetCurrentClaim(request.JobId, request.NodeId, request.LeaseToken, request.CompletedAtUtc, out var job))
             {
                 return false;
             }
 
-            task.State = TaskState.Completed;
-            task.CompletedAtUtc = request.CompletedAtUtc;
+            job.State = JobState.Completed;
+            job.CompletedAtUtc = request.CompletedAtUtc;
             events =
             [
-                this.AppendEventNoLock(task, DashboardJobEventKind.AttemptCompleted, task.AttemptCount, "Attempt completed"),
-                this.AppendEventNoLock(task, DashboardJobEventKind.Lifecycle, task.AttemptCount, "Completed"),
+                this.AppendEventNoLock(job, DashboardJobEventKind.AttemptCompleted, job.AttemptCount, "Attempt completed"),
+                this.AppendEventNoLock(job, DashboardJobEventKind.Lifecycle, job.AttemptCount, "Completed"),
             ];
         }
 
@@ -139,7 +139,7 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
     }
 
     public async ValueTask<bool> MarkFailedAsync(
-      FailTaskRequest request,
+      FailJobRequest request,
       CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -148,16 +148,16 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         IReadOnlyList<DashboardJobEvent> events;
         lock (this._gate)
         {
-            if (!this.TryGetCurrentClaim(request.TaskId, request.NodeId, request.LeaseToken, request.FailedAtUtc, out var task))
+            if (!this.TryGetCurrentClaim(request.JobId, request.NodeId, request.LeaseToken, request.FailedAtUtc, out var job))
             {
                 return false;
             }
 
-            ApplyFailedAttempt(task, request.FailedAtUtc, request.Failure);
+            ApplyFailedAttempt(job, request.FailedAtUtc, request.Failure);
             events =
             [
-                this.AppendEventNoLock(task, DashboardJobEventKind.AttemptFailed, task.AttemptCount, request.Failure.Message),
-                this.AppendEventNoLock(task, DashboardJobEventKind.Lifecycle, task.AttemptCount, task.State == TaskState.Failed ? "Failed" : "Retry scheduled"),
+                this.AppendEventNoLock(job, DashboardJobEventKind.AttemptFailed, job.AttemptCount, request.Failure.Message),
+                this.AppendEventNoLock(job, DashboardJobEventKind.Lifecycle, job.AttemptCount, job.State == JobState.Failed ? "Failed" : "Retry scheduled"),
             ];
         }
 
@@ -179,20 +179,20 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
 
         lock (this._gate)
         {
-            if (!this.TryGetCurrentClaim(request.TaskId, request.NodeId, request.LeaseToken, request.HeartbeatAtUtc, out var task))
+            if (!this.TryGetCurrentClaim(request.JobId, request.NodeId, request.LeaseToken, request.HeartbeatAtUtc, out var job))
             {
                 return ValueTask.FromResult(false);
             }
 
-            task.LastHeartbeatAtUtc = request.HeartbeatAtUtc;
-            task.LeaseExpiresAtUtc = request.LeaseExpiresAtUtc;
+            job.LastHeartbeatAtUtc = request.HeartbeatAtUtc;
+            job.LeaseExpiresAtUtc = request.LeaseExpiresAtUtc;
 
             return ValueTask.FromResult(true);
         }
     }
 
-    public async ValueTask<bool> ReleaseTaskAsync(
-      ReleaseTaskRequest request,
+    public async ValueTask<bool> ReleaseJobAsync(
+      ReleaseJobRequest request,
       CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -201,17 +201,17 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         DashboardJobEvent jobEvent;
         lock (this._gate)
         {
-            if (!this.TryGetCurrentClaim(request.TaskId, request.NodeId, request.LeaseToken, request.ReleasedAtUtc, out var task))
+            if (!this.TryGetCurrentClaim(request.JobId, request.NodeId, request.LeaseToken, request.ReleasedAtUtc, out var job))
             {
                 return false;
             }
 
-            var attemptNumber = task.AttemptCount;
-            task.State = TaskState.Queued;
-            task.AttemptCount = Math.Max(0, task.AttemptCount - 1);
-            task.NotBeforeUtc = null;
-            ClearClaim(task);
-            jobEvent = this.AppendEventNoLock(task, DashboardJobEventKind.Lifecycle, attemptNumber, "Released");
+            var attemptNumber = job.AttemptCount;
+            job.State = JobState.Queued;
+            job.AttemptCount = Math.Max(0, job.AttemptCount - 1);
+            job.NotBeforeUtc = null;
+            ClearClaim(job);
+            jobEvent = this.AppendEventNoLock(job, DashboardJobEventKind.Lifecycle, attemptNumber, "Released");
         }
 
         await this.PublishAsync(jobEvent, cancellationToken).ConfigureAwait(false);
@@ -230,16 +230,16 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         lock (this._gate)
         {
             recovered = 0;
-            foreach (var task in this._tasks.Values
-              .Where(task => task.State == TaskState.Claimed && task.LeaseExpiresAtUtc <= request.RecoveredAtUtc)
+            foreach (var job in this._jobs.Values
+              .Where(job => job.State == JobState.Claimed && job.LeaseExpiresAtUtc <= request.RecoveredAtUtc)
               .ToArray())
             {
-                ApplyFailedAttempt(task, request.RecoveredAtUtc, new TaskFailureInfo(
+                ApplyFailedAttempt(job, request.RecoveredAtUtc, new JobFailureInfo(
                   "Sheddueller.LeaseExpired",
-                  "The task lease expired before the owning node renewed it.",
+                  "The job lease expired before the owning node renewed it.",
                   null));
-                events.Add(this.AppendEventNoLock(task, DashboardJobEventKind.AttemptFailed, task.AttemptCount, "The task lease expired before the owning node renewed it."));
-                events.Add(this.AppendEventNoLock(task, DashboardJobEventKind.Lifecycle, task.AttemptCount, task.State == TaskState.Failed ? "Failed" : "Retry scheduled"));
+                events.Add(this.AppendEventNoLock(job, DashboardJobEventKind.AttemptFailed, job.AttemptCount, "The job lease expired before the owning node renewed it."));
+                events.Add(this.AppendEventNoLock(job, DashboardJobEventKind.Lifecycle, job.AttemptCount, job.State == JobState.Failed ? "Failed" : "Retry scheduled"));
                 recovered++;
             }
         }
@@ -249,7 +249,7 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
     }
 
     public async ValueTask<bool> CancelAsync(
-      CancelTaskRequest request,
+      CancelJobRequest request,
       CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -258,14 +258,14 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         DashboardJobEvent jobEvent;
         lock (this._gate)
         {
-            if (!this._tasks.TryGetValue(request.TaskId, out var task) || task.State != TaskState.Queued)
+            if (!this._jobs.TryGetValue(request.JobId, out var job) || job.State != JobState.Queued)
             {
                 return false;
             }
 
-            task.State = TaskState.Canceled;
-            task.CanceledAtUtc = request.CanceledAtUtc;
-            jobEvent = this.AppendEventNoLock(task, DashboardJobEventKind.Lifecycle, task.AttemptCount, "Canceled");
+            job.State = JobState.Canceled;
+            job.CanceledAtUtc = request.CanceledAtUtc;
+            jobEvent = this.AppendEventNoLock(job, DashboardJobEventKind.Lifecycle, job.AttemptCount, "Canceled");
         }
 
         await this.PublishAsync(jobEvent, cancellationToken).ConfigureAwait(false);
@@ -467,19 +467,19 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
             {
                 var scheduledFireAtUtc = schedule.NextFireAtUtc.GetValueOrDefault();
                 var canMaterialize = schedule.OverlapMode == RecurringOverlapMode.Allow
-                  || !this._tasks.Values.Any(task =>
-                    string.Equals(task.SourceScheduleKey, schedule.ScheduleKey, StringComparison.Ordinal)
-                    && task.State is TaskState.Queued or TaskState.Claimed);
+                  || !this._jobs.Values.Any(job =>
+                    string.Equals(job.SourceScheduleKey, schedule.ScheduleKey, StringComparison.Ordinal)
+                    && job.State is JobState.Queued or JobState.Claimed);
 
                 if (canMaterialize)
                 {
                     var (maxAttempts, retryBackoffKind, retryBaseDelay, retryMaxDelay) = SubmissionValidator.NormalizeRetryPolicy(
                       schedule.RetryPolicy ?? request.DefaultRetryPolicy);
-                    var taskId = Guid.NewGuid();
+                    var jobId = Guid.NewGuid();
                     var enqueueSequence = ++this._nextEnqueueSequence;
-                    var task = new InMemoryTaskRecord(
-                      taskId,
-                      TaskState.Queued,
+                    var job = new InMemoryJobRecord(
+                      jobId,
+                      JobState.Queued,
                       schedule.Priority,
                       enqueueSequence,
                       request.MaterializedAtUtc,
@@ -496,8 +496,8 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
                       schedule.ScheduleKey,
                       scheduledFireAtUtc,
                       tags: []);
-                    this._tasks.Add(taskId, task);
-                    events.Add(this.AppendEventNoLock(task, DashboardJobEventKind.Lifecycle, attemptNumber: 0, "Queued"));
+                    this._jobs.Add(jobId, job);
+                    events.Add(this.AppendEventNoLock(job, DashboardJobEventKind.Lifecycle, attemptNumber: 0, "Queued"));
                     materialized++;
                 }
 
@@ -517,20 +517,20 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         lock (this._gate)
         {
             var now = DateTimeOffset.UtcNow;
-            var summaries = this._tasks.Values
-              .Select(task => this.CreateSummaryNoLock(task, now))
+            var summaries = this._jobs.Values
+              .Select(job => this.CreateSummaryNoLock(job, now))
               .ToArray();
-            var stateCounts = Enum.GetValues<TaskState>()
+            var stateCounts = Enum.GetValues<JobState>()
               .ToDictionary(state => state, state => summaries.Count(summary => summary.State == state));
 
             return ValueTask.FromResult(new DashboardJobOverview(
               stateCounts,
               [.. summaries
-                .Where(summary => summary.State == TaskState.Claimed)
+                .Where(summary => summary.State == JobState.Claimed)
                 .OrderByDescending(summary => summary.EnqueuedAtUtc)
                 .Take(10)],
               [.. summaries
-                .Where(summary => summary.State == TaskState.Failed)
+                .Where(summary => summary.State == JobState.Failed)
                 .OrderByDescending(summary => summary.FailedAtUtc)
                 .Take(10)],
               [.. summaries
@@ -561,10 +561,10 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         {
             var now = DateTimeOffset.UtcNow;
             var afterSequence = DecodeContinuationToken(query.ContinuationToken);
-            var matched = this._tasks.Values
-              .Where(task => MatchesQuery(task, query))
-              .Where(task => afterSequence is null || task.EnqueueSequence < afterSequence.Value)
-              .OrderByDescending(task => task.EnqueueSequence)
+            var matched = this._jobs.Values
+              .Where(job => MatchesQuery(job, query))
+              .Where(job => afterSequence is null || job.EnqueueSequence < afterSequence.Value)
+              .OrderByDescending(job => job.EnqueueSequence)
               .Take(query.PageSize + 1)
               .ToArray();
             var pageItems = matched.Take(query.PageSize).ToArray();
@@ -573,55 +573,55 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
               : null;
 
             return ValueTask.FromResult(new DashboardJobPage(
-              [.. pageItems.Select(task => this.CreateSummaryNoLock(task, now))],
+              [.. pageItems.Select(job => this.CreateSummaryNoLock(job, now))],
               continuationToken));
         }
     }
 
     public ValueTask<DashboardJobDetail?> GetJobAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         lock (this._gate)
         {
-            if (!this._tasks.TryGetValue(taskId, out var task))
+            if (!this._jobs.TryGetValue(jobId, out var job))
             {
                 return ValueTask.FromResult<DashboardJobDetail?>(null);
             }
 
             var recentEvents = this._events
-              .Where(jobEvent => jobEvent.TaskId == taskId)
+              .Where(jobEvent => jobEvent.JobId == jobId)
               .OrderByDescending(jobEvent => jobEvent.EventSequence)
               .Take(100)
               .OrderBy(jobEvent => jobEvent.EventSequence)
               .ToArray();
 
             return ValueTask.FromResult<DashboardJobDetail?>(new DashboardJobDetail(
-              this.CreateSummaryNoLock(task, DateTimeOffset.UtcNow),
-              task.ClaimedAtUtc,
-              task.ClaimedByNodeId,
-              task.LeaseExpiresAtUtc,
-              task.ScheduledFireAtUtc,
+              this.CreateSummaryNoLock(job, DateTimeOffset.UtcNow),
+              job.ClaimedAtUtc,
+              job.ClaimedByNodeId,
+              job.LeaseExpiresAtUtc,
+              job.ScheduledFireAtUtc,
               recentEvents));
         }
     }
 
     public ValueTask<DashboardQueuePosition> GetQueuePositionAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         lock (this._gate)
         {
-            return ValueTask.FromResult(this.CreateQueuePositionNoLock(taskId, DateTimeOffset.UtcNow));
+            return ValueTask.FromResult(this.CreateQueuePositionNoLock(jobId, DateTimeOffset.UtcNow));
         }
     }
 
     public async IAsyncEnumerable<DashboardJobEvent> ReadEventsAsync(
-        Guid taskId,
+        Guid jobId,
         DashboardEventQuery? query = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -632,7 +632,7 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         lock (this._gate)
         {
             events = [.. this._events
-              .Where(jobEvent => jobEvent.TaskId == taskId)
+              .Where(jobEvent => jobEvent.JobId == jobId)
               .Where(jobEvent => query.AfterEventSequence is null || jobEvent.EventSequence > query.AfterEventSequence.Value)
               .OrderBy(jobEvent => jobEvent.EventSequence)
               .Take(query.Limit)];
@@ -657,13 +657,13 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         DashboardJobEvent jobEvent;
         lock (this._gate)
         {
-            if (!this._tasks.TryGetValue(request.TaskId, out var task))
+            if (!this._jobs.TryGetValue(request.JobId, out var job))
             {
-                throw new InvalidOperationException($"Task '{request.TaskId}' does not exist.");
+                throw new InvalidOperationException($"Job '{request.JobId}' does not exist.");
             }
 
             jobEvent = this.AppendEventNoLock(
-              task,
+              job,
               request.Kind,
               request.AttemptNumber,
               request.Message,
@@ -690,102 +690,102 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         {
             var threshold = DateTimeOffset.UtcNow.Subtract(retention);
             var removed = this._events.RemoveAll(jobEvent =>
-              this._tasks.TryGetValue(jobEvent.TaskId, out var task)
-              && GetTerminalAt(task) is { } terminalAt
+              this._jobs.TryGetValue(jobEvent.JobId, out var job)
+              && GetTerminalAt(job) is { } terminalAt
               && terminalAt < threshold);
 
             return ValueTask.FromResult(removed);
         }
     }
 
-    internal InMemoryTaskSnapshot? GetSnapshot(Guid taskId)
+    internal InMemoryJobSnapshot? GetSnapshot(Guid jobId)
     {
         lock (this._gate)
         {
-            return this._tasks.TryGetValue(taskId, out var task)
-              ? CreateSnapshot(task)
+            return this._jobs.TryGetValue(jobId, out var job)
+              ? CreateSnapshot(job)
               : null;
         }
     }
 
     private DashboardJobSummary CreateSummaryNoLock(
-        InMemoryTaskRecord task,
+        InMemoryJobRecord job,
         DateTimeOffset now)
       => new(
-        task.TaskId,
-        task.State,
-        task.ServiceType,
-        task.MethodName,
-        task.Priority,
-        task.EnqueueSequence,
-        task.EnqueuedAtUtc,
-        task.NotBeforeUtc,
-        task.AttemptCount,
-        task.MaxAttempts,
-        [.. task.Tags],
-        task.SourceScheduleKey,
-        this.GetLatestProgressNoLock(task.TaskId),
-        this.CreateQueuePositionNoLock(task.TaskId, now),
-        task.CompletedAtUtc,
-        task.FailedAtUtc,
-        task.CanceledAtUtc);
+        job.JobId,
+        job.State,
+        job.ServiceType,
+        job.MethodName,
+        job.Priority,
+        job.EnqueueSequence,
+        job.EnqueuedAtUtc,
+        job.NotBeforeUtc,
+        job.AttemptCount,
+        job.MaxAttempts,
+        [.. job.Tags],
+        job.SourceScheduleKey,
+        this.GetLatestProgressNoLock(job.JobId),
+        this.CreateQueuePositionNoLock(job.JobId, now),
+        job.CompletedAtUtc,
+        job.FailedAtUtc,
+        job.CanceledAtUtc);
 
-    private DashboardProgressSnapshot? GetLatestProgressNoLock(Guid taskId)
+    private DashboardProgressSnapshot? GetLatestProgressNoLock(Guid jobId)
       => this._events
-        .Where(jobEvent => jobEvent.TaskId == taskId && jobEvent.Kind == DashboardJobEventKind.Progress)
+        .Where(jobEvent => jobEvent.JobId == jobId && jobEvent.Kind == DashboardJobEventKind.Progress)
         .OrderByDescending(jobEvent => jobEvent.EventSequence)
         .Select(jobEvent => new DashboardProgressSnapshot(jobEvent.ProgressPercent, jobEvent.Message, jobEvent.OccurredAtUtc))
         .FirstOrDefault();
 
-    private DashboardQueuePosition CreateQueuePositionNoLock(Guid taskId, DateTimeOffset now)
+    private DashboardQueuePosition CreateQueuePositionNoLock(Guid jobId, DateTimeOffset now)
     {
-        if (!this._tasks.TryGetValue(taskId, out var task))
+        if (!this._jobs.TryGetValue(jobId, out var job))
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.NotFound, Position: null, "Job was not found.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.NotFound, Position: null, "Job was not found.");
         }
 
-        if (task.State == TaskState.Canceled)
+        if (job.State == JobState.Canceled)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Canceled, Position: null, "Job was canceled.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Canceled, Position: null, "Job was canceled.");
         }
 
-        if (task.State is TaskState.Completed or TaskState.Failed)
+        if (job.State is JobState.Completed or JobState.Failed)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Terminal, Position: null, "Job is terminal.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Terminal, Position: null, "Job is terminal.");
         }
 
-        if (task.State == TaskState.Claimed)
+        if (job.State == JobState.Claimed)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
         }
 
-        if (task.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > now)
+        if (job.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > now)
         {
-            return task.FailedAtUtc is null
-              ? new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Delayed, Position: null, $"Job is delayed until {notBeforeUtc:O}.")
-              : new DashboardQueuePosition(taskId, DashboardQueuePositionKind.RetryWaiting, Position: null, $"Job is waiting to retry until {notBeforeUtc:O}.");
+            return job.FailedAtUtc is null
+              ? new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Delayed, Position: null, $"Job is delayed until {notBeforeUtc:O}.")
+              : new DashboardQueuePosition(jobId, DashboardQueuePositionKind.RetryWaiting, Position: null, $"Job is waiting to retry until {notBeforeUtc:O}.");
         }
 
-        if (!this.CanClaim(task))
+        if (!this.CanClaim(job))
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
         }
 
-        var position = this._tasks.Values
-          .Where(candidate => candidate.State == TaskState.Queued)
+        var position = this._jobs.Values
+          .Where(candidate => candidate.State == JobState.Queued)
           .Where(candidate => candidate.NotBeforeUtc is null || candidate.NotBeforeUtc <= now)
           .Where(this.CanClaim)
           .OrderByDescending(candidate => candidate.Priority)
           .ThenBy(candidate => candidate.EnqueueSequence)
-          .Select((candidate, index) => (candidate.TaskId, Position: index + 1L))
-          .First(candidate => candidate.TaskId == taskId)
+          .Select((candidate, index) => (candidate.JobId, Position: index + 1L))
+          .First(candidate => candidate.JobId == jobId)
           .Position;
 
-        return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Claimable, position, "Job is currently claimable.");
+        return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Claimable, position, "Job is currently claimable.");
     }
 
     private DashboardJobEvent AppendEventNoLock(
-        InMemoryTaskRecord task,
+        InMemoryJobRecord job,
         DashboardJobEventKind kind,
         int attemptNumber,
         string? message = null,
@@ -795,8 +795,8 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
     {
         var jobEvent = new DashboardJobEvent(
           Guid.NewGuid(),
-          task.TaskId,
-          ++task.DashboardEventSequence,
+          job.JobId,
+          ++job.DashboardEventSequence,
           kind,
           DateTimeOffset.UtcNow,
           attemptNumber,
@@ -824,25 +824,25 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         }
     }
 
-    private static bool MatchesQuery(InMemoryTaskRecord task, DashboardJobQuery query)
-      => (query.TaskId is null || task.TaskId == query.TaskId.Value)
-        && (query.State is null || task.State == query.State.Value)
-        && (query.ServiceType is null || string.Equals(task.ServiceType, query.ServiceType, StringComparison.Ordinal))
-        && (query.MethodName is null || string.Equals(task.MethodName, query.MethodName, StringComparison.Ordinal))
-        && (query.Tag is null || task.Tags.Any(tag => string.Equals(tag.Name, query.Tag.Name, StringComparison.Ordinal)
+    private static bool MatchesQuery(InMemoryJobRecord job, DashboardJobQuery query)
+      => (query.JobId is null || job.JobId == query.JobId.Value)
+        && (query.State is null || job.State == query.State.Value)
+        && (query.ServiceType is null || string.Equals(job.ServiceType, query.ServiceType, StringComparison.Ordinal))
+        && (query.MethodName is null || string.Equals(job.MethodName, query.MethodName, StringComparison.Ordinal))
+        && (query.Tag is null || job.Tags.Any(tag => string.Equals(tag.Name, query.Tag.Name, StringComparison.Ordinal)
           && string.Equals(tag.Value, query.Tag.Value, StringComparison.Ordinal)))
-        && (query.SourceScheduleKey is null || string.Equals(task.SourceScheduleKey, query.SourceScheduleKey, StringComparison.Ordinal))
-        && (query.EnqueuedFromUtc is null || task.EnqueuedAtUtc >= query.EnqueuedFromUtc.Value)
-        && (query.EnqueuedToUtc is null || task.EnqueuedAtUtc <= query.EnqueuedToUtc.Value)
-        && (query.TerminalFromUtc is null || GetTerminalAt(task) >= query.TerminalFromUtc.Value)
-        && (query.TerminalToUtc is null || GetTerminalAt(task) <= query.TerminalToUtc.Value);
+        && (query.SourceScheduleKey is null || string.Equals(job.SourceScheduleKey, query.SourceScheduleKey, StringComparison.Ordinal))
+        && (query.EnqueuedFromUtc is null || job.EnqueuedAtUtc >= query.EnqueuedFromUtc.Value)
+        && (query.EnqueuedToUtc is null || job.EnqueuedAtUtc <= query.EnqueuedToUtc.Value)
+        && (query.TerminalFromUtc is null || GetTerminalAt(job) >= query.TerminalFromUtc.Value)
+        && (query.TerminalToUtc is null || GetTerminalAt(job) <= query.TerminalToUtc.Value);
 
-    private static DateTimeOffset? GetTerminalAt(InMemoryTaskRecord task)
-      => task.State switch
+    private static DateTimeOffset? GetTerminalAt(InMemoryJobRecord job)
+      => job.State switch
       {
-          TaskState.Completed => task.CompletedAtUtc,
-          TaskState.Failed => task.FailedAtUtc,
-          TaskState.Canceled => task.CanceledAtUtc,
+          JobState.Completed => job.CompletedAtUtc,
+          JobState.Failed => job.FailedAtUtc,
+          JobState.Canceled => job.CanceledAtUtc,
           _ => null,
       };
 
@@ -910,10 +910,10 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
     private static Dictionary<string, string>? CopyFields(IReadOnlyDictionary<string, string>? fields)
       => fields is null ? null : new Dictionary<string, string>(fields, StringComparer.Ordinal);
 
-    private static InMemoryTaskRecord CreateTaskRecord(EnqueueTaskRequest request, long enqueueSequence)
+    private static InMemoryJobRecord CreateTaskRecord(EnqueueJobRequest request, long enqueueSequence)
       => new(
-        request.TaskId,
-        TaskState.Queued,
+        request.JobId,
+        JobState.Queued,
         request.Priority,
         enqueueSequence,
         request.EnqueuedAtUtc,
@@ -931,56 +931,56 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         request.ScheduledFireAtUtc?.ToUniversalTime(),
         SubmissionValidator.NormalizeJobTags(request.Tags));
 
-    private static ClaimedTask CreateClaimedTask(InMemoryTaskRecord task)
+    private static ClaimedJob CreateClaimedJob(InMemoryJobRecord job)
       => new(
-        task.TaskId,
-        task.EnqueueSequence,
-        task.Priority,
-        task.ServiceType,
-        task.MethodName,
-        [.. task.MethodParameterTypes],
-        ClonePayload(task.SerializedArguments),
-        [.. task.ConcurrencyGroupKeys],
-        task.AttemptCount,
-        task.MaxAttempts,
-        task.LeaseToken.GetValueOrDefault(),
-        task.LeaseExpiresAtUtc.GetValueOrDefault(),
-        task.RetryBackoffKind,
-        task.RetryBaseDelay,
-        task.RetryMaxDelay,
-        task.SourceScheduleKey,
-        task.ScheduledFireAtUtc);
+        job.JobId,
+        job.EnqueueSequence,
+        job.Priority,
+        job.ServiceType,
+        job.MethodName,
+        [.. job.MethodParameterTypes],
+        ClonePayload(job.SerializedArguments),
+        [.. job.ConcurrencyGroupKeys],
+        job.AttemptCount,
+        job.MaxAttempts,
+        job.LeaseToken.GetValueOrDefault(),
+        job.LeaseExpiresAtUtc.GetValueOrDefault(),
+        job.RetryBackoffKind,
+        job.RetryBaseDelay,
+        job.RetryMaxDelay,
+        job.SourceScheduleKey,
+        job.ScheduledFireAtUtc);
 
-    private static InMemoryTaskSnapshot CreateSnapshot(InMemoryTaskRecord task)
+    private static InMemoryJobSnapshot CreateSnapshot(InMemoryJobRecord job)
       => new(
-        task.TaskId,
-        task.State,
-        task.Priority,
-        task.EnqueueSequence,
-        task.EnqueuedAtUtc,
-        task.ServiceType,
-        task.MethodName,
-        [.. task.MethodParameterTypes],
-        ClonePayload(task.SerializedArguments),
-        [.. task.ConcurrencyGroupKeys],
-        task.NotBeforeUtc,
-        task.AttemptCount,
-        task.MaxAttempts,
-        task.RetryBackoffKind,
-        task.RetryBaseDelay,
-        task.RetryMaxDelay,
-        task.LeaseToken,
-        task.LeaseExpiresAtUtc,
-        task.LastHeartbeatAtUtc,
-        task.ClaimedByNodeId,
-        task.ClaimedAtUtc,
-        task.CompletedAtUtc,
-        task.FailedAtUtc,
-        task.Failure,
-        task.CanceledAtUtc,
-        task.SourceScheduleKey,
-        task.ScheduledFireAtUtc,
-        [.. task.Tags]);
+        job.JobId,
+        job.State,
+        job.Priority,
+        job.EnqueueSequence,
+        job.EnqueuedAtUtc,
+        job.ServiceType,
+        job.MethodName,
+        [.. job.MethodParameterTypes],
+        ClonePayload(job.SerializedArguments),
+        [.. job.ConcurrencyGroupKeys],
+        job.NotBeforeUtc,
+        job.AttemptCount,
+        job.MaxAttempts,
+        job.RetryBackoffKind,
+        job.RetryBaseDelay,
+        job.RetryMaxDelay,
+        job.LeaseToken,
+        job.LeaseExpiresAtUtc,
+        job.LastHeartbeatAtUtc,
+        job.ClaimedByNodeId,
+        job.ClaimedAtUtc,
+        job.CompletedAtUtc,
+        job.FailedAtUtc,
+        job.Failure,
+        job.CanceledAtUtc,
+        job.SourceScheduleKey,
+        job.ScheduledFireAtUtc,
+        [.. job.Tags]);
 
     private static RecurringScheduleInfo CreateScheduleInfo(InMemoryRecurringScheduleRecord schedule)
       => new(
@@ -993,57 +993,57 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         schedule.RetryPolicy,
         schedule.NextFireAtUtc);
 
-    private static void ApplyFailedAttempt(InMemoryTaskRecord task, DateTimeOffset failedAtUtc, TaskFailureInfo failure)
+    private static void ApplyFailedAttempt(InMemoryJobRecord job, DateTimeOffset failedAtUtc, JobFailureInfo failure)
     {
-        task.FailedAtUtc = failedAtUtc;
-        task.Failure = failure;
+        job.FailedAtUtc = failedAtUtc;
+        job.Failure = failure;
 
-        if (task.AttemptCount < task.MaxAttempts)
+        if (job.AttemptCount < job.MaxAttempts)
         {
-            task.State = TaskState.Queued;
-            task.NotBeforeUtc = failedAtUtc.Add(CalculateBackoff(task));
-            ClearClaim(task);
+            job.State = JobState.Queued;
+            job.NotBeforeUtc = failedAtUtc.Add(CalculateBackoff(job));
+            ClearClaim(job);
             return;
         }
 
-        task.State = TaskState.Failed;
+        job.State = JobState.Failed;
     }
 
-    private static TimeSpan CalculateBackoff(InMemoryTaskRecord task)
+    private static TimeSpan CalculateBackoff(InMemoryJobRecord job)
     {
-        if (task.RetryBackoffKind is null || task.RetryBaseDelay is null)
+        if (job.RetryBackoffKind is null || job.RetryBaseDelay is null)
         {
             return TimeSpan.Zero;
         }
 
-        if (task.RetryBackoffKind == RetryBackoffKind.Fixed)
+        if (job.RetryBackoffKind == RetryBackoffKind.Fixed)
         {
-            return task.RetryBaseDelay.Value;
+            return job.RetryBaseDelay.Value;
         }
 
-        var multiplier = Math.Pow(2, task.AttemptCount - 1);
-        var ticks = task.RetryBaseDelay.Value.Ticks * multiplier;
+        var multiplier = Math.Pow(2, job.AttemptCount - 1);
+        var ticks = job.RetryBaseDelay.Value.Ticks * multiplier;
         var delay = TimeSpan.FromTicks((long)Math.Min(TimeSpan.MaxValue.Ticks, ticks));
 
-        return task.RetryMaxDelay is { } maxDelay && delay > maxDelay ? maxDelay : delay;
+        return job.RetryMaxDelay is { } maxDelay && delay > maxDelay ? maxDelay : delay;
     }
 
-    private static void ClearClaim(InMemoryTaskRecord task)
+    private static void ClearClaim(InMemoryJobRecord job)
     {
-        task.ClaimedByNodeId = null;
-        task.ClaimedAtUtc = null;
-        task.LeaseToken = null;
-        task.LeaseExpiresAtUtc = null;
-        task.LastHeartbeatAtUtc = null;
+        job.ClaimedByNodeId = null;
+        job.ClaimedAtUtc = null;
+        job.LeaseToken = null;
+        job.LeaseExpiresAtUtc = null;
+        job.LastHeartbeatAtUtc = null;
     }
 
-    private bool CanClaim(InMemoryTaskRecord task)
+    private bool CanClaim(InMemoryJobRecord job)
     {
-        foreach (var groupKey in task.ConcurrencyGroupKeys)
+        foreach (var groupKey in job.ConcurrencyGroupKeys)
         {
             var limit = this._concurrencyLimits.GetValueOrDefault(groupKey, 1);
-            var occupancy = this._tasks.Values.Count(candidate =>
-                    candidate.State == TaskState.Claimed
+            var occupancy = this._jobs.Values.Count(candidate =>
+                    candidate.State == JobState.Claimed
                     && candidate.ConcurrencyGroupKeys.Contains(groupKey, StringComparer.Ordinal));
 
             if (occupancy >= limit)
@@ -1056,16 +1056,16 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
     }
 
     private bool TryGetCurrentClaim(
-        Guid taskId,
+        Guid jobId,
         string nodeId,
         Guid leaseToken,
         DateTimeOffset observedAtUtc,
-        out InMemoryTaskRecord task)
+        out InMemoryJobRecord job)
     {
-        task = null!;
+        job = null!;
 
-        if (!this._tasks.TryGetValue(taskId, out var candidate)
-            || candidate.State != TaskState.Claimed
+        if (!this._jobs.TryGetValue(jobId, out var candidate)
+            || candidate.State != JobState.Claimed
             || !string.Equals(candidate.ClaimedByNodeId, nodeId, StringComparison.Ordinal)
             || candidate.LeaseToken != leaseToken
             || candidate.LeaseExpiresAtUtc <= observedAtUtc)
@@ -1073,7 +1073,7 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
             return false;
         }
 
-        task = candidate;
+        job = candidate;
         return true;
     }
 
@@ -1088,11 +1088,11 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         && schedule.RetryPolicy == request.RetryPolicy
         && schedule.OverlapMode == request.OverlapMode;
 
-    private static bool PayloadEquals(SerializedTaskPayload left, SerializedTaskPayload right)
+    private static bool PayloadEquals(SerializedJobPayload left, SerializedJobPayload right)
       => string.Equals(left.ContentType, right.ContentType, StringComparison.Ordinal)
         && left.Data.SequenceEqual(right.Data);
 
-    private static void ValidateEnqueueRequest(EnqueueTaskRequest request)
+    private static void ValidateEnqueueRequest(EnqueueJobRequest request)
     {
         if (request.MaxAttempts < 1)
         {
@@ -1145,7 +1145,7 @@ internal sealed class InMemoryTaskStore(IDashboardLiveUpdatePublisher liveUpdate
         }
     }
 
-    private static SerializedTaskPayload ClonePayload(SerializedTaskPayload payload)
+    private static SerializedJobPayload ClonePayload(SerializedJobPayload payload)
       => new(payload.ContentType, [.. payload.Data]);
 }
 

@@ -15,17 +15,17 @@ using Sheddueller.Storage;
 public static class ShedduellerInMemoryBuilderExtensions
 {
     /// <summary>
-    /// Uses the process-local in-memory task store.
+    /// Uses the process-local in-memory job store.
     /// </summary>
     public static ShedduellerBuilder UseInMemoryStore(this ShedduellerBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.Services.Replace(ServiceDescriptor.Singleton<InMemoryTaskStore, InMemoryTaskStore>());
-        builder.Services.Replace(ServiceDescriptor.Singleton<ITaskStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<InMemoryJobStore, InMemoryJobStore>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<InMemoryJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<InMemoryJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryJobStore>()));
         return builder;
     }
 }

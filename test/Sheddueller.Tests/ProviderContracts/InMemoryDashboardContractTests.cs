@@ -9,7 +9,7 @@ public sealed class InMemoryDashboardContractTests : DashboardContractTests
 {
     protected override ValueTask<DashboardContractContext> CreateContextAsync()
     {
-        var store = new InMemoryTaskStore();
+        var store = new InMemoryJobStore();
         return ValueTask.FromResult(new DashboardContractContext(store, store, store, store));
     }
 }

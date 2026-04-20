@@ -30,37 +30,37 @@ internal sealed class ShedduellerWorker(
     private readonly IShedduellerWakeSignal _wakeSignal = wakeSignal;
     private readonly IShedduellerNodeIdProvider _nodeIdProvider = nodeIdProvider;
     private readonly IDashboardEventSink _dashboardEventSink = dashboardEventSink;
-    private readonly ConcurrentDictionary<Task, byte> _runningTasks = new();
+    private readonly ConcurrentDictionary<Task, byte> _runningJobs = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var store = this._serviceProvider.GetRequiredService<ITaskStore>();
+        var store = this._serviceProvider.GetRequiredService<IJobStore>();
 
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                this.PruneCompletedTasks();
+                this.PruneCompletedJobs();
                 await this.RunPeriodicStoreWorkAsync(store, stoppingToken).ConfigureAwait(false);
 
-                var claimedTask = false;
-                while (!stoppingToken.IsCancellationRequested && this._runningTasks.Count < this._options.Value.MaxConcurrentExecutionsPerNode)
+                var claimedJob = false;
+                while (!stoppingToken.IsCancellationRequested && this._runningJobs.Count < this._options.Value.MaxConcurrentExecutionsPerNode)
                 {
                     var now = this._timeProvider.GetUtcNow();
                     var claimResult = await store
-                        .TryClaimNextAsync(new ClaimTaskRequest(this._nodeIdProvider.NodeId, now, now.Add(this._options.Value.LeaseDuration)), stoppingToken)
+                        .TryClaimNextAsync(new ClaimJobRequest(this._nodeIdProvider.NodeId, now, now.Add(this._options.Value.LeaseDuration)), stoppingToken)
                         .ConfigureAwait(false);
 
-                    if (claimResult is not ClaimTaskResult.Claimed claimed)
+                    if (claimResult is not ClaimJobResult.Claimed claimed)
                     {
                         break;
                     }
 
-                    claimedTask = true;
-                    this.TrackTask(this.ExecuteClaimedTaskAsync(store, claimed.Task, stoppingToken));
+                    claimedJob = true;
+                    this.TrackRunningJob(this.ExecuteClaimedJobAsync(store, claimed.Job, stoppingToken));
                 }
 
-                if (claimedTask)
+                if (claimedJob)
                 {
                     continue;
                 }
@@ -70,15 +70,15 @@ internal sealed class ShedduellerWorker(
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Shutdown stops claiming. Running tasks are awaited below so terminal state can be recorded.
+            // Shutdown stops claiming. Running jobs are awaited below so terminal state can be recorded.
         }
 
-        await this.WaitForRunningTasksAsync().ConfigureAwait(false);
+        await this.WaitForRunningJobsAsync().ConfigureAwait(false);
     }
 
     private async ValueTask WaitForWorkOrCapacityAsync(CancellationToken stoppingToken)
     {
-        if (this._runningTasks.IsEmpty)
+        if (this._runningJobs.IsEmpty)
         {
             await this._wakeSignal.WaitAsync(this._options.Value.IdlePollingInterval, stoppingToken).ConfigureAwait(false);
             return;
@@ -86,7 +86,7 @@ internal sealed class ShedduellerWorker(
 
         var delayTask = Task.Delay(this._options.Value.IdlePollingInterval, stoppingToken);
         var signalTask = this._wakeSignal.WaitAsync(this._options.Value.IdlePollingInterval, stoppingToken).AsTask();
-        var completedRunningTask = await Task.WhenAny(this._runningTasks.Keys.Append(delayTask).Append(signalTask)).ConfigureAwait(false);
+        var completedRunningTask = await Task.WhenAny(this._runningJobs.Keys.Append(delayTask).Append(signalTask)).ConfigureAwait(false);
 
         if (completedRunningTask == signalTask)
         {
@@ -94,30 +94,30 @@ internal sealed class ShedduellerWorker(
         }
     }
 
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Task failures must be persisted instead of escaping the worker.")]
-    private async Task ExecuteClaimedTaskAsync(ITaskStore store, ClaimedTask task, CancellationToken stoppingToken)
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Job failures must be persisted instead of escaping the worker.")]
+    private async Task ExecuteClaimedJobAsync(IJobStore store, ClaimedJob job, CancellationToken stoppingToken)
     {
         var executionTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        var heartbeatTask = this.RenewLeaseUntilStoppedAsync(store, task, executionTokenSource);
+        var heartbeatTask = this.RenewLeaseUntilStoppedAsync(store, job, executionTokenSource);
 
         try
         {
-            await this.InvokeClaimedTaskAsync(task, executionTokenSource.Token).ConfigureAwait(false);
+            await this.InvokeClaimedJobAsync(job, executionTokenSource.Token).ConfigureAwait(false);
             await store
-                .MarkCompletedAsync(new CompleteTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
+                .MarkCompletedAsync(new CompleteJobRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (executionTokenSource.IsCancellationRequested)
         {
             await store
-                .ReleaseTaskAsync(new ReleaseTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
+                .ReleaseJobAsync(new ReleaseJobRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             await store
                 .MarkFailedAsync(
-                    new FailTaskRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
+                    new FailJobRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
                     CancellationToken.None)
                 .ConfigureAwait(false);
         }
@@ -129,29 +129,29 @@ internal sealed class ShedduellerWorker(
         }
     }
 
-    private async ValueTask InvokeClaimedTaskAsync(ClaimedTask task, CancellationToken executionToken)
+    private async ValueTask InvokeClaimedJobAsync(ClaimedJob job, CancellationToken executionToken)
     {
-        var serviceType = TypeNameFormatter.Resolve(task.ServiceType);
-        var methodParameterTypes = task.MethodParameterTypes.Select(TypeNameFormatter.Resolve).ToArray();
+        var serviceType = TypeNameFormatter.Resolve(job.ServiceType);
+        var methodParameterTypes = job.MethodParameterTypes.Select(TypeNameFormatter.Resolve).ToArray();
         var serializableParameterTypes = methodParameterTypes.Where(type => type != typeof(CancellationToken) && type != typeof(IJobContext)).ToArray();
-        var jobContext = new JobContext(task.TaskId, task.AttemptCount, this._dashboardEventSink, executionToken);
+        var jobContext = new JobContext(job.JobId, job.AttemptCount, this._dashboardEventSink, executionToken);
 
         var scope = this._scopeFactory.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
         {
             var service = scope.ServiceProvider.GetRequiredService(serviceType);
             var method = serviceType.GetMethod(
-                task.MethodName,
+                job.MethodName,
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
                 binder: null,
                 types: methodParameterTypes,
                 modifiers: null);
 
-            _ = method ?? throw new InvalidOperationException($"Could not resolve task method '{task.MethodName}' on service type '{serviceType}'.");
+            _ = method ?? throw new InvalidOperationException($"Could not resolve job method '{job.MethodName}' on service type '{serviceType}'.");
 
             var deserializedArguments = await scope.ServiceProvider
-                .GetRequiredService<ITaskPayloadSerializer>()
-                .DeserializeAsync(task.SerializedArguments, serializableParameterTypes, executionToken)
+                .GetRequiredService<IJobPayloadSerializer>()
+                .DeserializeAsync(job.SerializedArguments, serializableParameterTypes, executionToken)
                 .ConfigureAwait(false);
             var invocationArguments = BuildInvocationArguments(methodParameterTypes, deserializedArguments, jobContext, executionToken);
             object? result;
@@ -175,7 +175,7 @@ internal sealed class ShedduellerWorker(
                     await valueTaskResult.ConfigureAwait(false);
                     break;
                 default:
-                    throw new InvalidOperationException("Task method returned an unsupported result.");
+                    throw new InvalidOperationException("Job method returned an unsupported result.");
             }
         }
     }
@@ -209,23 +209,23 @@ internal sealed class ShedduellerWorker(
 
         if (deserializedIndex != deserializedArguments.Count)
         {
-            throw new InvalidOperationException("Task payload argument count did not match target method parameters.");
+            throw new InvalidOperationException("Job payload argument count did not match target method parameters.");
         }
 
         return invocationArguments;
     }
 
-    private void TrackTask(Task task)
+    private void TrackRunningJob(Task executionTask)
     {
-        this._runningTasks.TryAdd(task, 0);
-        task.ContinueWith(
-            completedTask => this._runningTasks.TryRemove(completedTask, out _),
+        this._runningJobs.TryAdd(executionTask, 0);
+        executionTask.ContinueWith(
+            completedTask => this._runningJobs.TryRemove(completedTask, out _),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }
 
-    private async ValueTask RunPeriodicStoreWorkAsync(ITaskStore store, CancellationToken cancellationToken)
+    private async ValueTask RunPeriodicStoreWorkAsync(IJobStore store, CancellationToken cancellationToken)
     {
         var now = this._timeProvider.GetUtcNow();
         var recovered = await store
@@ -242,8 +242,8 @@ internal sealed class ShedduellerWorker(
     }
 
     private async Task RenewLeaseUntilStoppedAsync(
-        ITaskStore store,
-        ClaimedTask task,
+        IJobStore store,
+        ClaimedJob job,
         CancellationTokenSource executionTokenSource)
     {
         try
@@ -255,7 +255,7 @@ internal sealed class ShedduellerWorker(
                 var now = this._timeProvider.GetUtcNow();
                 var renewed = await store
                     .RenewLeaseAsync(
-                        new RenewLeaseRequest(task.TaskId, this._nodeIdProvider.NodeId, task.LeaseToken, now, now.Add(this._options.Value.LeaseDuration)),
+                        new RenewLeaseRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, now, now.Add(this._options.Value.LeaseDuration)),
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
@@ -268,11 +268,11 @@ internal sealed class ShedduellerWorker(
         }
         catch (OperationCanceledException) when (executionTokenSource.IsCancellationRequested)
         {
-            // Expected when the task completes, the host stops, or ownership is lost.
+            // Expected when the job completes, the host stops, or ownership is lost.
         }
     }
 
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Heartbeat failures should not fault the task execution cleanup path.")]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Heartbeat failures should not fault the job execution cleanup path.")]
     private static async ValueTask WaitForHeartbeatTaskAsync(Task heartbeatTask)
     {
         try
@@ -285,34 +285,34 @@ internal sealed class ShedduellerWorker(
         }
     }
 
-    private void PruneCompletedTasks()
+    private void PruneCompletedJobs()
     {
-        foreach (var task in this._runningTasks.Keys.Where(task => task.IsCompleted))
+        foreach (var job in this._runningJobs.Keys.Where(job => job.IsCompleted))
         {
-            this._runningTasks.TryRemove(task, out _);
+            this._runningJobs.TryRemove(job, out _);
         }
     }
 
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Individual execution tasks persist failure details before shutdown wait observes them.")]
-    private async Task WaitForRunningTasksAsync()
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Individual execution jobs persist failure details before shutdown wait observes them.")]
+    private async Task WaitForRunningJobsAsync()
     {
-        while (!this._runningTasks.IsEmpty)
+        while (!this._runningJobs.IsEmpty)
         {
-            Task[] snapshot = [.. this._runningTasks.Keys];
+            Task[] snapshot = [.. this._runningJobs.Keys];
             try
             {
                 await Task.WhenAll(snapshot).ConfigureAwait(false);
             }
             catch
             {
-                // Individual execution tasks record their own failure state.
+                // Individual execution jobs record their own failure state.
             }
 
-            this.PruneCompletedTasks();
+            this.PruneCompletedJobs();
         }
     }
 
-    private static TaskFailureInfo CreateFailureInfo(Exception exception)
+    private static JobFailureInfo CreateFailureInfo(Exception exception)
         => new(
             exception.GetType().FullName ?? exception.GetType().Name,
             exception.Message,

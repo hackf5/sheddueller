@@ -3,39 +3,39 @@ namespace Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
-internal static class MarkTaskFailedOperation
+internal static class MarkJobFailedOperation
 {
     public static async ValueTask<bool> ExecuteAsync(
         PostgresOperationContext context,
-        FailTaskRequest request,
+        FailJobRequest request,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var task = await PostgresClaimedTasks.TryReadCurrentClaimForFailureAsync(
+        var job = await PostgresClaimedJobs.TryReadCurrentClaimForFailureAsync(
           context,
           connection,
           transaction,
-          request.TaskId,
+          request.JobId,
           request.NodeId,
           request.LeaseToken,
           cancellationToken)
           .ConfigureAwait(false);
 
-        if (task is null)
+        if (job is null)
         {
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
 
-        await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, task.GroupKeys, cancellationToken).ConfigureAwait(false);
-        await PostgresClaimedTasks.ApplyFailedAttemptAsync(context, connection, transaction, task, request.Failure, cancellationToken)
+        await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
+        await PostgresClaimedJobs.ApplyFailedAttemptAsync(context, connection, transaction, job, request.Failure, cancellationToken)
           .ConfigureAwait(false);
         await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
           context,
           connection,
           transaction,
-          new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.AttemptFailed, task.AttemptCount, Message: request.Failure.Message),
+          new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.AttemptFailed, job.AttemptCount, Message: request.Failure.Message),
           cancellationToken)
           .ConfigureAwait(false);
         await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
@@ -43,10 +43,10 @@ internal static class MarkTaskFailedOperation
           connection,
           transaction,
           new AppendDashboardJobEventRequest(
-            task.TaskId,
+            job.JobId,
             DashboardJobEventKind.Lifecycle,
-            task.AttemptCount,
-            Message: task.AttemptCount < task.MaxAttempts ? "Retry scheduled" : "Failed"),
+            job.AttemptCount,
+            Message: job.AttemptCount < job.MaxAttempts ? "Retry scheduled" : "Failed"),
           cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

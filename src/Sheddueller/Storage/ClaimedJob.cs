@@ -3,16 +3,16 @@ namespace Sheddueller.Storage;
 using Sheddueller.Serialization;
 
 /// <summary>
-/// A task claimed by a worker node.
+/// A job claimed by a worker node.
 /// </summary>
-public sealed record ClaimedTask(
-    Guid TaskId,
+public sealed record ClaimedJob(
+    Guid JobId,
     long EnqueueSequence,
     int Priority,
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
-    SerializedTaskPayload SerializedArguments,
+    SerializedJobPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys,
     int AttemptCount,
     int MaxAttempts,

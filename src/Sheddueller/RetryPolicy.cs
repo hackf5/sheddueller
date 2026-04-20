@@ -1,7 +1,7 @@
 namespace Sheddueller;
 
 /// <summary>
-/// Retry policy for failed task attempts.
+/// Retry policy for failed job attempts.
 /// </summary>
 public sealed record RetryPolicy(
     int MaxAttempts,

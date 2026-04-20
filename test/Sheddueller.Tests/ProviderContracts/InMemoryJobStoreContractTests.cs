@@ -4,8 +4,8 @@ namespace Sheddueller.Tests.ProviderContracts;
 
 using Sheddueller.ProviderContracts;
 
-public sealed class InMemoryTaskStoreContractTests : TaskStoreContractTests
+public sealed class InMemoryJobStoreContractTests : JobStoreContractTests
 {
-    protected override ValueTask<TaskStoreContractContext> CreateContextAsync()
-      => ValueTask.FromResult(new TaskStoreContractContext(new InMemoryTaskStore()));
+    protected override ValueTask<JobStoreContractContext> CreateContextAsync()
+      => ValueTask.FromResult(new JobStoreContractContext(new InMemoryJobStore()));
 }

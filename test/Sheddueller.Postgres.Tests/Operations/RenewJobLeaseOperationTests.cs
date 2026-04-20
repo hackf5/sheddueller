@@ -4,35 +4,35 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class RenewTaskLeaseOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class RenewJobLeaseOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
 {
     [Fact]
     public async Task RenewLease_CurrentLease_UpdatesHeartbeatAndExpiry()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
         var claimed = await PostgresTestData.ClaimAsync(context.Store);
         var heartbeatAt = DateTimeOffset.UtcNow;
 
-        (await context.Store.RenewLeaseAsync(new RenewLeaseRequest(taskId, "node-1", claimed.LeaseToken, heartbeatAt, heartbeatAt.AddMinutes(2)))).ShouldBeTrue();
+        (await context.Store.RenewLeaseAsync(new RenewLeaseRequest(jobId, "node-1", claimed.LeaseToken, heartbeatAt, heartbeatAt.AddMinutes(2)))).ShouldBeTrue();
 
-        var task = await context.ReadTaskAsync(taskId);
-        task.LastHeartbeatAtUtc.ShouldNotBeNull();
-        task.LeaseExpiresAtUtc.ShouldNotBeNull();
-        task.LeaseExpiresAtUtc.Value.ShouldBeGreaterThan(claimed.LeaseExpiresAtUtc);
+        var job = await context.ReadJobAsync(jobId);
+        job.LastHeartbeatAtUtc.ShouldNotBeNull();
+        job.LeaseExpiresAtUtc.ShouldNotBeNull();
+        job.LeaseExpiresAtUtc.Value.ShouldBeGreaterThan(claimed.LeaseExpiresAtUtc);
     }
 
     [Fact]
     public async Task RenewLease_StaleToken_ReturnsFalse()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
         await PostgresTestData.ClaimAsync(context.Store);
         var heartbeatAt = DateTimeOffset.UtcNow;
 
-        (await context.Store.RenewLeaseAsync(new RenewLeaseRequest(taskId, "node-1", Guid.NewGuid(), heartbeatAt, heartbeatAt.AddMinutes(1)))).ShouldBeFalse();
+        (await context.Store.RenewLeaseAsync(new RenewLeaseRequest(jobId, "node-1", Guid.NewGuid(), heartbeatAt, heartbeatAt.AddMinutes(1)))).ShouldBeFalse();
     }
 
     [Fact]

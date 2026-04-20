@@ -4,27 +4,27 @@ using Npgsql;
 
 using Sheddueller.Storage;
 
-internal static class PostgresClaimedTasks
+internal static class PostgresClaimedJobs
 {
     public static async ValueTask<IReadOnlyList<string>?> TryLockCurrentClaimGroupsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid taskId,
+        Guid jobId,
         string nodeId,
         Guid leaseToken,
         CancellationToken cancellationToken)
     {
-        var task = await TryReadCurrentClaimForFailureAsync(context, connection, transaction, taskId, nodeId, leaseToken, cancellationToken)
+        var job = await TryReadCurrentClaimForFailureAsync(context, connection, transaction, jobId, nodeId, leaseToken, cancellationToken)
           .ConfigureAwait(false);
-        return task?.GroupKeys;
+        return job?.GroupKeys;
     }
 
-    public static async ValueTask<PostgresClaimedTask?> TryReadCurrentClaimForFailureAsync(
+    public static async ValueTask<PostgresClaimedJob?> TryReadCurrentClaimForFailureAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid taskId,
+        Guid jobId,
         string nodeId,
         Guid leaseToken,
         CancellationToken cancellationToken)
@@ -34,44 +34,44 @@ internal static class PostgresClaimedTasks
         command.CommandText =
           $"""
           select
-              task.task_id,
-              task.attempt_count,
-              task.max_attempts,
-              task.retry_backoff_kind,
-              task.retry_base_delay_ms,
-              task.retry_max_delay_ms
-          from {context.Names.Tasks} task
-          where task.task_id = @task_id
-            and task.state = 'Claimed'
-            and task.claimed_by_node_id = @node_id
-            and task.lease_token = @lease_token
-            and task.lease_expires_at_utc > transaction_timestamp()
+              job.job_id,
+              job.attempt_count,
+              job.max_attempts,
+              job.retry_backoff_kind,
+              job.retry_base_delay_ms,
+              job.retry_max_delay_ms
+          from {context.Names.Jobs} job
+          where job.job_id = @job_id
+            and job.state = 'Claimed'
+            and job.claimed_by_node_id = @node_id
+            and job.lease_token = @lease_token
+            and job.lease_expires_at_utc > transaction_timestamp()
           for update;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
         command.Parameters.AddWithValue("node_id", nodeId);
         command.Parameters.AddWithValue("lease_token", leaseToken);
 
-        PostgresClaimedTask? task = null;
+        PostgresClaimedJob? job = null;
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                task = PostgresReaders.ReadPostgresClaimedTask(reader, []);
+                job = PostgresReaders.ReadPostgresClaimedJob(reader, []);
             }
         }
 
-        if (task is null)
+        if (job is null)
         {
             return null;
         }
 
-        var groupKeys = await PostgresTaskGroups.ReadTaskGroupKeysAsync(context, connection, transaction, task.TaskId, cancellationToken)
+        var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, job.JobId, cancellationToken)
           .ConfigureAwait(false);
-        return task with { GroupKeys = groupKeys };
+        return job with { GroupKeys = groupKeys };
     }
 
-    public static async ValueTask<IReadOnlyList<PostgresClaimedTask>> ReadExpiredClaimsAsync(
+    public static async ValueTask<IReadOnlyList<PostgresClaimedJob>> ReadExpiredClaimsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -82,53 +82,53 @@ internal static class PostgresClaimedTasks
         command.CommandText =
           $"""
           select
-              task.task_id,
-              task.attempt_count,
-              task.max_attempts,
-              task.retry_backoff_kind,
-              task.retry_base_delay_ms,
-              task.retry_max_delay_ms
-          from {context.Names.Tasks} task
-          where task.state = 'Claimed'
-            and task.lease_expires_at_utc <= transaction_timestamp()
-          order by task.lease_expires_at_utc asc, task.enqueue_sequence asc
+              job.job_id,
+              job.attempt_count,
+              job.max_attempts,
+              job.retry_backoff_kind,
+              job.retry_base_delay_ms,
+              job.retry_max_delay_ms
+          from {context.Names.Jobs} job
+          where job.state = 'Claimed'
+            and job.lease_expires_at_utc <= transaction_timestamp()
+          order by job.lease_expires_at_utc asc, job.enqueue_sequence asc
           for update skip locked;
           """;
 
-        var tasks = new List<PostgresClaimedTask>();
+        var jobs = new List<PostgresClaimedJob>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                tasks.Add(PostgresReaders.ReadPostgresClaimedTask(reader, []));
+                jobs.Add(PostgresReaders.ReadPostgresClaimedJob(reader, []));
             }
         }
 
-        for (var i = 0; i < tasks.Count; i++)
+        for (var i = 0; i < jobs.Count; i++)
         {
-            var groupKeys = await PostgresTaskGroups.ReadTaskGroupKeysAsync(context, connection, transaction, tasks[i].TaskId, cancellationToken)
+            var groupKeys = await PostgresJobGroups.ReadJobGroupKeysAsync(context, connection, transaction, jobs[i].JobId, cancellationToken)
               .ConfigureAwait(false);
-            tasks[i] = tasks[i] with { GroupKeys = groupKeys };
+            jobs[i] = jobs[i] with { GroupKeys = groupKeys };
         }
 
-        return tasks;
+        return jobs;
     }
 
     public static async ValueTask ApplyFailedAttemptAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        PostgresClaimedTask task,
-        TaskFailureInfo failure,
+        PostgresClaimedJob job,
+        JobFailureInfo failure,
         CancellationToken cancellationToken)
     {
-        var retriesRemain = task.AttemptCount < task.MaxAttempts;
+        var retriesRemain = job.AttemptCount < job.MaxAttempts;
         var notBeforeExpression = retriesRemain ? "transaction_timestamp() + @retry_delay" : "null";
         await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
           $"""
-          update {context.Names.Tasks}
+          update {context.Names.Jobs}
           set state = @state,
               failed_at_utc = transaction_timestamp(),
               failure_type_name = @failure_type_name,
@@ -140,11 +140,11 @@ internal static class PostgresClaimedTasks
               lease_token = null,
               lease_expires_at_utc = null,
               last_heartbeat_at_utc = null
-          where task_id = @task_id;
+          where job_id = @job_id;
           """,
           command =>
           {
-              command.Parameters.AddWithValue("task_id", task.TaskId);
+              command.Parameters.AddWithValue("job_id", job.JobId);
               command.Parameters.AddWithValue("state", retriesRemain ? "Queued" : "Failed");
               command.Parameters.AddWithValue("failure_type_name", failure.ExceptionType);
               command.Parameters.AddWithValue("failure_message", failure.Message);
@@ -152,7 +152,7 @@ internal static class PostgresClaimedTasks
 
               if (retriesRemain)
               {
-                  command.Parameters.AddWithValue("retry_delay", PostgresRetryPolicies.CalculateBackoff(task));
+                  command.Parameters.AddWithValue("retry_delay", PostgresRetryPolicies.CalculateBackoff(job));
               }
           },
           cancellationToken)

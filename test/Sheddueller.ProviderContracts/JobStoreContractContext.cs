@@ -2,12 +2,12 @@ namespace Sheddueller.ProviderContracts;
 
 using Sheddueller.Storage;
 
-public sealed class TaskStoreContractContext(
-    ITaskStore store,
+public sealed class JobStoreContractContext(
+    IJobStore store,
     Func<string, ValueTask>? makeScheduleDueAsync = null,
     IAsyncDisposable? asyncDisposable = null) : IAsyncDisposable
 {
-    public ITaskStore Store { get; } = store;
+    public IJobStore Store { get; } = store;
 
     public ValueTask MakeScheduleDueAsync(string scheduleKey)
       => makeScheduleDueAsync?.Invoke(scheduleKey) ?? ValueTask.CompletedTask;

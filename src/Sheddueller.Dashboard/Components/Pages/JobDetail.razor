@@ -1,4 +1,4 @@
-@page "/jobs/{TaskId:guid}"
+@page "/jobs/{JobId:guid}"
 @implements IDisposable
 @inject IDashboardJobReader Reader
 @inject DashboardLiveUpdateStream LiveUpdates
@@ -14,8 +14,8 @@ else
     <section>
         <h3>Metadata</h3>
         <dl>
-            <dt>Task id</dt>
-            <dd>@_detail.Summary.TaskId</dd>
+            <dt>Job id</dt>
+            <dd>@_detail.Summary.JobId</dd>
             <dt>State</dt>
             <dd>@_detail.Summary.State</dd>
             <dt>Handler</dt>
@@ -106,7 +106,7 @@ else
 
 @code {
     [Parameter]
-    public Guid TaskId { get; set; }
+    public Guid JobId { get; set; }
 
     private DashboardJobDetail? _detail;
     private IReadOnlyList<DashboardJobEvent> _events = [];
@@ -124,7 +124,7 @@ else
         DashboardJobEvent jobEvent,
         CancellationToken cancellationToken)
     {
-        if (jobEvent.TaskId != TaskId)
+        if (jobEvent.JobId != JobId)
         {
             return;
         }
@@ -135,7 +135,7 @@ else
 
     private async Task LoadAsync()
     {
-        _detail = await Reader.GetJobAsync(TaskId).ConfigureAwait(false);
+        _detail = await Reader.GetJobAsync(JobId).ConfigureAwait(false);
         if (_detail is null)
         {
             _events = [];
@@ -143,7 +143,7 @@ else
         }
 
         var events = new List<DashboardJobEvent>();
-        await foreach (var jobEvent in Reader.ReadEventsAsync(TaskId))
+        await foreach (var jobEvent in Reader.ReadEventsAsync(JobId))
         {
             events.Add(jobEvent);
         }

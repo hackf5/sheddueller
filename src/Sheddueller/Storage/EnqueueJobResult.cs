@@ -1,8 +1,8 @@
 namespace Sheddueller.Storage;
 
 /// <summary>
-/// Store result for an enqueued task.
+/// Store result for an enqueued job.
 /// </summary>
-public sealed record EnqueueTaskResult(
-    Guid TaskId,
+public sealed record EnqueueJobResult(
+    Guid JobId,
     long EnqueueSequence);

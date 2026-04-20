@@ -11,7 +11,7 @@ public sealed class ShedduellerOptions
     public string? NodeId { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum number of tasks this node executes concurrently.
+    /// Gets or sets the maximum number of jobs this node executes concurrently.
     /// </summary>
     public int MaxConcurrentExecutionsPerNode { get; set; } = Environment.ProcessorCount;
 
@@ -21,12 +21,12 @@ public sealed class ShedduellerOptions
     public TimeSpan IdlePollingInterval { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// Gets or sets the lease duration for claimed tasks.
+    /// Gets or sets the lease duration for claimed jobs.
     /// </summary>
     public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Gets or sets the interval used by workers to renew claimed task leases.
+    /// Gets or sets the interval used by workers to renew claimed job leases.
     /// </summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(10);
 

@@ -3,9 +3,9 @@ namespace Sheddueller.Serialization;
 using System.Text.Json;
 
 /// <summary>
-/// Default task payload serializer based on System.Text.Json.
+/// Default job payload serializer based on System.Text.Json.
 /// </summary>
-public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer
+public sealed class SystemTextJsonJobPayloadSerializer : IJobPayloadSerializer
 {
     /// <summary>
     /// Content type used for the default JSON argument payload format.
@@ -15,7 +15,7 @@ public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     /// <inheritdoc />
-    public ValueTask<SerializedTaskPayload> SerializeAsync(
+    public ValueTask<SerializedJobPayload> SerializeAsync(
       IReadOnlyList<object?> arguments,
       IReadOnlyList<Type> parameterTypes,
       CancellationToken cancellationToken = default)
@@ -38,12 +38,12 @@ public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer
             writer.WriteEndArray();
         }
 
-        return ValueTask.FromResult(new SerializedTaskPayload(JsonContentType, stream.ToArray()));
+        return ValueTask.FromResult(new SerializedJobPayload(JsonContentType, stream.ToArray()));
     }
 
     /// <inheritdoc />
     public ValueTask<IReadOnlyList<object?>> DeserializeAsync(
-      SerializedTaskPayload payload,
+      SerializedJobPayload payload,
       IReadOnlyList<Type> parameterTypes,
       CancellationToken cancellationToken = default)
     {
@@ -53,7 +53,7 @@ public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer
 
         if (!string.Equals(payload.ContentType, JsonContentType, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"Unsupported task payload content type '{payload.ContentType}'.");
+            throw new InvalidOperationException($"Unsupported job payload content type '{payload.ContentType}'.");
         }
 
         using var document = JsonDocument.Parse(payload.Data);
@@ -61,7 +61,7 @@ public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer
 
         if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() != parameterTypes.Count)
         {
-            throw new InvalidOperationException("Task payload does not match the expected argument count.");
+            throw new InvalidOperationException("Job payload does not match the expected argument count.");
         }
 
         var arguments = new object?[parameterTypes.Count];

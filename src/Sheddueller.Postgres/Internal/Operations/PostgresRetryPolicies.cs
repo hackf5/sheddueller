@@ -12,22 +12,22 @@ internal static class PostgresRetryPolicies
         return new PostgresRetryPolicy(true, retryPolicy.MaxAttempts, retryPolicy.BackoffKind, retryPolicy.BaseDelay, retryPolicy.MaxDelay);
     }
 
-    public static TimeSpan CalculateBackoff(PostgresClaimedTask task)
+    public static TimeSpan CalculateBackoff(PostgresClaimedJob job)
     {
-        if (task.RetryBackoffKind is null || task.RetryBaseDelay is null)
+        if (job.RetryBackoffKind is null || job.RetryBaseDelay is null)
         {
             return TimeSpan.Zero;
         }
 
-        if (task.RetryBackoffKind == RetryBackoffKind.Fixed)
+        if (job.RetryBackoffKind == RetryBackoffKind.Fixed)
         {
-            return task.RetryBaseDelay.Value;
+            return job.RetryBaseDelay.Value;
         }
 
-        var multiplier = Math.Pow(2, task.AttemptCount - 1);
-        var ticks = task.RetryBaseDelay.Value.Ticks * multiplier;
+        var multiplier = Math.Pow(2, job.AttemptCount - 1);
+        var ticks = job.RetryBaseDelay.Value.Ticks * multiplier;
         var delay = TimeSpan.FromTicks((long)Math.Min(TimeSpan.MaxValue.Ticks, ticks));
 
-        return task.RetryMaxDelay is { } maxDelay && delay > maxDelay ? maxDelay : delay;
+        return job.RetryMaxDelay is { } maxDelay && delay > maxDelay ? maxDelay : delay;
     }
 }

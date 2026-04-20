@@ -2,13 +2,13 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
-internal static class PostgresTaskTags
+internal static class PostgresJobTags
 {
-    public static async ValueTask ReplaceTaskTagsAsync(
+    public static async ValueTask ReplaceJobTagsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid taskId,
+        Guid jobId,
         IReadOnlyList<JobTag>? tags,
         CancellationToken cancellationToken)
     {
@@ -16,8 +16,8 @@ internal static class PostgresTaskTags
         await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
-          $"delete from {context.Names.TaskTags} where task_id = @task_id;",
-          command => command.Parameters.AddWithValue("task_id", taskId),
+          $"delete from {context.Names.JobTags} where job_id = @job_id;",
+          command => command.Parameters.AddWithValue("job_id", jobId),
           cancellationToken)
           .ConfigureAwait(false);
 
@@ -27,13 +27,13 @@ internal static class PostgresTaskTags
               connection,
               transaction,
               $"""
-              insert into {context.Names.TaskTags} (task_id, name, value)
-              values (@task_id, @name, @value)
-              on conflict (task_id, name, value) do nothing;
+              insert into {context.Names.JobTags} (job_id, name, value)
+              values (@job_id, @name, @value)
+              on conflict (job_id, name, value) do nothing;
               """,
               command =>
               {
-                  command.Parameters.AddWithValue("task_id", taskId);
+                  command.Parameters.AddWithValue("job_id", jobId);
                   command.Parameters.AddWithValue("name", tag.Name);
                   command.Parameters.AddWithValue("value", tag.Value);
               },
@@ -42,21 +42,21 @@ internal static class PostgresTaskTags
         }
     }
 
-    public static async ValueTask<IReadOnlyList<JobTag>> ReadTaskTagsAsync(
+    public static async ValueTask<IReadOnlyList<JobTag>> ReadJobTagsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
           select name, value
-          from {context.Names.TaskTags}
-          where task_id = @task_id
+          from {context.Names.JobTags}
+          where job_id = @job_id
           order by name asc, value asc;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         var tags = new List<JobTag>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

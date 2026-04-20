@@ -6,9 +6,9 @@ namespace Sheddueller;
 public interface IJobContext
 {
     /// <summary>
-    /// Gets the task identifier for the running job.
+    /// Gets the job identifier for the running job.
     /// </summary>
-    Guid TaskId { get; }
+    Guid JobId { get; }
 
     /// <summary>
     /// Gets the one-based attempt number currently being executed.

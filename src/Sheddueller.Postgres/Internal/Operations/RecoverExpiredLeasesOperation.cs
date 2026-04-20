@@ -11,24 +11,24 @@ internal static class RecoverExpiredLeasesOperation
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var expiredTasks = await PostgresClaimedTasks.ReadExpiredClaimsAsync(context, connection, transaction, cancellationToken)
+        var expiredJobs = await PostgresClaimedJobs.ReadExpiredClaimsAsync(context, connection, transaction, cancellationToken)
           .ConfigureAwait(false);
-        foreach (var task in expiredTasks)
+        foreach (var job in expiredJobs)
         {
-            await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, task.GroupKeys, cancellationToken).ConfigureAwait(false);
-            await PostgresClaimedTasks.ApplyFailedAttemptAsync(
+            await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
+            await PostgresClaimedJobs.ApplyFailedAttemptAsync(
               context,
               connection,
               transaction,
-              task,
-              new TaskFailureInfo("Sheddueller.LeaseExpired", "The task lease expired before the owning node renewed it.", null),
+              job,
+              new JobFailureInfo("Sheddueller.LeaseExpired", "The job lease expired before the owning node renewed it.", null),
               cancellationToken)
               .ConfigureAwait(false);
             await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.AttemptFailed, task.AttemptCount, Message: "The task lease expired before the owning node renewed it."),
+              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.AttemptFailed, job.AttemptCount, Message: "The job lease expired before the owning node renewed it."),
               cancellationToken)
               .ConfigureAwait(false);
             await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
@@ -36,20 +36,20 @@ internal static class RecoverExpiredLeasesOperation
               connection,
               transaction,
               new AppendDashboardJobEventRequest(
-                task.TaskId,
+                job.JobId,
                 DashboardJobEventKind.Lifecycle,
-                task.AttemptCount,
-                Message: task.AttemptCount < task.MaxAttempts ? "Retry scheduled" : "Failed"),
+                job.AttemptCount,
+                Message: job.AttemptCount < job.MaxAttempts ? "Retry scheduled" : "Failed"),
               cancellationToken)
               .ConfigureAwait(false);
         }
 
-        if (expiredTasks.Count > 0)
+        if (expiredJobs.Count > 0)
         {
             await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return expiredTasks.Count;
+        return expiredJobs.Count;
     }
 }

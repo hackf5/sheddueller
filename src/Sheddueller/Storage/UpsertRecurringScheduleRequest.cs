@@ -11,7 +11,7 @@ public sealed record UpsertRecurringScheduleRequest(
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
-    SerializedTaskPayload SerializedArguments,
+    SerializedJobPayload SerializedArguments,
     int Priority,
     IReadOnlyList<string> ConcurrencyGroupKeys,
     RetryPolicy? RetryPolicy,

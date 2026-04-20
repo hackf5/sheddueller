@@ -24,21 +24,21 @@ public interface IDashboardJobReader
     /// Gets one job detail record.
     /// </summary>
     ValueTask<DashboardJobDetail?> GetJobAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Calculates the current queue position for a job.
     /// </summary>
     ValueTask<DashboardQueuePosition> GetQueuePositionAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Reads durable job events in ascending event sequence order.
     /// </summary>
     IAsyncEnumerable<DashboardJobEvent> ReadEventsAsync(
-        Guid taskId,
+        Guid jobId,
         DashboardEventQuery? query = null,
         CancellationToken cancellationToken = default);
 }
@@ -86,8 +86,8 @@ public interface IDashboardEventRetentionStore
 /// Dashboard job search query.
 /// </summary>
 public sealed record DashboardJobQuery(
-    Guid? TaskId = null,
-    TaskState? State = null,
+    Guid? JobId = null,
+    JobState? State = null,
     string? ServiceType = null,
     string? MethodName = null,
     JobTag? Tag = null,
@@ -110,7 +110,7 @@ public sealed record DashboardJobPage(
 /// Dashboard overview data for jobs.
 /// </summary>
 public sealed record DashboardJobOverview(
-    IReadOnlyDictionary<TaskState, int> StateCounts,
+    IReadOnlyDictionary<JobState, int> StateCounts,
     IReadOnlyList<DashboardJobSummary> RunningJobs,
     IReadOnlyList<DashboardJobSummary> RecentlyFailedJobs,
     IReadOnlyList<DashboardJobSummary> QueuedJobs,
@@ -121,8 +121,8 @@ public sealed record DashboardJobOverview(
 /// Dashboard job list item.
 /// </summary>
 public sealed record DashboardJobSummary(
-    Guid TaskId,
-    TaskState State,
+    Guid JobId,
+    JobState State,
     string ServiceType,
     string MethodName,
     int Priority,
@@ -169,7 +169,7 @@ public sealed record DashboardEventQuery(
 /// Request to append a dashboard job event.
 /// </summary>
 public sealed record AppendDashboardJobEventRequest(
-    Guid TaskId,
+    Guid JobId,
     DashboardJobEventKind Kind,
     int AttemptNumber,
     JobLogLevel? LogLevel = null,
@@ -182,7 +182,7 @@ public sealed record AppendDashboardJobEventRequest(
 /// </summary>
 public sealed record DashboardJobEvent(
     Guid EventId,
-    Guid TaskId,
+    Guid JobId,
     long EventSequence,
     DashboardJobEventKind Kind,
     DateTimeOffset OccurredAtUtc,
@@ -232,7 +232,7 @@ public enum DashboardJobEventKind
 /// Dynamic dashboard queue position.
 /// </summary>
 public sealed record DashboardQueuePosition(
-    Guid TaskId,
+    Guid JobId,
     DashboardQueuePositionKind Kind,
     long? Position,
     string? Reason = null);

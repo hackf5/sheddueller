@@ -5,22 +5,21 @@ using System.Linq.Expressions;
 /// <summary>
 /// Enqueues work for asynchronous execution by Sheddueller workers.
 /// </summary>
-public interface ITaskEnqueuer
+public interface IJobEnqueuer
 {
     /// <summary>
-    /// Enqueues a task-returning service method call.
+    /// Enqueues a Task-returning service method call.
     /// </summary>
     ValueTask<Guid> EnqueueAsync<TService>(
         Expression<Func<TService, CancellationToken, Task>> work,
-        TaskSubmission? submission = null,
+        JobSubmission? submission = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Enqueues a value-task-returning service method call.
+    /// Enqueues a ValueTask-returning service method call.
     /// </summary>
     ValueTask<Guid> EnqueueAsync<TService>(
         Expression<Func<TService, CancellationToken, ValueTask>> work,
-        TaskSubmission? submission = null,
+        JobSubmission? submission = null,
         CancellationToken cancellationToken = default);
-
 }

@@ -1,6 +1,6 @@
 namespace Sheddueller.Enqueueing;
 
-internal sealed record ParsedTask(
+internal sealed record ParsedJob(
   string MethodName,
   IReadOnlyList<string> MethodParameterTypeNames,
   IReadOnlyList<object?> SerializableArguments,

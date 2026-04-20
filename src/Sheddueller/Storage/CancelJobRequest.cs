@@ -1,8 +1,8 @@
 namespace Sheddueller.Storage;
 
 /// <summary>
-/// Store request for canceling a queued task.
+/// Store request for canceling a queued job.
 /// </summary>
-public sealed record CancelTaskRequest(
-    Guid TaskId,
+public sealed record CancelJobRequest(
+    Guid JobId,
     DateTimeOffset CanceledAtUtc);

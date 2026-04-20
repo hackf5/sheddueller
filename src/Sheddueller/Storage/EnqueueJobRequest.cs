@@ -3,15 +3,15 @@ namespace Sheddueller.Storage;
 using Sheddueller.Serialization;
 
 /// <summary>
-/// Store request for enqueuing a task.
+/// Store request for enqueuing a job.
 /// </summary>
-public sealed record EnqueueTaskRequest(
-    Guid TaskId,
+public sealed record EnqueueJobRequest(
+    Guid JobId,
     int Priority,
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
-    SerializedTaskPayload SerializedArguments,
+    SerializedJobPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys,
     DateTimeOffset EnqueuedAtUtc,
     DateTimeOffset? NotBeforeUtc = null,

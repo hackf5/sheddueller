@@ -11,7 +11,7 @@ internal sealed class NoOpDashboardEventSink(TimeProvider timeProvider) : IDashb
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(new DashboardJobEvent(
           Guid.NewGuid(),
-          request.TaskId,
+          request.JobId,
           0,
           request.Kind,
           timeProvider.GetUtcNow(),

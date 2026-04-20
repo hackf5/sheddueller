@@ -5,11 +5,11 @@ using System.Globalization;
 using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
-internal static class EnqueueTaskOperation
+internal static class EnqueueJobOperation
 {
-    public static async ValueTask<EnqueueTaskResult> ExecuteAsync(
+    public static async ValueTask<EnqueueJobResult> ExecuteAsync(
         PostgresOperationContext context,
-        EnqueueTaskRequest request,
+        EnqueueJobRequest request,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -18,8 +18,8 @@ internal static class EnqueueTaskOperation
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          insert into {context.Names.Tasks} (
-              task_id,
+          insert into {context.Names.Jobs} (
+              job_id,
               state,
               priority,
               enqueued_at_utc,
@@ -37,7 +37,7 @@ internal static class EnqueueTaskOperation
               source_schedule_key,
               scheduled_fire_at_utc)
           values (
-              @task_id,
+              @job_id,
               'Queued',
               @priority,
               transaction_timestamp(),
@@ -56,7 +56,7 @@ internal static class EnqueueTaskOperation
               @scheduled_fire_at_utc)
           returning enqueue_sequence;
           """;
-        command.Parameters.AddWithValue("task_id", request.TaskId);
+        command.Parameters.AddWithValue("job_id", request.JobId);
         command.Parameters.AddWithValue("priority", request.Priority);
         command.Parameters.AddWithValue("not_before_utc", PostgresOperationContext.ToDbValue(request.NotBeforeUtc));
         command.Parameters.AddWithValue("service_type", request.ServiceType);
@@ -72,20 +72,20 @@ internal static class EnqueueTaskOperation
         command.Parameters.AddWithValue("scheduled_fire_at_utc", PostgresOperationContext.ToDbValue(request.ScheduledFireAtUtc));
 
         var enqueueSequence = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
-        await PostgresTaskGroups.ReplaceTaskGroupsAsync(context, connection, transaction, request.TaskId, request.ConcurrencyGroupKeys, cancellationToken)
+        await PostgresJobGroups.ReplaceJobGroupsAsync(context, connection, transaction, request.JobId, request.ConcurrencyGroupKeys, cancellationToken)
           .ConfigureAwait(false);
-        await PostgresTaskTags.ReplaceTaskTagsAsync(context, connection, transaction, request.TaskId, request.Tags, cancellationToken)
+        await PostgresJobTags.ReplaceJobTagsAsync(context, connection, transaction, request.JobId, request.Tags, cancellationToken)
           .ConfigureAwait(false);
         await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
           context,
           connection,
           transaction,
-          new AppendDashboardJobEventRequest(request.TaskId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
+          new AppendDashboardJobEventRequest(request.JobId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
           cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new EnqueueTaskResult(request.TaskId, enqueueSequence);
+        return new EnqueueJobResult(request.JobId, enqueueSequence);
     }
 }

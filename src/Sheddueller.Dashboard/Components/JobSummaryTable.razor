@@ -12,7 +12,7 @@ else
     <table>
         <thead>
             <tr>
-                <th>Task id</th>
+                <th>Job id</th>
                 <th>State</th>
                 <th>Handler</th>
                 <th>Priority</th>
@@ -27,7 +27,7 @@ else
             @foreach (var job in Jobs)
             {
                 <tr>
-                    <td><a href="jobs/@job.TaskId">@job.TaskId</a></td>
+                    <td><a href="jobs/@job.JobId">@job.JobId</a></td>
                     <td>@job.State</td>
                     <td>@job.ServiceType.@job.MethodName</td>
                     <td>@job.Priority</td>

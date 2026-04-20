@@ -1,11 +1,11 @@
 namespace Sheddueller.Storage;
 
 /// <summary>
-/// Store request for marking a task as failed.
+/// Store request for marking a job as failed.
 /// </summary>
-public sealed record FailTaskRequest(
-    Guid TaskId,
+public sealed record FailJobRequest(
+    Guid JobId,
     string NodeId,
     Guid LeaseToken,
     DateTimeOffset FailedAtUtc,
-    TaskFailureInfo Failure);
+    JobFailureInfo Failure);

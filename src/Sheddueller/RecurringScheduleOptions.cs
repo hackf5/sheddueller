@@ -1,7 +1,7 @@
 namespace Sheddueller;
 
 /// <summary>
-/// Options applied to tasks materialized from a recurring schedule.
+/// Options applied to jobs materialized from a recurring schedule.
 /// </summary>
 public sealed record RecurringScheduleOptions(
     int Priority = 0,

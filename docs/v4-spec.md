@@ -9,7 +9,6 @@ This document extends [v1](v1-spec.md), [v2](v2-spec.md), and [v3](v3-spec.md). 
 
 V4 is intentionally scoped to observation, not operation. The dashboard is read-only and focused on jobs.
 
-Terminology: earlier specs use task for the runtime/storage unit. V4 uses job for the dashboard/user-facing representation of a task.
 
 ## Summary
 
@@ -97,7 +96,7 @@ Requirements:
 
 - The dashboard must be opt-in. Registering the package must not automatically expose routes.
 - `MapShedduellerDashboard` mounts the dashboard UI and live-update hub under the configured path.
-- `EventRetention` controls durable dashboard event retention after a task reaches a terminal state.
+- `EventRetention` controls durable dashboard event retention after a job reaches a terminal state.
 - `EventRetention` must be positive.
 
 ## Security Model
@@ -127,22 +126,22 @@ public interface IDashboardJobReader
         CancellationToken cancellationToken = default);
 
     ValueTask<DashboardJobDetail?> GetJobAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 
     ValueTask<DashboardQueuePosition> GetQueuePositionAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 
     IAsyncEnumerable<DashboardJobEvent> ReadEventsAsync(
-        Guid taskId,
+        Guid jobId,
         DashboardEventQuery? query = null,
         CancellationToken cancellationToken = default);
 }
 
 public sealed record DashboardJobQuery(
-    Guid? TaskId = null,
-    TaskState? State = null,
+    Guid? JobId = null,
+    JobState? State = null,
     string? ServiceType = null,
     string? MethodName = null,
     JobTag? Tag = null,
@@ -159,8 +158,8 @@ public sealed record DashboardJobPage(
     string? ContinuationToken);
 
 public sealed record DashboardJobSummary(
-    Guid TaskId,
-    TaskState State,
+    Guid JobId,
+    JobState State,
     string ServiceType,
     string MethodName,
     int Priority,
@@ -242,14 +241,14 @@ Requirements:
 
 ## Job Tags
 
-V4 adds searchable job tags to task submission metadata.
+V4 adds searchable job tags to job submission metadata.
 
 ```csharp
 public sealed record JobTag(
     string Name,
     string Value);
 
-public sealed record TaskSubmission(
+public sealed record JobSubmission(
     int Priority = 0,
     IReadOnlyList<string>? ConcurrencyGroupKeys = null,
     DateTimeOffset? NotBeforeUtc = null,
@@ -273,7 +272,7 @@ Examples:
 - `tenant = acme`
 - `import_batch = 2026-04-19-a`
 
-The scheduler already knows task id, handler type, method name, source schedule key, state, and timestamps. Callers should use tags only for domain identifiers that cannot be derived from scheduler metadata.
+The scheduler already knows job id, handler type, method name, source schedule key, state, and timestamps. Callers should use tags only for domain identifiers that cannot be derived from scheduler metadata.
 
 ## Job Context
 
@@ -284,7 +283,7 @@ V4 adds optional job-context-aware handler invocation.
 ```csharp
 public interface IJobContext
 {
-    Guid TaskId { get; }
+    Guid JobId { get; }
     int AttemptNumber { get; }
     CancellationToken CancellationToken { get; }
 
@@ -331,7 +330,7 @@ public static class Job
 
 Requirements:
 
-- `ITaskEnqueuer` and `IRecurringScheduleManager` must both support `Job.Context` inside the existing expression shapes.
+- `IJobEnqueuer` and `IRecurringScheduleManager` must both support `Job.Context` inside the existing expression shapes.
 - `IJobContext` is optional. Handlers that do not report logs or progress do not need to accept it.
 - When the invoked service method accepts `IJobContext`, the expression must pass `Job.Context` to that argument.
 - `Job.Context` is an expression marker only. Evaluating it directly must throw.
@@ -348,7 +347,7 @@ Example:
 await enqueuer.EnqueueAsync<IListingIndexer>(
     (service, cancellationToken) =>
         service.IndexListingAsync(23, Job.Context, cancellationToken),
-    new TaskSubmission(
+    new JobSubmission(
         Priority: 10,
         Tags: [new JobTag("listing_id", "23")]));
 ```
@@ -360,7 +359,7 @@ The dashboard is backed by durable events.
 ```csharp
 public sealed record DashboardJobEvent(
     Guid EventId,
-    Guid TaskId,
+    Guid JobId,
     long EventSequence,
     DashboardJobEventKind Kind,
     DateTimeOffset OccurredAtUtc,
@@ -383,9 +382,9 @@ public enum DashboardJobEventKind
 
 Requirements:
 
-- `EventSequence` must be monotonic per task.
-- Events for a task must be readable in ascending `EventSequence` order.
-- Lifecycle events are emitted for important task state transitions.
+- `EventSequence` must be monotonic per job.
+- Events for a job must be readable in ascending `EventSequence` order.
+- Lifecycle events are emitted for important job state transitions.
 - Attempt events are emitted when an attempt starts, completes, or fails.
 - `IJobContext.LogAsync` appends a `Log` event.
 - `IJobContext.ReportProgressAsync` appends a `Progress` event.
@@ -393,7 +392,7 @@ Requirements:
 - The latest progress snapshot for a job is the newest `Progress` event by event sequence.
 - Fields are structured string key/value pairs.
 - Payload bodies and serialized method arguments are never stored in dashboard events.
-- Providers must support retention cleanup for events older than `EventRetention` after the owning task reaches a terminal state.
+- Providers must support retention cleanup for events older than `EventRetention` after the owning job reaches a terminal state.
 
 ## Queue Position
 
@@ -401,7 +400,7 @@ V4 defines queue position as dynamic claim-order position.
 
 ```csharp
 public sealed record DashboardQueuePosition(
-    Guid TaskId,
+    Guid JobId,
     DashboardQueuePositionKind Kind,
     long? Position,
     string? Reason = null);
@@ -447,7 +446,7 @@ The overview page shows:
 
 The job search/list page supports filtering by:
 
-- task id
+- job id
 - state
 - handler service type
 - handler method name
@@ -458,7 +457,7 @@ The job search/list page supports filtering by:
 
 The list view shows at least:
 
-- task id
+- job id
 - state
 - handler service type
 - handler method name
@@ -473,7 +472,7 @@ The list view shows at least:
 
 The job detail page shows:
 
-- task id
+- job id
 - handler service type and method name
 - tags
 - state
@@ -528,15 +527,15 @@ The v4 implementation is complete only when the following scenarios pass:
 2. `MapShedduellerDashboard("/sheddueller")` mounts the embedded Blazor dashboard under the configured path.
 3. Host applications can protect the mounted route with their own ASP.NET Core authorization policy.
 4. Jobs can be searched by exact string tag pairs such as `listing_id=23`.
-5. Jobs can be searched by task id, state, handler service type, handler method, source schedule key, and time ranges.
+5. Jobs can be searched by job id, state, handler service type, handler method, source schedule key, and time ranges.
 6. Queue position matches scheduler claim ordering for currently claimable jobs.
 7. Delayed, retry-waiting, blocked, claimed, terminal, canceled, and missing jobs return explicit non-position reasons.
 8. `IJobContext` is injected when the invoked handler method accepts it.
-9. `IJobContext` is never serialized as a task argument.
+9. `IJobContext` is never serialized as a job argument.
 10. `IJobContext.LogAsync` writes durable timestamped log events with level, message, and structured fields.
 11. `IJobContext.ReportProgressAsync` writes durable progress events and updates the latest progress snapshot.
 12. Live job logs and progress appear in the dashboard while a job is running.
 13. Refreshing the browser reconstructs logs, progress, and lifecycle timeline from durable events.
-14. Event retention removes old dashboard events after the configured TTL once the owning task is terminal.
+14. Event retention removes old dashboard events after the configured TTL once the owning job is terminal.
 15. The dashboard never displays opaque serialized payload bodies.
 16. The dashboard exposes no mutating job, schedule, or concurrency controls.

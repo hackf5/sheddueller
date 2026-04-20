@@ -3,7 +3,7 @@ namespace Sheddueller.Runtime;
 using Sheddueller.Enqueueing;
 using Sheddueller.Storage;
 
-internal sealed class ConcurrencyGroupManager(ITaskStore store, TimeProvider timeProvider, IShedduellerWakeSignal wakeSignal) : IConcurrencyGroupManager
+internal sealed class ConcurrencyGroupManager(IJobStore store, TimeProvider timeProvider, IShedduellerWakeSignal wakeSignal) : IConcurrencyGroupManager
 {
     public async ValueTask SetLimitAsync(string groupKey, int limit, CancellationToken cancellationToken = default)
     {

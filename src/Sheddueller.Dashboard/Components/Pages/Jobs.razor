@@ -5,14 +5,14 @@
 
 <form>
     <label>
-        Task id
-        <input @bind="_taskIdText" />
+        Job id
+        <input @bind="_jobIdText" />
     </label>
     <label>
         State
         <select @bind="_stateText">
             <option value="">Any</option>
-            @foreach (var state in Enum.GetValues<TaskState>())
+            @foreach (var state in Enum.GetValues<JobState>())
             {
                 <option value="@state">@state</option>
             }
@@ -62,7 +62,7 @@ else
 }
 
 @code {
-    private string _taskIdText = string.Empty;
+    private string _jobIdText = string.Empty;
     private string _stateText = string.Empty;
     private string _serviceType = string.Empty;
     private string _methodName = string.Empty;
@@ -103,14 +103,14 @@ else
 
     private DashboardJobQuery CreateQuery(string? continuationToken)
     {
-        var taskId = string.IsNullOrWhiteSpace(_taskIdText) ? (Guid?)null : Guid.Parse(_taskIdText);
-        var state = string.IsNullOrWhiteSpace(_stateText) ? (TaskState?)null : Enum.Parse<TaskState>(_stateText);
+        var jobId = string.IsNullOrWhiteSpace(_jobIdText) ? (Guid?)null : Guid.Parse(_jobIdText);
+        var state = string.IsNullOrWhiteSpace(_stateText) ? (JobState?)null : Enum.Parse<JobState>(_stateText);
         var tag = string.IsNullOrWhiteSpace(_tagName) && string.IsNullOrWhiteSpace(_tagValue)
           ? null
           : new JobTag(_tagName ?? string.Empty, _tagValue ?? string.Empty);
 
         return new DashboardJobQuery(
-          taskId,
+          jobId,
           state,
           string.IsNullOrWhiteSpace(_serviceType) ? null : _serviceType,
           string.IsNullOrWhiteSpace(_methodName) ? null : _methodName,

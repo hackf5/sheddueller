@@ -16,7 +16,7 @@ public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixtu
     }
 
     [Fact]
-    public async Task MaterializeDueRecurringSchedules_DueSchedule_InsertsTaskAndAdvancesSchedule()
+    public async Task MaterializeDueRecurringSchedules_DueSchedule_InsertsJobAndAdvancesSchedule()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule(
@@ -71,7 +71,7 @@ public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixtu
         await context.MakeScheduleDueAsync("schedule-a");
         (await context.Store.MaterializeDueRecurringSchedulesAsync(new MaterializeDueRecurringSchedulesRequest(DateTimeOffset.UtcNow, null))).ShouldBe(0);
 
-        (await context.CountTasksForScheduleAsync("schedule-a")).ShouldBe(1);
+        (await context.CountJobsForScheduleAsync("schedule-a")).ShouldBe(1);
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixtu
         await context.MakeScheduleDueAsync("schedule-a");
         (await context.Store.MaterializeDueRecurringSchedulesAsync(new MaterializeDueRecurringSchedulesRequest(DateTimeOffset.UtcNow, null))).ShouldBe(1);
 
-        (await context.CountTasksForScheduleAsync("schedule-a")).ShouldBe(2);
+        (await context.CountJobsForScheduleAsync("schedule-a")).ShouldBe(2);
     }
 
     [Fact]
@@ -99,6 +99,6 @@ public sealed class MaterializeDueRecurringSchedulesOperationTests(PostgresFixtu
           .Select(_ => context.Store.MaterializeDueRecurringSchedulesAsync(new MaterializeDueRecurringSchedulesRequest(DateTimeOffset.UtcNow, null)).AsTask()));
 
         results.Sum().ShouldBe(1);
-        (await context.CountTasksForScheduleAsync("schedule-a")).ShouldBe(1);
+        (await context.CountJobsForScheduleAsync("schedule-a")).ShouldBe(1);
     }
 }

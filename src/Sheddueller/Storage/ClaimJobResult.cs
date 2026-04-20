@@ -5,15 +5,15 @@ namespace Sheddueller.Storage;
 /// <summary>
 /// Store result for claim attempts.
 /// </summary>
-public abstract record ClaimTaskResult
+public abstract record ClaimJobResult
 {
     /// <summary>
-    /// A task was claimed.
+    /// A job was claimed.
     /// </summary>
-    public sealed record Claimed(ClaimedTask Task) : ClaimTaskResult;
+    public sealed record Claimed(ClaimedJob Job) : ClaimJobResult;
 
     /// <summary>
-    /// No task is currently claimable.
+    /// No job is currently claimable.
     /// </summary>
-    public sealed record NoTaskAvailable : ClaimTaskResult;
+    public sealed record NoJobAvailable : ClaimJobResult;
 }

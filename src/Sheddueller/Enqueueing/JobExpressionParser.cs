@@ -2,9 +2,9 @@ namespace Sheddueller.Enqueueing;
 
 using System.Linq.Expressions;
 
-internal static class TaskExpressionParser
+internal static class JobExpressionParser
 {
-    public static ParsedTask Parse<TService, TResult>(Expression<Func<TService, CancellationToken, TResult>> work)
+    public static ParsedJob Parse<TService, TResult>(Expression<Func<TService, CancellationToken, TResult>> work)
     {
         var serviceParameter = work.Parameters[0];
         var cancellationTokenParameter = work.Parameters[1];
@@ -86,7 +86,7 @@ internal static class TaskExpressionParser
             throw new ArgumentException("Submitted work must forward the scheduler-owned CancellationToken.", nameof(work));
         }
 
-        return new ParsedTask(
+        return new ParsedJob(
           methodCall.Method.Name,
           [.. methodParameters.Select(parameter => TypeNameFormatter.Format(parameter.ParameterType))],
           serializableArguments,
@@ -172,7 +172,7 @@ internal static class TaskExpressionParser
             || typeof(Delegate).IsAssignableFrom(type)
             || typeof(Stream).IsAssignableFrom(type))
         {
-            throw new ArgumentException($"Parameter type '{type}' is not supported for serialized task arguments.", parameterName);
+            throw new ArgumentException($"Parameter type '{type}' is not supported for serialized job arguments.", parameterName);
         }
     }
 
@@ -180,7 +180,7 @@ internal static class TaskExpressionParser
     {
         if (value is CancellationToken or IJobContext or Delegate or Stream)
         {
-            throw new ArgumentException($"Argument value of type '{value.GetType()}' is not supported for serialized task arguments.", parameterName);
+            throw new ArgumentException($"Argument value of type '{value.GetType()}' is not supported for serialized job arguments.", parameterName);
         }
     }
 

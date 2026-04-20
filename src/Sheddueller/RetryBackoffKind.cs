@@ -1,7 +1,7 @@
 namespace Sheddueller;
 
 /// <summary>
-/// Retry backoff strategy for failed task attempts.
+/// Retry backoff strategy for failed job attempts.
 /// </summary>
 public enum RetryBackoffKind
 {

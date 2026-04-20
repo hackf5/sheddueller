@@ -18,7 +18,7 @@ using Sheddueller.Storage;
 public static class ShedduellerPostgresBuilderExtensions
 {
     /// <summary>
-    /// Uses the PostgreSQL task store provider.
+    /// Uses the PostgreSQL job store provider.
     /// </summary>
     public static ShedduellerBuilder UsePostgres(
         this ShedduellerBuilder builder,
@@ -32,11 +32,11 @@ public static class ShedduellerPostgresBuilderExtensions
         PostgresOptionsValidator.Validate(options);
 
         builder.Services.Replace(ServiceDescriptor.Singleton(options));
-        builder.Services.Replace(ServiceDescriptor.Singleton<PostgresTaskStore, PostgresTaskStore>());
-        builder.Services.Replace(ServiceDescriptor.Singleton<ITaskStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<PostgresJobStore, PostgresJobStore>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         builder.Services.Replace(ServiceDescriptor.Singleton<IPostgresMigrator, PostgresMigrator>());
         builder.Services.Replace(ServiceDescriptor.Singleton<IShedduellerWakeSignal, PostgresWakeSignal>());
         InsertStartupValidatorBeforeWorker(builder.Services);

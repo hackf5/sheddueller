@@ -11,27 +11,27 @@ internal static class PostgresTestData
 
     public static string MethodName { get; } = nameof(PostgresTestService.RunAsync);
 
-    public static async ValueTask<ClaimedTask> ClaimAsync(
-        ITaskStore store,
+    public static async ValueTask<ClaimedJob> ClaimAsync(
+        IJobStore store,
         string nodeId = "node-1",
         TimeSpan? leaseDuration = null)
     {
         var now = DateTimeOffset.UtcNow;
-        return (await store.TryClaimNextAsync(new ClaimTaskRequest(nodeId, now, now.Add(leaseDuration ?? TimeSpan.FromSeconds(30)))))
-          .ShouldBeOfType<ClaimTaskResult.Claimed>()
-          .Task;
+        return (await store.TryClaimNextAsync(new ClaimJobRequest(nodeId, now, now.Add(leaseDuration ?? TimeSpan.FromSeconds(30)))))
+          .ShouldBeOfType<ClaimJobResult.Claimed>()
+          .Job;
     }
 
-    public static ClaimTaskRequest ClaimRequest(
+    public static ClaimJobRequest ClaimRequest(
         string nodeId = "node-1",
         TimeSpan? leaseDuration = null)
     {
         var now = DateTimeOffset.UtcNow;
-        return new ClaimTaskRequest(nodeId, now, now.Add(leaseDuration ?? TimeSpan.FromSeconds(30)));
+        return new ClaimJobRequest(nodeId, now, now.Add(leaseDuration ?? TimeSpan.FromSeconds(30)));
     }
 
-    public static EnqueueTaskRequest CreateRequest(
-        Guid taskId,
+    public static EnqueueJobRequest CreateRequest(
+        Guid jobId,
         int priority = 0,
         DateTimeOffset? enqueuedAtUtc = null,
         DateTimeOffset? notBeforeUtc = null,
@@ -41,7 +41,7 @@ internal static class PostgresTestData
         TimeSpan? retryMaxDelay = null,
         IReadOnlyList<string>? groupKeys = null)
       => new(
-        taskId,
+        jobId,
         priority,
         ServiceType,
         MethodName,
@@ -74,11 +74,11 @@ internal static class PostgresTestData
         overlapMode,
         DateTimeOffset.UtcNow);
 
-    public static TaskFailureInfo CreateFailure()
+    public static JobFailureInfo CreateFailure()
       => new("TestException", "failed", "stack");
 
-    public static SerializedTaskPayload EmptyPayload()
-      => new(SystemTextJsonTaskPayloadSerializer.JsonContentType, "[]"u8.ToArray());
+    public static SerializedJobPayload EmptyPayload()
+      => new(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray());
 
     private sealed class PostgresTestService
     {

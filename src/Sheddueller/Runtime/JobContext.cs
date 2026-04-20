@@ -5,12 +5,12 @@ using System.Diagnostics.CodeAnalysis;
 using Sheddueller.Dashboard;
 
 internal sealed class JobContext(
-    Guid taskId,
+    Guid jobId,
     int attemptNumber,
     IDashboardEventSink eventSink,
     CancellationToken cancellationToken) : IJobContext
 {
-    public Guid TaskId { get; } = taskId;
+    public Guid JobId { get; } = jobId;
 
     public int AttemptNumber { get; } = attemptNumber;
 
@@ -26,7 +26,7 @@ internal sealed class JobContext(
         ValidateFields(fields);
 
         await this.AppendBestEffortAsync(
-          new AppendDashboardJobEventRequest(this.TaskId, DashboardJobEventKind.Log, this.AttemptNumber, level, message, Fields: fields),
+          new AppendDashboardJobEventRequest(this.JobId, DashboardJobEventKind.Log, this.AttemptNumber, level, message, Fields: fields),
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -43,7 +43,7 @@ internal sealed class JobContext(
 
         await this.AppendBestEffortAsync(
           new AppendDashboardJobEventRequest(
-            this.TaskId,
+            this.JobId,
             DashboardJobEventKind.Progress,
             this.AttemptNumber,
             Message: message,

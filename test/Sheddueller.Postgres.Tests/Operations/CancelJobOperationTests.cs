@@ -4,31 +4,31 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class CancelTaskOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class CancelJobOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
 {
     [Fact]
-    public async Task Cancel_QueuedTask_MarksCanceled()
+    public async Task Cancel_QueuedJob_MarksCanceled()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
 
-        (await context.Store.CancelAsync(new CancelTaskRequest(taskId, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.CancelAsync(new CancelJobRequest(jobId, DateTimeOffset.UtcNow))).ShouldBeTrue();
 
-        var task = await context.ReadTaskAsync(taskId);
-        task.State.ShouldBe("Canceled");
-        task.CanceledAtUtc.ShouldNotBeNull();
+        var job = await context.ReadJobAsync(jobId);
+        job.State.ShouldBe("Canceled");
+        job.CanceledAtUtc.ShouldNotBeNull();
     }
 
     [Fact]
-    public async Task Cancel_ClaimedOrMissingTask_ReturnsFalse()
+    public async Task Cancel_ClaimedOrMissingJob_ReturnsFalse()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
         await PostgresTestData.ClaimAsync(context.Store);
 
-        (await context.Store.CancelAsync(new CancelTaskRequest(taskId, DateTimeOffset.UtcNow))).ShouldBeFalse();
-        (await context.Store.CancelAsync(new CancelTaskRequest(Guid.NewGuid(), DateTimeOffset.UtcNow))).ShouldBeFalse();
+        (await context.Store.CancelAsync(new CancelJobRequest(jobId, DateTimeOffset.UtcNow))).ShouldBeFalse();
+        (await context.Store.CancelAsync(new CancelJobRequest(Guid.NewGuid(), DateTimeOffset.UtcNow))).ShouldBeFalse();
     }
 }

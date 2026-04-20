@@ -3,40 +3,40 @@ namespace Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
-internal static class MarkTaskCompletedOperation
+internal static class MarkJobCompletedOperation
 {
     public static async ValueTask<bool> ExecuteAsync(
         PostgresOperationContext context,
-        CompleteTaskRequest request,
+        CompleteJobRequest request,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var task = await PostgresClaimedTasks.TryReadCurrentClaimForFailureAsync(
+        var job = await PostgresClaimedJobs.TryReadCurrentClaimForFailureAsync(
           context,
           connection,
           transaction,
-          request.TaskId,
+          request.JobId,
           request.NodeId,
           request.LeaseToken,
           cancellationToken)
           .ConfigureAwait(false);
 
-        if (task is null)
+        if (job is null)
         {
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
 
-        await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, task.GroupKeys, cancellationToken).ConfigureAwait(false);
+        await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
         var updated = await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
           $"""
-          update {context.Names.Tasks}
+          update {context.Names.Jobs}
           set state = 'Completed',
               completed_at_utc = transaction_timestamp()
-          where task_id = @task_id
+          where job_id = @job_id
             and state = 'Claimed'
             and claimed_by_node_id = @node_id
             and lease_token = @lease_token
@@ -44,7 +44,7 @@ internal static class MarkTaskCompletedOperation
           """,
           command =>
           {
-              command.Parameters.AddWithValue("task_id", request.TaskId);
+              command.Parameters.AddWithValue("job_id", request.JobId);
               command.Parameters.AddWithValue("node_id", request.NodeId);
               command.Parameters.AddWithValue("lease_token", request.LeaseToken);
           },
@@ -57,14 +57,14 @@ internal static class MarkTaskCompletedOperation
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.AttemptCompleted, task.AttemptCount, Message: "Attempt completed"),
+              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.AttemptCompleted, job.AttemptCount, Message: "Attempt completed"),
               cancellationToken)
               .ConfigureAwait(false);
             await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.Lifecycle, task.AttemptCount, Message: "Completed"),
+              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.Lifecycle, job.AttemptCount, Message: "Completed"),
               cancellationToken)
               .ConfigureAwait(false);
             await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

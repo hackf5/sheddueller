@@ -1,9 +1,9 @@
 namespace Sheddueller.Storage;
 
 /// <summary>
-/// Store request for claiming the next available task.
+/// Store request for claiming the next available job.
 /// </summary>
-public sealed record ClaimTaskRequest(
+public sealed record ClaimJobRequest(
     string NodeId,
     DateTimeOffset ClaimedAtUtc,
     DateTimeOffset LeaseExpiresAtUtc);

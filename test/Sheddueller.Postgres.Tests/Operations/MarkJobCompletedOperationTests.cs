@@ -4,48 +4,48 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public sealed class MarkTaskCompletedOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
+public sealed class MarkJobCompletedOperationTests(PostgresFixture fixture) : IClassFixture<PostgresFixture>
 {
     [Fact]
-    public async Task MarkCompleted_CurrentLease_CompletesTaskAndDecrementsGroups()
+    public async Task MarkCompleted_CurrentLease_CompletesJobAndDecrementsGroups()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId, groupKeys: ["shared"]));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId, groupKeys: ["shared"]));
         var claimed = await PostgresTestData.ClaimAsync(context.Store);
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
 
-        var task = await context.ReadTaskAsync(taskId);
-        task.State.ShouldBe("Completed");
-        task.CompletedAtUtc.ShouldNotBeNull();
+        var job = await context.ReadJobAsync(jobId);
+        job.State.ShouldBe("Completed");
+        job.CompletedAtUtc.ShouldNotBeNull();
         (await context.ReadConcurrencyGroupAsync("shared")).ShouldNotBeNull().InUseCount.ShouldBe(0);
     }
 
     [Fact]
-    public async Task MarkCompleted_StaleToken_ReturnsFalseWithoutChangingTask()
+    public async Task MarkCompleted_StaleToken_ReturnsFalseWithoutChangingJob()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
         await PostgresTestData.ClaimAsync(context.Store);
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(taskId, "node-1", Guid.NewGuid(), DateTimeOffset.UtcNow))).ShouldBeFalse();
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(jobId, "node-1", Guid.NewGuid(), DateTimeOffset.UtcNow))).ShouldBeFalse();
 
-        (await context.ReadTaskAsync(taskId)).State.ShouldBe("Claimed");
+        (await context.ReadJobAsync(jobId)).State.ShouldBe("Claimed");
     }
 
     [Fact]
     public async Task MarkCompleted_ExpiredLease_ReturnsFalse()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
         var claimed = await PostgresTestData.ClaimAsync(context.Store);
-        await context.ForceClaimExpiredAsync(taskId);
+        await context.ForceClaimExpiredAsync(jobId);
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeFalse();
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeFalse();
 
-        (await context.ReadTaskAsync(taskId)).State.ShouldBe("Claimed");
+        (await context.ReadJobAsync(jobId)).State.ShouldBe("Claimed");
     }
 }

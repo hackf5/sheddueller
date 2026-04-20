@@ -20,7 +20,7 @@ internal static class PostgresDashboardReadOperation
           .ConfigureAwait(false);
         var recentlyFailed = await ReadSummaryPageAsync(context, connection, "where state = 'Failed' order by failed_at_utc desc nulls last, enqueue_sequence desc limit 10", static _ => { }, cancellationToken)
           .ConfigureAwait(false);
-        var queuedPage = await SearchJobsAsync(context, new DashboardJobQuery(State: TaskState.Queued, PageSize: 100), cancellationToken).ConfigureAwait(false);
+        var queuedPage = await SearchJobsAsync(context, new DashboardJobQuery(State: JobState.Queued, PageSize: 100), cancellationToken).ConfigureAwait(false);
 
         return new DashboardJobOverview(
           counts,
@@ -44,70 +44,70 @@ internal static class PostgresDashboardReadOperation
         var conditions = new List<string>();
         void configure(NpgsqlCommand command)
         {
-            if (query.TaskId is { } taskId)
+            if (query.JobId is { } jobId)
             {
-                conditions.Add("task.task_id = @task_id");
-                command.Parameters.AddWithValue("task_id", taskId);
+                conditions.Add("job.job_id = @job_id");
+                command.Parameters.AddWithValue("job_id", jobId);
             }
 
             if (query.State is { } state)
             {
-                conditions.Add("task.state = @state");
+                conditions.Add("job.state = @state");
                 command.Parameters.AddWithValue("state", PostgresConversion.ToText(state));
             }
 
             if (query.ServiceType is not null)
             {
-                conditions.Add("task.service_type = @service_type");
+                conditions.Add("job.service_type = @service_type");
                 command.Parameters.AddWithValue("service_type", query.ServiceType);
             }
 
             if (query.MethodName is not null)
             {
-                conditions.Add("task.method_name = @method_name");
+                conditions.Add("job.method_name = @method_name");
                 command.Parameters.AddWithValue("method_name", query.MethodName);
             }
 
             if (query.Tag is { } tag)
             {
-                conditions.Add($"exists (select 1 from {context.Names.TaskTags} tag where tag.task_id = task.task_id and tag.name = @tag_name and tag.value = @tag_value)");
+                conditions.Add($"exists (select 1 from {context.Names.JobTags} tag where tag.job_id = job.job_id and tag.name = @tag_name and tag.value = @tag_value)");
                 command.Parameters.AddWithValue("tag_name", tag.Name.Trim());
                 command.Parameters.AddWithValue("tag_value", tag.Value.Trim());
             }
 
             if (query.SourceScheduleKey is not null)
             {
-                conditions.Add("task.source_schedule_key = @source_schedule_key");
+                conditions.Add("job.source_schedule_key = @source_schedule_key");
                 command.Parameters.AddWithValue("source_schedule_key", query.SourceScheduleKey);
             }
 
             if (query.EnqueuedFromUtc is { } enqueuedFromUtc)
             {
-                conditions.Add("task.enqueued_at_utc >= @enqueued_from_utc");
+                conditions.Add("job.enqueued_at_utc >= @enqueued_from_utc");
                 command.Parameters.AddWithValue("enqueued_from_utc", enqueuedFromUtc);
             }
 
             if (query.EnqueuedToUtc is { } enqueuedToUtc)
             {
-                conditions.Add("task.enqueued_at_utc <= @enqueued_to_utc");
+                conditions.Add("job.enqueued_at_utc <= @enqueued_to_utc");
                 command.Parameters.AddWithValue("enqueued_to_utc", enqueuedToUtc);
             }
 
             if (query.TerminalFromUtc is { } terminalFromUtc)
             {
-                conditions.Add("coalesce(task.completed_at_utc, task.failed_at_utc, task.canceled_at_utc) >= @terminal_from_utc");
+                conditions.Add("coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) >= @terminal_from_utc");
                 command.Parameters.AddWithValue("terminal_from_utc", terminalFromUtc);
             }
 
             if (query.TerminalToUtc is { } terminalToUtc)
             {
-                conditions.Add("coalesce(task.completed_at_utc, task.failed_at_utc, task.canceled_at_utc) <= @terminal_to_utc");
+                conditions.Add("coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) <= @terminal_to_utc");
                 command.Parameters.AddWithValue("terminal_to_utc", terminalToUtc);
             }
 
             if (afterSequence is { } sequence)
             {
-                conditions.Add("task.enqueue_sequence < @after_sequence");
+                conditions.Add("job.enqueue_sequence < @after_sequence");
                 command.Parameters.AddWithValue("after_sequence", sequence);
             }
 
@@ -119,9 +119,9 @@ internal static class PostgresDashboardReadOperation
         var whereClause = conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
         command.CommandText =
           $"""
-          {TaskSelectSql(context)}
+          {JobSelectSql(context)}
           {whereClause}
-          order by task.enqueue_sequence desc
+          order by job.enqueue_sequence desc
           limit @limit;
           """;
 
@@ -142,17 +142,17 @@ internal static class PostgresDashboardReadOperation
 
     public static async ValueTask<DashboardJobDetail?> GetJobAsync(
         PostgresOperationContext context,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        var row = await ReadTaskRowAsync(context, connection, taskId, cancellationToken).ConfigureAwait(false);
+        var row = await ReadJobRowAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             return null;
         }
 
-        var events = await ReadEventPageAsync(context, connection, taskId, afterEventSequence: null, limit: 100, cancellationToken).ConfigureAwait(false);
+        var events = await ReadEventPageAsync(context, connection, jobId, afterEventSequence: null, limit: 100, cancellationToken).ConfigureAwait(false);
         return new DashboardJobDetail(
           await CreateSummaryAsync(context, connection, row, cancellationToken).ConfigureAwait(false),
           row.ClaimedAtUtc,
@@ -164,58 +164,58 @@ internal static class PostgresDashboardReadOperation
 
     public static async ValueTask<DashboardQueuePosition> GetQueuePositionAsync(
         PostgresOperationContext context,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        var row = await ReadTaskRowAsync(context, connection, taskId, cancellationToken).ConfigureAwait(false);
+        var row = await ReadJobRowAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.NotFound, Position: null, "Job was not found.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.NotFound, Position: null, "Job was not found.");
         }
 
-        if (row.State == TaskState.Canceled)
+        if (row.State == JobState.Canceled)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Canceled, Position: null, "Job was canceled.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Canceled, Position: null, "Job was canceled.");
         }
 
-        if (row.State is TaskState.Completed or TaskState.Failed)
+        if (row.State is JobState.Completed or JobState.Failed)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Terminal, Position: null, "Job is terminal.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Terminal, Position: null, "Job is terminal.");
         }
 
-        if (row.State == TaskState.Claimed)
+        if (row.State == JobState.Claimed)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
         }
 
         var now = await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
         if (row.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > now)
         {
             return row.FailedAtUtc is null
-              ? new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Delayed, Position: null, $"Job is delayed until {notBeforeUtc:O}.")
-              : new DashboardQueuePosition(taskId, DashboardQueuePositionKind.RetryWaiting, Position: null, $"Job is waiting to retry until {notBeforeUtc:O}.");
+              ? new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Delayed, Position: null, $"Job is delayed until {notBeforeUtc:O}.")
+              : new DashboardQueuePosition(jobId, DashboardQueuePositionKind.RetryWaiting, Position: null, $"Job is waiting to retry until {notBeforeUtc:O}.");
         }
 
-        var position = await ReadClaimablePositionAsync(context, connection, taskId, cancellationToken).ConfigureAwait(false);
+        var position = await ReadClaimablePositionAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false);
         if (position is not null)
         {
-            return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.Claimable, position, "Job is currently claimable.");
+            return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.Claimable, position, "Job is currently claimable.");
         }
 
-        return new DashboardQueuePosition(taskId, DashboardQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
+        return new DashboardQueuePosition(jobId, DashboardQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
     }
 
     public static async IAsyncEnumerable<DashboardJobEvent> ReadEventsAsync(
         PostgresOperationContext context,
-        Guid taskId,
+        Guid jobId,
         DashboardEventQuery? query,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         query ??= new DashboardEventQuery();
         ValidateEventQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        var events = await ReadEventPageAsync(context, connection, taskId, query.AfterEventSequence, query.Limit, cancellationToken).ConfigureAwait(false);
+        var events = await ReadEventPageAsync(context, connection, jobId, query.AfterEventSequence, query.Limit, cancellationToken).ConfigureAwait(false);
         foreach (var jobEvent in events)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -238,17 +238,17 @@ internal static class PostgresDashboardReadOperation
           connection,
           $"""
           delete from {context.Names.DashboardEvents} event
-          using {context.Names.Tasks} task
-          where event.task_id = task.task_id
-            and task.state in ('Completed', 'Failed', 'Canceled')
-            and coalesce(task.completed_at_utc, task.failed_at_utc, task.canceled_at_utc) < transaction_timestamp() - @retention;
+          using {context.Names.Jobs} job
+          where event.job_id = job.job_id
+            and job.state in ('Completed', 'Failed', 'Canceled')
+            and coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) < transaction_timestamp() - @retention;
           """,
           command => command.Parameters.AddWithValue("retention", retention),
           cancellationToken)
           .ConfigureAwait(false);
     }
 
-    private static async ValueTask<IReadOnlyDictionary<TaskState, int>> ReadStateCountsAsync(
+    private static async ValueTask<IReadOnlyDictionary<JobState, int>> ReadStateCountsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         CancellationToken cancellationToken)
@@ -257,15 +257,15 @@ internal static class PostgresDashboardReadOperation
         command.CommandText =
           $"""
           select state, count(*)
-          from {context.Names.Tasks}
+          from {context.Names.Jobs}
           group by state;
           """;
 
-        var counts = Enum.GetValues<TaskState>().ToDictionary(state => state, _ => 0);
+        var counts = Enum.GetValues<JobState>().ToDictionary(state => state, _ => 0);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            counts[PostgresConversion.ToTaskState(reader.GetValue(0))] = Convert.ToInt32(reader.GetInt64(1), CultureInfo.InvariantCulture);
+            counts[PostgresConversion.ToJobState(reader.GetValue(0))] = Convert.ToInt32(reader.GetInt64(1), CultureInfo.InvariantCulture);
         }
 
         return counts;
@@ -281,7 +281,7 @@ internal static class PostgresDashboardReadOperation
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
-          {TaskSelectSql(context)}
+          {JobSelectSql(context)}
           {clause};
           """;
         configure(command);
@@ -299,10 +299,10 @@ internal static class PostgresDashboardReadOperation
     private static async ValueTask<DashboardJobSummary> CreateSummaryAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        PostgresDashboardTaskRow row,
+        PostgresDashboardJobRow row,
         CancellationToken cancellationToken)
       => new(
-        row.TaskId,
+        row.JobId,
         row.State,
         row.ServiceType,
         row.MethodName,
@@ -312,10 +312,10 @@ internal static class PostgresDashboardReadOperation
         row.NotBeforeUtc,
         row.AttemptCount,
         row.MaxAttempts,
-        await PostgresTaskTags.ReadTaskTagsAsync(context, connection, row.TaskId, cancellationToken).ConfigureAwait(false),
+        await PostgresJobTags.ReadJobTagsAsync(context, connection, row.JobId, cancellationToken).ConfigureAwait(false),
         row.SourceScheduleKey,
-        await ReadLatestProgressAsync(context, connection, row.TaskId, cancellationToken).ConfigureAwait(false),
-        await GetQueuePositionAsync(context, row.TaskId, cancellationToken).ConfigureAwait(false),
+        await ReadLatestProgressAsync(context, connection, row.JobId, cancellationToken).ConfigureAwait(false),
+        await GetQueuePositionAsync(context, row.JobId, cancellationToken).ConfigureAwait(false),
         row.CompletedAtUtc,
         row.FailedAtUtc,
         row.CanceledAtUtc);
@@ -323,7 +323,7 @@ internal static class PostgresDashboardReadOperation
     private static async ValueTask<DashboardProgressSnapshot?> ReadLatestProgressAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -331,12 +331,12 @@ internal static class PostgresDashboardReadOperation
           $"""
           select progress_percent, message, occurred_at_utc
           from {context.Names.DashboardEvents}
-          where task_id = @task_id
+          where job_id = @job_id
             and kind = 'Progress'
           order by event_sequence desc
           limit 1;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -353,7 +353,7 @@ internal static class PostgresDashboardReadOperation
     private static async ValueTask<long?> ReadClaimablePositionAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -361,58 +361,58 @@ internal static class PostgresDashboardReadOperation
           $"""
           with claimable as (
               select
-                  task.task_id,
-                  row_number() over (order by task.priority desc, task.enqueue_sequence asc) as position
-              from {context.Names.Tasks} task
-              where task.state = 'Queued'
-                and (task.not_before_utc is null or task.not_before_utc <= transaction_timestamp())
+                  job.job_id,
+                  row_number() over (order by job.priority desc, job.enqueue_sequence asc) as position
+              from {context.Names.Jobs} job
+              where job.state = 'Queued'
+                and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
                 and not exists (
                     select 1
-                    from {context.Names.TaskConcurrencyGroups} task_group
-                    left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = task_group.group_key
-                    where task_group.task_id = task.task_id
+                    from {context.Names.JobConcurrencyGroups} job_group
+                    left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
+                    where job_group.job_id = job.job_id
                       and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
                 )
           )
           select position
           from claimable
-          where task_id = @task_id;
+          where job_id = @job_id;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return result is null ? null : Convert.ToInt64(result, CultureInfo.InvariantCulture);
     }
 
-    private static async ValueTask<PostgresDashboardTaskRow?> ReadTaskRowAsync(
+    private static async ValueTask<PostgresDashboardJobRow?> ReadJobRowAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
-          {TaskSelectSql(context)}
-          where task.task_id = @task_id;
+          {JobSelectSql(context)}
+          where job.job_id = @job_id;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         var rows = await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
         return rows.Count == 0 ? null : rows[0];
     }
 
-    private static async ValueTask<IReadOnlyList<PostgresDashboardTaskRow>> ReadRowsAsync(
+    private static async ValueTask<IReadOnlyList<PostgresDashboardJobRow>> ReadRowsAsync(
         NpgsqlCommand command,
         CancellationToken cancellationToken)
     {
-        var rows = new List<PostgresDashboardTaskRow>();
+        var rows = new List<PostgresDashboardJobRow>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            rows.Add(new PostgresDashboardTaskRow(
+            rows.Add(new PostgresDashboardJobRow(
               reader.GetGuid(0),
-              PostgresConversion.ToTaskState(reader.GetValue(1)),
+              PostgresConversion.ToJobState(reader.GetValue(1)),
               reader.GetString(2),
               reader.GetString(3),
               reader.GetInt32(4),
@@ -437,7 +437,7 @@ internal static class PostgresDashboardReadOperation
     private static async ValueTask<IReadOnlyList<DashboardJobEvent>> ReadEventPageAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        Guid taskId,
+        Guid jobId,
         long? afterEventSequence,
         int limit,
         CancellationToken cancellationToken)
@@ -448,7 +448,7 @@ internal static class PostgresDashboardReadOperation
           $"""
           select
               event_id,
-              task_id,
+              job_id,
               event_sequence,
               kind,
               occurred_at_utc,
@@ -458,12 +458,12 @@ internal static class PostgresDashboardReadOperation
               progress_percent,
               fields
           from {context.Names.DashboardEvents}
-          where task_id = @task_id
+          where job_id = @job_id
             {afterClause}
           order by event_sequence asc
           limit @limit;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
         if (afterEventSequence is not null)
         {
             command.Parameters.AddWithValue("after_event_sequence", afterEventSequence.Value);
@@ -491,28 +491,28 @@ internal static class PostgresDashboardReadOperation
           ?? throw new InvalidOperationException("PostgreSQL did not return transaction_timestamp()."));
     }
 
-    private static string TaskSelectSql(PostgresOperationContext context)
+    private static string JobSelectSql(PostgresOperationContext context)
       => $"""
          select
-             task.task_id,
-             task.state,
-             task.service_type,
-             task.method_name,
-             task.priority,
-             task.enqueue_sequence,
-             task.enqueued_at_utc,
-             task.not_before_utc,
-             task.attempt_count,
-             task.max_attempts,
-             task.source_schedule_key,
-             task.completed_at_utc,
-             task.failed_at_utc,
-             task.canceled_at_utc,
-             task.claimed_at_utc,
-             task.claimed_by_node_id,
-             task.lease_expires_at_utc,
-             task.scheduled_fire_at_utc
-         from {context.Names.Tasks} task
+             job.job_id,
+             job.state,
+             job.service_type,
+             job.method_name,
+             job.priority,
+             job.enqueue_sequence,
+             job.enqueued_at_utc,
+             job.not_before_utc,
+             job.attempt_count,
+             job.max_attempts,
+             job.source_schedule_key,
+             job.completed_at_utc,
+             job.failed_at_utc,
+             job.canceled_at_utc,
+             job.claimed_at_utc,
+             job.claimed_by_node_id,
+             job.lease_expires_at_utc,
+             job.scheduled_fire_at_utc
+         from {context.Names.Jobs} job
          """;
 
     private static void ValidateJobQuery(DashboardJobQuery query)
@@ -553,9 +553,9 @@ internal static class PostgresDashboardReadOperation
         return enqueueSequence;
     }
 
-    private sealed record PostgresDashboardTaskRow(
-        Guid TaskId,
-        TaskState State,
+    private sealed record PostgresDashboardJobRow(
+        Guid JobId,
+        JobState State,
         string ServiceType,
         string MethodName,
         int Priority,

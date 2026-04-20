@@ -4,13 +4,13 @@ using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 public sealed class DashboardContractContext(
-    ITaskStore store,
+    IJobStore store,
     IDashboardJobReader reader,
     IDashboardEventSink eventSink,
     IDashboardEventRetentionStore retentionStore,
     IAsyncDisposable? asyncDisposable = null) : IAsyncDisposable
 {
-    public ITaskStore Store { get; } = store;
+    public IJobStore Store { get; } = store;
 
     public IDashboardJobReader Reader { get; } = reader;
 

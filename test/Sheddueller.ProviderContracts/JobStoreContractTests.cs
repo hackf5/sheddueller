@@ -5,19 +5,19 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
-public abstract class TaskStoreContractTests
+public abstract class JobStoreContractTests
 {
     protected static readonly DateTimeOffset ContractClock = new(2026, 4, 19, 12, 0, 0, TimeSpan.Zero);
 
-    protected abstract ValueTask<TaskStoreContractContext> CreateContextAsync();
+    protected abstract ValueTask<JobStoreContractContext> CreateContextAsync();
 
     [Fact]
-    public async Task EnqueuedTask_Claim_RoundTripsSubmittedMetadata()
+    public async Task EnqueuedJob_Claim_RoundTripsSubmittedMetadata()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         var request = CreateRequest(
-          taskId,
+          jobId,
           priority: 7,
           maxAttempts: 3,
           retryBackoffKind: RetryBackoffKind.Exponential,
@@ -28,9 +28,9 @@ public abstract class TaskStoreContractTests
         var enqueueResult = await context.Store.EnqueueAsync(request);
         var claimed = await ClaimAsync(context.Store);
 
-        enqueueResult.TaskId.ShouldBe(taskId);
+        enqueueResult.JobId.ShouldBe(jobId);
         enqueueResult.EnqueueSequence.ShouldBeGreaterThan(0);
-        claimed.TaskId.ShouldBe(taskId);
+        claimed.JobId.ShouldBe(jobId);
         claimed.Priority.ShouldBe(7);
         claimed.ServiceType.ShouldBe(request.ServiceType);
         claimed.MethodName.ShouldBe(request.MethodName);
@@ -57,28 +57,28 @@ public abstract class TaskStoreContractTests
         await context.Store.EnqueueAsync(CreateRequest(secondLow, priority: 0));
         await context.Store.EnqueueAsync(CreateRequest(high, priority: 10));
 
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(high);
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(firstLow);
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(secondLow);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(high);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(firstLow);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(secondLow);
     }
 
     [Fact]
-    public async Task DelayedTask_FutureNotBefore_IsNotClaimableUntilDue()
+    public async Task DelayedJob_FutureNotBefore_IsNotClaimableUntilDue()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         var dueAtUtc = DateTimeOffset.UtcNow.AddMilliseconds(250);
 
-        await context.Store.EnqueueAsync(CreateRequest(taskId, notBeforeUtc: dueAtUtc));
+        await context.Store.EnqueueAsync(CreateRequest(jobId, notBeforeUtc: dueAtUtc));
 
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
         await Task.Delay(TimeSpan.FromMilliseconds(350));
 
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(taskId);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(jobId);
     }
 
     [Fact]
-    public async Task TryClaimNext_ConcurrentAttempts_ClaimsTaskOnlyOnce()
+    public async Task TryClaimNext_ConcurrentAttempts_ClaimsJobOnlyOnce()
     {
         await using var context = await this.CreateContextAsync();
         await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid()));
@@ -86,12 +86,12 @@ public abstract class TaskStoreContractTests
         var results = await Task.WhenAll(Enumerable.Range(0, 10)
           .Select(index => context.Store.TryClaimNextAsync(CreateClaimRequest($"node-{index}")).AsTask()));
 
-        results.Count(result => result is ClaimTaskResult.Claimed).ShouldBe(1);
-        results.Count(result => result is ClaimTaskResult.NoTaskAvailable).ShouldBe(9);
+        results.Count(result => result is ClaimJobResult.Claimed).ShouldBe(1);
+        results.Count(result => result is ClaimJobResult.NoJobAvailable).ShouldBe(9);
     }
 
     [Fact]
-    public async Task ConcurrencyGroups_SaturatedGroup_SkipsOnlyBlockedTasks()
+    public async Task ConcurrencyGroups_SaturatedGroup_SkipsOnlyBlockedJobs()
     {
         await using var context = await this.CreateContextAsync();
         var running = Guid.NewGuid();
@@ -99,12 +99,12 @@ public abstract class TaskStoreContractTests
         var eligible = Guid.NewGuid();
 
         await context.Store.EnqueueAsync(CreateRequest(running, priority: 100, groupKeys: ["shared"]));
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(running);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
 
         await context.Store.EnqueueAsync(CreateRequest(blocked, priority: 100, groupKeys: ["shared"]));
         await context.Store.EnqueueAsync(CreateRequest(eligible, priority: 0));
 
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(eligible);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(eligible);
     }
 
     [Fact]
@@ -121,76 +121,76 @@ public abstract class TaskStoreContractTests
         await context.Store.EnqueueAsync(CreateRequest(waiting, groupKeys: ["critical"]));
 
         var firstClaim = await ClaimAsync(context.Store);
-        firstClaim.TaskId.ShouldBe(first);
+        firstClaim.JobId.ShouldBe(first);
         var secondClaim = await ClaimAsync(context.Store);
-        secondClaim.TaskId.ShouldBe(second);
+        secondClaim.JobId.ShouldBe(second);
 
         await context.Store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("critical", 1, ContractClock));
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(first, "node-1", firstClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(first, "node-1", firstClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(second, "node-1", secondClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(waiting);
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(second, "node-1", secondClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(waiting);
     }
 
     [Fact]
-    public async Task MarkCompleted_CurrentLease_RemovesTaskFromClaimableWork()
+    public async Task MarkCompleted_CurrentLease_RemovesJobFromClaimableWork()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
-        await context.Store.EnqueueAsync(CreateRequest(taskId));
+        await context.Store.EnqueueAsync(CreateRequest(jobId));
         var claimed = await ClaimAsync(context.Store);
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
     }
 
     [Fact]
     public async Task MarkFailed_NoRetryPolicy_FailsTerminally()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
-        await context.Store.EnqueueAsync(CreateRequest(taskId));
+        await context.Store.EnqueueAsync(CreateRequest(jobId));
         var claimed = await ClaimAsync(context.Store);
 
-        (await context.Store.MarkFailedAsync(new FailTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
     }
 
     [Fact]
     public async Task MarkFailed_FixedRetryPolicy_RequeuesAfterBackoff()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
         await context.Store.EnqueueAsync(CreateRequest(
-          taskId,
+          jobId,
           maxAttempts: 2,
           retryBackoffKind: RetryBackoffKind.Fixed,
           retryBaseDelay: TimeSpan.FromMilliseconds(250)));
         var claimed = await ClaimAsync(context.Store);
 
-        (await context.Store.MarkFailedAsync(new FailTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
         await Task.Delay(TimeSpan.FromMilliseconds(350));
 
         var retry = await ClaimAsync(context.Store);
-        retry.TaskId.ShouldBe(taskId);
+        retry.JobId.ShouldBe(jobId);
         retry.AttemptCount.ShouldBe(2);
     }
 
     [Fact]
-    public async Task LeaseOwner_StaleToken_CannotMutateReclaimedTask()
+    public async Task LeaseOwner_StaleToken_CannotMutateReclaimedJob()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
         await context.Store.EnqueueAsync(CreateRequest(
-          taskId,
+          jobId,
           maxAttempts: 2,
           retryBackoffKind: RetryBackoffKind.Fixed,
           retryBaseDelay: TimeSpan.FromMilliseconds(1)));
@@ -201,31 +201,31 @@ public abstract class TaskStoreContractTests
         await Task.Delay(TimeSpan.FromMilliseconds(20));
         var currentClaim = await ClaimAsync(context.Store, "node-2");
 
-        (await context.Store.MarkCompletedAsync(new CompleteTaskRequest(taskId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeFalse();
-        (await context.Store.MarkFailedAsync(new FailTaskRequest(taskId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeFalse();
-        (await context.Store.RenewLeaseAsync(new RenewLeaseRequest(taskId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30)))).ShouldBeFalse();
-        (await context.Store.ReleaseTaskAsync(new ReleaseTaskRequest(taskId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeFalse();
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(jobId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeFalse();
+        (await context.Store.MarkFailedAsync(new FailJobRequest(jobId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeFalse();
+        (await context.Store.RenewLeaseAsync(new RenewLeaseRequest(jobId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30)))).ShouldBeFalse();
+        (await context.Store.ReleaseJobAsync(new ReleaseJobRequest(jobId, "node-1", staleClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeFalse();
         currentClaim.LeaseToken.ShouldNotBe(staleClaim.LeaseToken);
     }
 
     [Fact]
-    public async Task ReleaseTask_CurrentLease_RequeuesWithoutRetryBudgetConsumption()
+    public async Task ReleaseJob_CurrentLease_RequeuesWithoutRetryBudgetConsumption()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
-        await context.Store.EnqueueAsync(CreateRequest(taskId));
+        await context.Store.EnqueueAsync(CreateRequest(jobId));
         var claimed = await ClaimAsync(context.Store);
 
-        (await context.Store.ReleaseTaskAsync(new ReleaseTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.ReleaseJobAsync(new ReleaseJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
 
         var reclaimed = await ClaimAsync(context.Store);
-        reclaimed.TaskId.ShouldBe(taskId);
+        reclaimed.JobId.ShouldBe(jobId);
         reclaimed.AttemptCount.ShouldBe(1);
     }
 
     [Fact]
-    public async Task Cancel_QueuedTaskOnly_CancelsBeforeClaim()
+    public async Task Cancel_QueuedJobOnly_CancelsBeforeClaim()
     {
         await using var context = await this.CreateContextAsync();
         var queued = Guid.NewGuid();
@@ -234,11 +234,11 @@ public abstract class TaskStoreContractTests
         await context.Store.EnqueueAsync(CreateRequest(queued));
         await context.Store.EnqueueAsync(CreateRequest(claimed));
 
-        (await context.Store.CancelAsync(new CancelTaskRequest(queued, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.CancelAsync(new CancelJobRequest(queued, DateTimeOffset.UtcNow))).ShouldBeTrue();
 
-        var claimedTask = await ClaimAsync(context.Store);
-        (await context.Store.CancelAsync(new CancelTaskRequest(claimedTask.TaskId, DateTimeOffset.UtcNow))).ShouldBeFalse();
-        claimedTask.TaskId.ShouldBe(claimed);
+        var claimedJob = await ClaimAsync(context.Store);
+        (await context.Store.CancelAsync(new CancelJobRequest(claimedJob.JobId, DateTimeOffset.UtcNow))).ShouldBeFalse();
+        claimedJob.JobId.ShouldBe(claimed);
     }
 
     [Fact]
@@ -284,7 +284,7 @@ public abstract class TaskStoreContractTests
     }
 
     [Fact]
-    public async Task RecurringSchedule_DueOccurrence_MaterializesClaimableTask()
+    public async Task RecurringSchedule_DueOccurrence_MaterializesClaimableJob()
     {
         await using var context = await this.CreateContextAsync();
 
@@ -314,7 +314,7 @@ public abstract class TaskStoreContractTests
         (await context.Store.MaterializeDueRecurringSchedulesAsync(new MaterializeDueRecurringSchedulesRequest(firstMaterializedAtUtc.AddMinutes(2), null))).ShouldBe(0);
 
         (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
-        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimTaskResult.NoTaskAvailable>();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
     }
 
     [Fact]
@@ -334,27 +334,27 @@ public abstract class TaskStoreContractTests
         (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
     }
 
-    protected static async ValueTask<ClaimedTask> ClaimAsync(
-        ITaskStore store,
+    protected static async ValueTask<ClaimedJob> ClaimAsync(
+        IJobStore store,
         string nodeId = "node-1",
         TimeSpan? leaseDuration = null)
     {
         return (await store.TryClaimNextAsync(CreateClaimRequest(nodeId, leaseDuration: leaseDuration)))
-          .ShouldBeOfType<ClaimTaskResult.Claimed>()
-          .Task;
+          .ShouldBeOfType<ClaimJobResult.Claimed>()
+          .Job;
     }
 
-    protected static ClaimTaskRequest CreateClaimRequest(
+    protected static ClaimJobRequest CreateClaimRequest(
         string nodeId,
         DateTimeOffset? claimedAtUtc = null,
         TimeSpan? leaseDuration = null)
     {
         var claimedAt = claimedAtUtc ?? DateTimeOffset.UtcNow;
-        return new ClaimTaskRequest(nodeId, claimedAt, claimedAt.Add(leaseDuration ?? TimeSpan.FromSeconds(30)));
+        return new ClaimJobRequest(nodeId, claimedAt, claimedAt.Add(leaseDuration ?? TimeSpan.FromSeconds(30)));
     }
 
-    protected static EnqueueTaskRequest CreateRequest(
-        Guid taskId,
+    protected static EnqueueJobRequest CreateRequest(
+        Guid jobId,
         int priority = 0,
         DateTimeOffset? notBeforeUtc = null,
         int maxAttempts = 1,
@@ -363,10 +363,10 @@ public abstract class TaskStoreContractTests
         TimeSpan? retryMaxDelay = null,
         IReadOnlyList<string>? groupKeys = null)
       => new(
-        taskId,
+        jobId,
         priority,
-        typeof(TaskStoreContractService).AssemblyQualifiedName!,
-        nameof(TaskStoreContractService.RunAsync),
+        typeof(JobStoreContractService).AssemblyQualifiedName!,
+        nameof(JobStoreContractService.RunAsync),
         [typeof(CancellationToken).AssemblyQualifiedName!],
         EmptyPayload(),
         groupKeys ?? [],
@@ -387,8 +387,8 @@ public abstract class TaskStoreContractTests
       => new(
         scheduleKey,
         "* * * * *",
-        typeof(TaskStoreContractService).AssemblyQualifiedName!,
-        nameof(TaskStoreContractService.RunAsync),
+        typeof(JobStoreContractService).AssemblyQualifiedName!,
+        nameof(JobStoreContractService.RunAsync),
         [typeof(CancellationToken).AssemblyQualifiedName!],
         EmptyPayload(),
         priority,
@@ -411,13 +411,13 @@ public abstract class TaskStoreContractTests
         overlapMode,
         DateTimeOffset.UtcNow.AddMinutes(-2));
 
-    protected static TaskFailureInfo CreateFailure()
+    protected static JobFailureInfo CreateFailure()
       => new("TestException", "failed", null);
 
-    protected static SerializedTaskPayload EmptyPayload()
-      => new(SystemTextJsonTaskPayloadSerializer.JsonContentType, "[]"u8.ToArray());
+    protected static SerializedJobPayload EmptyPayload()
+      => new(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray());
 
-    private sealed class TaskStoreContractService
+    private sealed class JobStoreContractService
     {
         public Task RunAsync(CancellationToken cancellationToken)
           => Task.CompletedTask;

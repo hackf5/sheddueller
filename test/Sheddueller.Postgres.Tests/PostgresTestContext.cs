@@ -23,7 +23,7 @@ internal sealed class PostgresTestContext(
 
     public string SchemaName { get; } = schemaName;
 
-    public ITaskStore Store => this.Provider.GetRequiredService<ITaskStore>();
+    public IJobStore Store => this.Provider.GetRequiredService<IJobStore>();
 
     public static async ValueTask<PostgresTestContext> CreateMigratedAsync(PostgresFixture fixture)
     {
@@ -57,14 +57,14 @@ internal sealed class PostgresTestContext(
         """,
         command => command.Parameters.AddWithValue("schedule_key", scheduleKey));
 
-    public async ValueTask ForceClaimExpiredAsync(Guid taskId)
+    public async ValueTask ForceClaimExpiredAsync(Guid jobId)
       => await this.ExecuteAsync(
         $"""
-        update {this.Table("tasks")}
+        update {this.Table("jobs")}
         set lease_expires_at_utc = transaction_timestamp() - interval '1 millisecond'
-        where task_id = @task_id;
+        where job_id = @job_id;
         """,
-        command => command.Parameters.AddWithValue("task_id", taskId));
+        command => command.Parameters.AddWithValue("job_id", jobId));
 
     public async ValueTask<int?> ReadSchemaVersionAsync()
     {
@@ -74,12 +74,12 @@ internal sealed class PostgresTestContext(
         return result is null or DBNull ? null : Convert.ToInt32(result, CultureInfo.InvariantCulture);
     }
 
-    public async ValueTask<PostgresTaskRow> ReadTaskAsync(Guid taskId)
+    public async ValueTask<PostgresJobRow> ReadJobAsync(Guid jobId)
     {
         await using var command = this.DataSource.CreateCommand(
           $"""
           select
-              task_id,
+              job_id,
               state,
               priority,
               enqueue_sequence,
@@ -108,18 +108,18 @@ internal sealed class PostgresTestContext(
               failure_stack_trace,
               source_schedule_key,
               scheduled_fire_at_utc
-          from {this.Table("tasks")}
-          where task_id = @task_id;
+          from {this.Table("jobs")}
+          where job_id = @job_id;
           """);
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
-            throw new InvalidOperationException($"Task '{taskId}' was not found.");
+            throw new InvalidOperationException($"Job '{jobId}' was not found.");
         }
 
-        return new PostgresTaskRow(
+        return new PostgresJobRow(
           reader.GetGuid(0),
           reader.GetString(1),
           reader.GetInt32(2),
@@ -202,10 +202,10 @@ internal sealed class PostgresTestContext(
           reader.IsDBNull(15) ? null : ToDateTimeOffset(reader.GetValue(15)));
     }
 
-    public async ValueTask<IReadOnlyList<string>> ReadTaskGroupKeysAsync(Guid taskId)
+    public async ValueTask<IReadOnlyList<string>> ReadJobGroupKeysAsync(Guid jobId)
       => await this.ReadStringListAsync(
-        $"select group_key from {this.Table("task_concurrency_groups")} where task_id = @id order by group_key asc;",
-        command => command.Parameters.AddWithValue("id", taskId));
+        $"select group_key from {this.Table("job_concurrency_groups")} where job_id = @id order by group_key asc;",
+        command => command.Parameters.AddWithValue("id", jobId));
 
     public async ValueTask<IReadOnlyList<string>> ReadScheduleGroupKeysAsync(string scheduleKey)
       => await this.ReadStringListAsync(
@@ -234,10 +234,10 @@ internal sealed class PostgresTestContext(
           reader.GetInt32(2));
     }
 
-    public async ValueTask<int> CountTasksForScheduleAsync(string scheduleKey)
+    public async ValueTask<int> CountJobsForScheduleAsync(string scheduleKey)
     {
         var result = await this.ExecuteScalarAsync(
-          $"select count(*) from {this.Table("tasks")} where source_schedule_key = @schedule_key;",
+          $"select count(*) from {this.Table("jobs")} where source_schedule_key = @schedule_key;",
           command => command.Parameters.AddWithValue("schedule_key", scheduleKey));
         return Convert.ToInt32(result, CultureInfo.InvariantCulture);
     }
@@ -303,8 +303,8 @@ internal sealed class PostgresTestContext(
       };
 }
 
-internal sealed record PostgresTaskRow(
-    Guid TaskId,
+internal sealed record PostgresJobRow(
+    Guid JobId,
     string State,
     int Priority,
     long EnqueueSequence,

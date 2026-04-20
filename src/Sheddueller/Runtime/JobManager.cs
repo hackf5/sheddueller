@@ -2,10 +2,10 @@ namespace Sheddueller.Runtime;
 
 using Sheddueller.Storage;
 
-internal sealed class TaskManager(
-    ITaskStore store,
-    TimeProvider timeProvider) : ITaskManager
+internal sealed class JobManager(
+    IJobStore store,
+    TimeProvider timeProvider) : IJobManager
 {
-    public ValueTask<bool> CancelAsync(Guid taskId, CancellationToken cancellationToken = default)
-      => store.CancelAsync(new CancelTaskRequest(taskId, timeProvider.GetUtcNow()), cancellationToken);
+    public ValueTask<bool> CancelAsync(Guid jobId, CancellationToken cancellationToken = default)
+      => store.CancelAsync(new CancelJobRequest(jobId, timeProvider.GetUtcNow()), cancellationToken);
 }

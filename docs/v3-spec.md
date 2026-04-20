@@ -5,7 +5,7 @@ Last updated: 2026-04-19
 
 ## Relationship To V1 And V2
 
-This document extends [v1](v1-spec.md) and [v2](v2-spec.md). V3 does not change the core task or recurring-schedule programming model. It standardizes the first durable production backend: PostgreSQL.
+This document extends [v1](v1-spec.md) and [v2](v2-spec.md). V3 does not change the core job or recurring-schedule programming model. It standardizes the first durable production backend: PostgreSQL.
 
 V3 is provider-specific by design. It adds a separate PostgreSQL assembly with concrete schema, claiming, migration, and notification behavior.
 
@@ -17,7 +17,7 @@ V3 is defined by six capabilities:
 
 - A dedicated PostgreSQL provider package built on `Npgsql`.
 - A provider-owned PostgreSQL schema and migration flow.
-- Transactional task claiming via `FOR UPDATE SKIP LOCKED`.
+- Transactional job claiming via `FOR UPDATE SKIP LOCKED`.
 - Database-authoritative time for due work, leases, retries, and recurring schedules.
 - Low-latency wakeups with `LISTEN/NOTIFY` plus polling fallback.
 - Testable PostgreSQL schema and operational behavior without adding public inspection APIs.
@@ -41,7 +41,7 @@ Non-goals are scoped to v3 unless explicitly marked permanent.
 - New scheduler semantics beyond what v2 already defined.
 - MySQL, SQLite, or other relational providers.
 - A backend-agnostic dashboard or generic query API.
-- Public task, schedule, or schema inspection APIs.
+- Public job, schedule, or schema inspection APIs.
 - Querying or decoding opaque serialized payloads in PostgreSQL.
 - Automatic schema application during ordinary hosted-service startup.
 
@@ -110,17 +110,17 @@ Required columns:
 | `schema_version` | `integer` | Current applied schema version. |
 | `applied_at_utc` | `timestamptz` | When the current version was applied. |
 
-### `tasks`
+### `jobs`
 
 Purpose:
 
-- Persist queued, claimed, terminal, delayed, retried, and recurring-materialized tasks.
+- Persist queued, claimed, terminal, delayed, retried, and recurring-materialized jobs.
 
 Required columns:
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `task_id` | `uuid` | Primary key. |
+| `job_id` | `uuid` | Primary key. |
 | `state` | `text` | `Queued`, `Claimed`, `Completed`, `Failed`, `Canceled`. |
 | `priority` | `integer` | Higher numbers run first. |
 | `enqueue_sequence` | `bigint` | Monotonic identity used for FIFO within equal priority. |
@@ -146,27 +146,27 @@ Required columns:
 | `failure_message` | `text` | Best-effort failure message. |
 | `failure_stack_trace` | `text` | Best-effort failure stack trace. |
 | `source_schedule_key` | `text` | Recurring schedule key when materialized from a schedule. |
-| `scheduled_fire_at_utc` | `timestamptz` | Cron fire time that produced the task. |
-| `retry_clone_source_task_id` | `uuid` | Original failed task when created by a later retry-clone operation; nullable in v3 behavior. |
+| `scheduled_fire_at_utc` | `timestamptz` | Cron fire time that produced the job. |
+| `retry_clone_source_job_id` | `uuid` | Original failed job when created by a later retry-clone operation; nullable in v3 behavior. |
 | `cancellation_requested_at_utc` | `timestamptz` | Later dashboard-driven cancellation request timestamp; nullable in v3 behavior. |
 | `cancellation_observed_at_utc` | `timestamptz` | Later cooperative cancellation observation timestamp; nullable in v3 behavior. |
 
-### `task_concurrency_groups`
+### `job_concurrency_groups`
 
 Purpose:
 
-- Normalize task-to-group membership for claim checks and occupancy accounting.
+- Normalize job-to-group membership for claim checks and occupancy accounting.
 
 Required columns:
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `task_id` | `uuid` | Foreign key to `tasks`. |
+| `job_id` | `uuid` | Foreign key to `jobs`. |
 | `group_key` | `text` | Concurrency group key. |
 
 Primary key:
 
-- (`task_id`, `group_key`)
+- (`job_id`, `group_key`)
 
 ### `concurrency_groups`
 
@@ -180,7 +180,7 @@ Required columns:
 | --- | --- | --- |
 | `group_key` | `text` | Primary key. |
 | `configured_limit` | `integer` | Null means the v1/v2 default effective limit of `1`. |
-| `in_use_count` | `integer` | Number of active claimed tasks in the group. |
+| `in_use_count` | `integer` | Number of active claimed jobs in the group. |
 | `updated_at_utc` | `timestamptz` | Database time of last mutation. |
 
 ### `recurring_schedules`
@@ -197,12 +197,12 @@ Required columns:
 | `cron_expression` | `text` | UTC minute-precision cron expression. |
 | `is_paused` | `boolean` | Pause state. |
 | `overlap_mode` | `text` | `Skip` or `Allow`. |
-| `priority` | `integer` | Inherited by materialized tasks. |
+| `priority` | `integer` | Inherited by materialized jobs. |
 | `service_type` | `text` | Unambiguous service type identity. |
 | `method_name` | `text` | Target method name. |
 | `method_parameter_types` | `text[]` | Parameter type identities. |
 | `serialized_arguments` | `bytea` | Opaque serializer-owned payload. |
-| `max_attempts` | `integer` | Effective attempt limit for materialized tasks. |
+| `max_attempts` | `integer` | Effective attempt limit for materialized jobs. |
 | `retry_backoff_kind` | `text` | `Fixed`, `Exponential`, or null. |
 | `retry_base_delay_ms` | `bigint` | Null when retries are disabled. |
 | `retry_max_delay_ms` | `bigint` | Null when no max cap exists or retries are disabled. |
@@ -214,7 +214,7 @@ Required columns:
 
 Purpose:
 
-- Normalize schedule-to-group membership so materialized tasks can inherit group keys deterministically.
+- Normalize schedule-to-group membership so materialized jobs can inherit group keys deterministically.
 
 Required columns:
 
@@ -235,7 +235,7 @@ Purpose:
 
 Provider implementations may create these tables during the v3 schema even though strict v3 runtime behavior does not yet depend on them:
 
-- `task_tags`: normalized task tag key/value pairs.
+- `job_tags`: normalized job tag key/value pairs.
 - `schedule_tags`: normalized schedule tag key/value pairs.
 - `dashboard_events`: durable job, schedule, node, and system events.
 - `worker_nodes`: worker node heartbeat and concurrency state.
@@ -252,12 +252,12 @@ Requirements:
 
 The PostgreSQL provider must create indexes sufficient for these hot paths:
 
-- Claim scan over due queued tasks ordered by `priority DESC, enqueue_sequence ASC`.
-- Due-time scan over queued delayed/retried tasks by `not_before_utc`.
-- Lease-expiry scan over claimed tasks by `lease_expires_at_utc`.
+- Claim scan over due queued jobs ordered by `priority DESC, enqueue_sequence ASC`.
+- Due-time scan over queued delayed/retried jobs by `not_before_utc`.
+- Lease-expiry scan over claimed jobs by `lease_expires_at_utc`.
 - Due recurring-schedule scan over active schedules by `next_fire_at_utc`.
-- Overlap checks over non-terminal tasks by `source_schedule_key`.
-- Group membership lookups by `group_key` for both task and schedule group tables.
+- Overlap checks over non-terminal jobs by `source_schedule_key`.
+- Group membership lookups by `group_key` for both job and schedule group tables.
 
 ## Runtime Semantics
 
@@ -273,35 +273,35 @@ The PostgreSQL provider must create indexes sufficient for these hot paths:
 - If the configured schema does not exist, the version row is missing, or the version is not exactly the provider's expected version, provider startup must fail before workers begin claiming or materializing any work.
 - This compatibility check trusts the recorded version number. V3 does not require deep schema introspection.
 
-### Task Claiming
+### Job Claiming
 
 - Claiming runs in a PostgreSQL transaction using `READ COMMITTED`.
-- Candidate tasks are selected from `tasks` where:
+- Candidate jobs are selected from `jobs` where:
   - `state = 'Queued'`
   - `not_before_utc` is null or less than or equal to `transaction_timestamp()`
 - Candidate selection order is `priority DESC, enqueue_sequence ASC`.
 - Candidate selection uses `FOR UPDATE SKIP LOCKED`.
 - For each candidate in order:
-  - read the candidate's group keys from `task_concurrency_groups`
+  - read the candidate's group keys from `job_concurrency_groups`
   - ensure a `concurrency_groups` row exists for each group key
   - lock the corresponding `concurrency_groups` rows in ascending `group_key` order
   - verify `in_use_count < COALESCE(configured_limit, 1)` for every group
-  - if all checks pass, update the task to `Claimed`, increment `attempt_count`, assign `lease_token`, set `lease_expires_at_utc`, and increment each group's `in_use_count`
-  - if any group is saturated, leave the task queued and continue scanning later candidates in the same global order
-- A successful claim commits exactly one claimed task.
+  - if all checks pass, update the job to `Claimed`, increment `attempt_count`, assign `lease_token`, set `lease_expires_at_utc`, and increment each group's `in_use_count`
+  - if any group is saturated, leave the job queued and continue scanning later candidates in the same global order
+- A successful claim commits exactly one claimed job.
 
 ### Completion, Failure, Cancellation, And Recovery
 
 - Terminal transitions run in a transaction and validate the current `lease_token`.
-- Completing, failing, canceling, or recovering a task must decrement `in_use_count` for every referenced group exactly once.
+- Completing, failing, canceling, or recovering a job must decrement `in_use_count` for every referenced group exactly once.
 - Group rows must be locked in ascending `group_key` order before decrementing to avoid deadlocks.
-- Lease-expiry recovery uses PostgreSQL time and processes only tasks where:
+- Lease-expiry recovery uses PostgreSQL time and processes only jobs where:
   - `state = 'Claimed'`
   - `lease_expires_at_utc <= transaction_timestamp()`
 - Recovery follows the v2 rules:
   - expired claims consume the already-issued attempt
-  - tasks requeue with a new `not_before_utc` when attempts remain
-  - tasks fail terminally when retries are exhausted
+  - jobs requeue with a new `not_before_utc` when attempts remain
+  - jobs fail terminally when retries are exhausted
 
 ### Concurrency Group Limits
 
@@ -309,7 +309,7 @@ The PostgreSQL provider must create indexes sufficient for these hot paths:
 - Claiming must create missing `concurrency_groups` rows on demand with:
   - `configured_limit = null`
   - `in_use_count = 0`
-- Increasing or decreasing configured limits mutates `configured_limit` only. Running tasks are never preempted.
+- Increasing or decreasing configured limits mutates `configured_limit` only. Running jobs are never preempted.
 
 ### Recurring Schedule Materialization
 
@@ -321,9 +321,9 @@ The PostgreSQL provider must create indexes sufficient for these hot paths:
 - Under the schedule row lock:
   - verify the schedule is still due and active
   - apply overlap behavior
-  - when allowed, insert exactly one materialized task row plus matching `task_concurrency_groups`
+  - when allowed, insert exactly one materialized job row plus matching `job_concurrency_groups`
   - advance `next_fire_at_utc` to the next future cron occurrence
-- `RecurringOverlapMode.Skip` checks for any task with:
+- `RecurringOverlapMode.Skip` checks for any job with:
   - matching `source_schedule_key`
   - `state IN ('Queued', 'Claimed')`
 - Even when overlap suppresses a fire, `next_fire_at_utc` still advances and the missed fire is not replayed later.
@@ -342,7 +342,7 @@ The PostgreSQL provider must create indexes sufficient for these hot paths:
   - creating, resuming, or updating a recurring schedule to an immediately due state
 - Polling remains the correctness mechanism for:
   - missed notifications
-  - future delayed tasks becoming due
+  - future delayed jobs becoming due
   - future retries becoming due
   - future recurring schedules becoming due
 - Polling cadence is an internal provider concern and is not exposed as a public v3 tuning knob.
@@ -354,7 +354,7 @@ The PostgreSQL provider must create indexes sufficient for these hot paths:
 - Ordinary worker startup is fail-only with respect to schema compatibility.
 - The provider assumes one logical Sheddueller cluster per configured schema, even when multiple schemas share the same PostgreSQL database.
 - Payload storage remains serializer-owned opaque `bytea`; PostgreSQL is not the canonical payload contract.
-- The provider assembly does not expose a public inspection API. Integration tests may use test-assembly-only SQL helpers or fixtures to assert persisted task, schedule, concurrency, and schema-version state.
+- The provider assembly does not expose a public inspection API. Integration tests may use test-assembly-only SQL helpers or fixtures to assert persisted job, schedule, concurrency, and schema-version state.
 
 ## Testing Model
 
@@ -372,13 +372,13 @@ The v3 implementation is complete only when the following scenarios pass against
 2. `IPostgresMigrator.ApplyAsync` creates a fresh schema and stamps the expected schema version.
 3. Two concurrent migrators targeting the same schema do not both mutate the schema at once.
 4. Ordinary scheduler startup fails before doing work when the configured schema is missing, behind, or ahead of the expected provider version.
-5. Two concurrent nodes using the same PostgreSQL schema cannot both claim the same task.
-6. PostgreSQL claiming preserves the v1/v2 priority and FIFO ordering among eligible tasks.
-7. Group saturation under PostgreSQL blocks only the affected task and still allows later eligible tasks to be claimed.
+5. Two concurrent nodes using the same PostgreSQL schema cannot both claim the same job.
+6. PostgreSQL claiming preserves the v1/v2 priority and FIFO ordering among eligible jobs.
+7. Group saturation under PostgreSQL blocks only the affected job and still allows later eligible jobs to be claimed.
 8. PostgreSQL lease expiry, retry requeue, and terminal failure behavior matches the v2 semantics.
-9. PostgreSQL task timestamps and lease decisions remain correct even when application node clocks differ, because database time is authoritative.
-10. Recurring schedule materialization under PostgreSQL creates exactly one task per due fire across concurrent nodes.
+9. PostgreSQL job timestamps and lease decisions remain correct even when application node clocks differ, because database time is authoritative.
+10. Recurring schedule materialization under PostgreSQL creates exactly one job per due fire across concurrent nodes.
 11. `CreateOrUpdateAsync` recurring schedule definitions preserve pause state and interact correctly with PostgreSQL due-time advancement.
 12. `LISTEN/NOTIFY` wakes sleeping workers promptly after an operation that makes work immediately claimable.
 13. Polling still discovers delayed, retried, or scheduled work when notifications are missed.
-14. PostgreSQL integration tests verify persisted task, schedule, concurrency, and schema-version state through test-assembly-only SQL helpers rather than public provider inspection APIs.
+14. PostgreSQL integration tests verify persisted job, schedule, concurrency, and schema-version state through test-assembly-only SQL helpers rather than public provider inspection APIs.

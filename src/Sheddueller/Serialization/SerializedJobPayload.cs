@@ -1,14 +1,14 @@
 namespace Sheddueller.Serialization;
 
 /// <summary>
-/// Opaque serialized task argument payload.
+/// Opaque serialized job argument payload.
 /// </summary>
-public sealed record SerializedTaskPayload
+public sealed record SerializedJobPayload
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="SerializedTaskPayload"/> class.
+    /// Initializes a new instance of the <see cref="SerializedJobPayload"/> class.
     /// </summary>
-    public SerializedTaskPayload(string contentType, byte[] data)
+    public SerializedJobPayload(string contentType, byte[] data)
     {
         this.ContentType = contentType;
         this.Data = data;

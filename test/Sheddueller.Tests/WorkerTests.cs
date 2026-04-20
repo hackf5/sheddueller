@@ -14,13 +14,13 @@ using Shouldly;
 public sealed class WorkerTests
 {
     [Fact]
-    public async Task HostedWorker_QueuedTasks_ExecutesFromFreshScopesAndCompletes()
+    public async Task HostedWorker_QueuedJobs_ExecutesFromFreshScopesAndCompletes()
     {
         var timestamp = new DateTimeOffset(2026, 4, 19, 13, 0, 0, TimeSpan.Zero);
         using var host = CreateHost(new ManualTimeProvider(timestamp));
         await host.StartAsync();
-        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
-        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = host.Services.GetRequiredService<IJobEnqueuer>();
+        var store = host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
         var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
 
         var first = await enqueuer.EnqueueAsync<WorkerTestService>(
@@ -29,8 +29,8 @@ public sealed class WorkerTests
           (service, cancellationToken) => service.RecordAsync("second", cancellationToken));
 
         await WaitUntilAsync(() =>
-          store.GetSnapshot(first)?.State == TaskState.Completed
-          && store.GetSnapshot(second)?.State == TaskState.Completed);
+          store.GetSnapshot(first)?.State == JobState.Completed
+          && store.GetSnapshot(second)?.State == JobState.Completed);
 
         recorder.Values.Order(StringComparer.Ordinal).ShouldBe(["first", "second"]);
         recorder.ScopeIds.Distinct().Count().ShouldBe(2);
@@ -41,23 +41,23 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostedWorker_JobContextAwareTask_InjectsContextAndRecordsTelemetry()
+    public async Task HostedWorker_JobContextAwareJob_InjectsContextAndRecordsTelemetry()
     {
         using var host = CreateHost();
         await host.StartAsync();
-        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
-        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = host.Services.GetRequiredService<IJobEnqueuer>();
+        var store = host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
         var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
 
-        var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
+        var jobId = await enqueuer.EnqueueAsync<WorkerTestService>(
           (service, cancellationToken) => service.RecordWithContextAsync("context", Job.Context, cancellationToken));
 
-        await WaitUntilAsync(() => store.GetSnapshot(taskId)?.State == TaskState.Completed);
+        await WaitUntilAsync(() => store.GetSnapshot(jobId)?.State == JobState.Completed);
 
         recorder.Values.ShouldContain("context");
-        recorder.ContextTaskIds.ShouldContain(taskId);
+        recorder.ContextJobIds.ShouldContain(jobId);
         var events = new List<DashboardJobEvent>();
-        await foreach (var jobEvent in store.ReadEventsAsync(taskId))
+        await foreach (var jobEvent in store.ReadEventsAsync(jobId))
         {
             events.Add(jobEvent);
         }
@@ -86,25 +86,25 @@ public sealed class WorkerTests
         timeProvider.SetUtcNow(timestamp.AddMinutes(1));
 
         await WaitUntilAsync(() => recorder.Values.Contains("recurring-context")
-          && recorder.ContextTaskIds.Any(taskId => taskId != Guid.Empty));
+          && recorder.ContextJobIds.Any(jobId => jobId != Guid.Empty));
 
         await host.StopAsync();
     }
 
     [Fact]
-    public async Task HostedWorker_ThrowingTask_RecordsFailureDetails()
+    public async Task HostedWorker_ThrowingJob_RecordsFailureDetails()
     {
         using var host = CreateHost();
         await host.StartAsync();
-        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
-        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = host.Services.GetRequiredService<IJobEnqueuer>();
+        var store = host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
 
-        var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
+        var jobId = await enqueuer.EnqueueAsync<WorkerTestService>(
           (service, cancellationToken) => service.ThrowAsync("expected failure", cancellationToken));
 
-        await WaitUntilAsync(() => store.GetSnapshot(taskId)?.State == TaskState.Failed);
+        await WaitUntilAsync(() => store.GetSnapshot(jobId)?.State == JobState.Failed);
 
-        var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
+        var snapshot = store.GetSnapshot(jobId).ShouldNotBeNull();
         snapshot.Failure.ShouldNotBeNull().ExceptionType.ShouldContain(nameof(InvalidOperationException));
         snapshot.Failure.Message.ShouldContain("expected failure");
 
@@ -112,18 +112,18 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task HostedWorker_DirectStoreTask_ClaimsThroughFallbackPolling()
+    public async Task HostedWorker_DirectStoreJob_ClaimsThroughFallbackPolling()
     {
         using var host = CreateHost();
         await host.StartAsync();
-        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
-        var serializer = host.Services.GetRequiredService<ITaskPayloadSerializer>();
+        var store = host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
+        var serializer = host.Services.GetRequiredService<IJobPayloadSerializer>();
         var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         var payload = await serializer.SerializeAsync(new object?[] { "direct" }, [typeof(string)]);
 
-        await store.EnqueueAsync(new EnqueueTaskRequest(
-          taskId,
+        await store.EnqueueAsync(new EnqueueJobRequest(
+          jobId,
           0,
           typeof(WorkerTestService).AssemblyQualifiedName!,
           nameof(WorkerTestService.RecordAsync),
@@ -132,7 +132,7 @@ public sealed class WorkerTests
           [],
           DateTimeOffset.UtcNow));
 
-        await WaitUntilAsync(() => store.GetSnapshot(taskId)?.State == TaskState.Completed);
+        await WaitUntilAsync(() => store.GetSnapshot(jobId)?.State == JobState.Completed);
 
         recorder.Values.ShouldContain("direct");
 
@@ -144,18 +144,18 @@ public sealed class WorkerTests
     {
         using var host = CreateHost();
         await host.StartAsync();
-        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
-        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = host.Services.GetRequiredService<IJobEnqueuer>();
+        var store = host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
         var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
 
-        var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
+        var jobId = await enqueuer.EnqueueAsync<WorkerTestService>(
           (service, cancellationToken) => service.WaitForShutdownAsync(cancellationToken));
 
         await recorder.WaitForShutdownTaskStartAsync();
         await host.StopAsync();
 
-        var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
-        snapshot.State.ShouldBe(TaskState.Queued);
+        var snapshot = store.GetSnapshot(jobId).ShouldNotBeNull();
+        snapshot.State.ShouldBe(JobState.Queued);
         snapshot.AttemptCount.ShouldBe(0);
         snapshot.Failure.ShouldBeNull();
     }
@@ -183,19 +183,19 @@ public sealed class WorkerTests
     }
 
     [Fact]
-    public async Task TaskManager_QueuedTask_CancelsTask()
+    public async Task JobManager_QueuedJob_CancelsTask()
     {
         using var host = CreateHost();
-        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
-        var taskManager = host.Services.GetRequiredService<ITaskManager>();
-        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var enqueuer = host.Services.GetRequiredService<IJobEnqueuer>();
+        var taskManager = host.Services.GetRequiredService<IJobManager>();
+        var store = host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
 
-        var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
+        var jobId = await enqueuer.EnqueueAsync<WorkerTestService>(
           (service, cancellationToken) => service.RecordAsync("cancel-me", cancellationToken),
-          new TaskSubmission(NotBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
+          new JobSubmission(NotBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
 
-        (await taskManager.CancelAsync(taskId)).ShouldBeTrue();
-        store.GetSnapshot(taskId).ShouldNotBeNull().State.ShouldBe(TaskState.Canceled);
+        (await taskManager.CancelAsync(jobId)).ShouldBeTrue();
+        store.GetSnapshot(jobId).ShouldNotBeNull().State.ShouldBe(JobState.Canceled);
     }
 
     [Fact]
@@ -253,7 +253,7 @@ public sealed class WorkerTests
 
         public ConcurrentQueue<Guid> ScopeIds { get; } = new();
 
-        public ConcurrentQueue<Guid> ContextTaskIds { get; } = new();
+        public ConcurrentQueue<Guid> ContextJobIds { get; } = new();
 
         public void Record(Guid scopeId, string value)
         {
@@ -261,9 +261,9 @@ public sealed class WorkerTests
             ScopeIds.Enqueue(scopeId);
         }
 
-        public void RecordContextTask(Guid taskId)
+        public void RecordContextTask(Guid jobId)
         {
-            ContextTaskIds.Enqueue(taskId);
+            ContextJobIds.Enqueue(jobId);
         }
 
         public void MarkShutdownTaskStarted()
@@ -298,7 +298,7 @@ public sealed class WorkerTests
             }
 
             recorder.Record(marker.ScopeId, value);
-            recorder.RecordContextTask(jobContext.TaskId);
+            recorder.RecordContextTask(jobContext.JobId);
             await jobContext.LogAsync(JobLogLevel.Information, "context log", cancellationToken: cancellationToken);
             await jobContext.ReportProgressAsync(25, "context progress", cancellationToken);
         }

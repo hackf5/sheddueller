@@ -14,7 +14,7 @@ internal sealed class SignalRDashboardLiveUpdatePublisher(
     {
         await stream.PublishAsync(jobEvent, cancellationToken).ConfigureAwait(false);
         await hubContext.Clients.All.SendAsync("jobEvent", jobEvent, cancellationToken).ConfigureAwait(false);
-        await hubContext.Clients.Group(DashboardUpdatesHub.JobGroupName(jobEvent.TaskId.ToString("N")))
+        await hubContext.Clients.Group(DashboardUpdatesHub.JobGroupName(jobEvent.JobId.ToString("N")))
           .SendAsync("jobEvent", jobEvent, cancellationToken)
           .ConfigureAwait(false);
     }

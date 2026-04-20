@@ -17,21 +17,21 @@ public sealed class RegistrationTests
         var services = new ServiceCollection();
 
         services.AddSheddueller(builder => builder
-          .UseTaskPayloadSerializer(serializer)
+          .UseJobPayloadSerializer(serializer)
           .UseInMemoryStore()
           .ConfigureOptions(options => options.NodeId = "node-a"));
 
         using var provider = services.BuildServiceProvider();
 
-        provider.GetRequiredService<ITaskEnqueuer>().ShouldNotBeNull();
+        provider.GetRequiredService<IJobEnqueuer>().ShouldNotBeNull();
         provider.GetRequiredService<IConcurrencyGroupManager>().ShouldNotBeNull();
-        provider.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
-        provider.GetRequiredService<ITaskPayloadSerializer>().ShouldBeSameAs(serializer);
+        provider.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
+        provider.GetRequiredService<IJobPayloadSerializer>().ShouldBeSameAs(serializer);
         provider.GetServices<IHostedService>().Count().ShouldBe(2);
     }
 
     [Fact]
-    public async Task StartupValidation_MissingTaskStoreProvider_FailsStart()
+    public async Task StartupValidation_MissingJobStoreProvider_FailsStart()
     {
         var services = new ServiceCollection();
         services.AddSheddueller();
@@ -46,7 +46,7 @@ public sealed class RegistrationTests
             }
         });
 
-        exception.Message.ShouldContain("No Sheddueller task store provider");
+        exception.Message.ShouldContain("No Sheddueller job store provider");
     }
 
     [Fact]
@@ -71,22 +71,22 @@ public sealed class RegistrationTests
 
         using var host = builder.Build();
 
-        host.Services.GetRequiredService<ITaskEnqueuer>().ShouldNotBeNull();
-        host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        host.Services.GetRequiredService<IJobEnqueuer>().ShouldNotBeNull();
+        host.Services.GetRequiredService<IJobStore>().ShouldBeOfType<InMemoryJobStore>();
     }
 
-    private sealed class PassThroughSerializer : ITaskPayloadSerializer
+    private sealed class PassThroughSerializer : IJobPayloadSerializer
     {
-        public ValueTask<SerializedTaskPayload> SerializeAsync(
+        public ValueTask<SerializedJobPayload> SerializeAsync(
           IReadOnlyList<object?> arguments,
           IReadOnlyList<Type> parameterTypes,
           CancellationToken cancellationToken = default)
         {
-            return ValueTask.FromResult(new SerializedTaskPayload("test/pass-through", []));
+            return ValueTask.FromResult(new SerializedJobPayload("test/pass-through", []));
         }
 
         public ValueTask<IReadOnlyList<object?>> DeserializeAsync(
-          SerializedTaskPayload payload,
+          SerializedJobPayload payload,
           IReadOnlyList<Type> parameterTypes,
           CancellationToken cancellationToken = default)
         {

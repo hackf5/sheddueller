@@ -7,38 +7,38 @@ using Sheddueller.Runtime;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
-internal sealed class TaskEnqueuer(
-  ITaskStore store,
-  ITaskPayloadSerializer serializer,
+internal sealed class JobEnqueuer(
+  IJobStore store,
+  IJobPayloadSerializer serializer,
   IOptions<ShedduellerOptions> options,
   TimeProvider timeProvider,
-  IShedduellerWakeSignal wakeSignal) : ITaskEnqueuer
+  IShedduellerWakeSignal wakeSignal) : IJobEnqueuer
 {
     public ValueTask<Guid> EnqueueAsync<TService>(
       System.Linq.Expressions.Expression<Func<TService, CancellationToken, Task>> work,
-      TaskSubmission? submission = null,
+      JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
       => this.EnqueueCoreAsync(work, submission, cancellationToken);
 
     public ValueTask<Guid> EnqueueAsync<TService>(
       System.Linq.Expressions.Expression<Func<TService, CancellationToken, ValueTask>> work,
-      TaskSubmission? submission = null,
+      JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
       => this.EnqueueCoreAsync(work, submission, cancellationToken);
 
     private async ValueTask<Guid> EnqueueCoreAsync<TService, TResult>(
       System.Linq.Expressions.Expression<Func<TService, CancellationToken, TResult>> work,
-      TaskSubmission? submission,
+      JobSubmission? submission,
       CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(work);
 
-        return await this.EnqueueParsedCoreAsync<TService>(TaskExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+        return await this.EnqueueParsedCoreAsync<TService>(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<Guid> EnqueueParsedCoreAsync<TService>(
-      ParsedTask parsedTask,
-      TaskSubmission? submission,
+      ParsedJob parsedTask,
+      JobSubmission? submission,
       CancellationToken cancellationToken)
     {
         var groups = SubmissionValidator.NormalizeConcurrencyGroupKeys(submission?.ConcurrencyGroupKeys);
@@ -49,9 +49,9 @@ internal sealed class TaskEnqueuer(
           .SerializeAsync(parsedTask.SerializableArguments, parsedTask.SerializableParameterTypes, cancellationToken)
           .ConfigureAwait(false);
 
-        var taskId = Guid.NewGuid();
-        var request = new EnqueueTaskRequest(
-          taskId,
+        var jobId = Guid.NewGuid();
+        var request = new EnqueueJobRequest(
+          jobId,
           submission?.Priority ?? 0,
           TypeNameFormatter.Format(typeof(TService)),
           parsedTask.MethodName,
@@ -71,6 +71,6 @@ internal sealed class TaskEnqueuer(
         var result = await store.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
         wakeSignal.Notify();
 
-        return result.TaskId;
+        return result.JobId;
     }
 }

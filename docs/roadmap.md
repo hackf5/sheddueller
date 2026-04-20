@@ -11,7 +11,7 @@ The version specs are capability slices, not instructions to build throwaway int
 
 ## Target Product
 
-Sheddueller is a self-hosted task scheduler for small trusted development teams. It should be cheaper, easier to test, and easier to understand than cloud-hosted task orchestration products.
+Sheddueller is a self-hosted job scheduler for small trusted development teams. It should be cheaper, easier to test, and easier to understand than cloud-hosted job orchestration products.
 
 The target is “Hangfire done right”:
 
@@ -74,11 +74,11 @@ Sheddueller is not intended to be:
 
 Build toward the final v5 shape from the start.
 
-Do not implement an earlier public API that a later spec intentionally changes. The clearest example is task submission: v1 already uses the final cancellation-aware expression shape, so there is no intermediate non-cancelable handler API to build.
+Do not implement an earlier public API that a later spec intentionally changes. The clearest example is job submission: v1 already uses the final cancellation-aware expression shape, so there is no intermediate non-cancelable handler API to build.
 
 Recommended implementation milestones:
 
-1. Final core runtime: cancellation-aware expressions, priorities, concurrency groups, serializer boundary, retries, leases, delayed tasks, recurring schedules, tags, and final task state model.
+1. Final core runtime: cancellation-aware expressions, priorities, concurrency groups, serializer boundary, retries, leases, delayed jobs, recurring schedules, tags, and final job state model.
 2. In-memory provider: proof and test provider for scheduler semantics, not the production target.
 3. PostgreSQL provider: first production backend, with schema shaped to avoid immediate churn for dashboard/events/actions.
 4. Dashboard foundation: jobs-only read UI, job search, logs, progress, queue position, and durable events.
@@ -88,13 +88,13 @@ Recommended implementation milestones:
 
 | Capability | Spec | Implementation guidance |
 | --- | --- | --- |
-| Immediate task enqueue | v1 | Core runtime baseline. |
+| Immediate job enqueue | v1 | Core runtime baseline. |
 | Cancellation-aware handlers | v1 | Implement from the start; do not build the older non-cancelable shape. |
 | Priorities | v1 | Core scheduling invariant. |
 | Dynamic concurrency groups | v1 | Core scheduling invariant; dashboard editing deferred beyond v5. |
 | Backend abstraction | v1 | Required for in-memory and PostgreSQL providers. |
 | In-memory provider | v1 | Test/proof provider. |
-| Delayed tasks | v2 | Implement before PostgreSQL so SQL schema can include due-time fields once. |
+| Delayed jobs | v2 | Implement before PostgreSQL so SQL schema can include due-time fields once. |
 | Retries | v2 | Implement before dashboard actions; retry clone in v5 depends on retry metadata. |
 | Lease/heartbeat recovery | v2 | Required before production PostgreSQL. |
 | Recurring schedules | v2 | Required before dashboard schedule views/actions. |
@@ -111,16 +111,15 @@ Recommended implementation milestones:
 
 ## Glossary
 
-- Task: The runtime/storage unit claimed and executed by the scheduler.
-- Job: The dashboard/user-facing representation of a task.
+- Job: The runtime, storage, and user-facing work unit.
 - Schedule: A recurring definition identified by a schedule key.
-- Occurrence: One task materialized from a recurring schedule fire.
+- Occurrence: One job materialized from a recurring schedule fire.
 - Provider: A storage/runtime implementation behind the scheduler abstraction, such as in-memory or PostgreSQL.
 - Dashboard-compatible provider: A provider that implements the dashboard read/event contracts from v4 and operation contracts from v5.
 - Node: One running application host participating in the scheduler cluster.
 - Cluster: All nodes sharing one logical scheduler store.
 - Concurrency group: A dynamic named capacity limit shared across the cluster.
-- Queue position: A dynamic 1-based position among currently claimable tasks in scheduler claim order.
+- Queue position: A dynamic 1-based position among currently claimable jobs in scheduler claim order.
 - Trusted operation: A dashboard action intended for small teams where everyone with access is trusted.
 
 ## Non-Goal Semantics

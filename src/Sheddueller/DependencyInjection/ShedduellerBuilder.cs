@@ -30,19 +30,19 @@ public sealed class ShedduellerBuilder
     }
 
     /// <summary>
-    /// Replaces the task payload serializer with a singleton implementation type.
+    /// Replaces the job payload serializer with a singleton implementation type.
     /// </summary>
-    public ShedduellerBuilder UseTaskPayloadSerializer<TSerializer>()
-      where TSerializer : class, ITaskPayloadSerializer
+    public ShedduellerBuilder UseJobPayloadSerializer<TSerializer>()
+      where TSerializer : class, IJobPayloadSerializer
     {
-        this.Services.Replace(ServiceDescriptor.Singleton<ITaskPayloadSerializer, TSerializer>());
+        this.Services.Replace(ServiceDescriptor.Singleton<IJobPayloadSerializer, TSerializer>());
         return this;
     }
 
     /// <summary>
-    /// Replaces the task payload serializer with a singleton instance.
+    /// Replaces the job payload serializer with a singleton instance.
     /// </summary>
-    public ShedduellerBuilder UseTaskPayloadSerializer(ITaskPayloadSerializer serializer)
+    public ShedduellerBuilder UseJobPayloadSerializer(IJobPayloadSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
 

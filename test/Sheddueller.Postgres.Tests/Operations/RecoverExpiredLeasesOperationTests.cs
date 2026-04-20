@@ -19,22 +19,22 @@ public sealed class RecoverExpiredLeasesOperationTests(PostgresFixture fixture) 
     public async Task RecoverExpiredLeases_ExpiredClaimWithRetry_RequeuesAndDecrementsGroups()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
         await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(
-          taskId,
+          jobId,
           maxAttempts: 2,
           retryBackoffKind: RetryBackoffKind.Fixed,
           retryBaseDelay: TimeSpan.FromMilliseconds(1),
           groupKeys: ["shared"]));
         await PostgresTestData.ClaimAsync(context.Store);
-        await context.ForceClaimExpiredAsync(taskId);
+        await context.ForceClaimExpiredAsync(jobId);
 
         (await context.Store.RecoverExpiredLeasesAsync(new RecoverExpiredLeasesRequest(DateTimeOffset.UtcNow))).ShouldBe(1);
 
-        var task = await context.ReadTaskAsync(taskId);
-        task.State.ShouldBe("Queued");
-        task.AttemptCount.ShouldBe(1);
-        task.NotBeforeUtc.ShouldNotBeNull();
+        var job = await context.ReadJobAsync(jobId);
+        job.State.ShouldBe("Queued");
+        job.AttemptCount.ShouldBe(1);
+        job.NotBeforeUtc.ShouldNotBeNull();
         (await context.ReadConcurrencyGroupAsync("shared")).ShouldNotBeNull().InUseCount.ShouldBe(0);
     }
 
@@ -42,15 +42,15 @@ public sealed class RecoverExpiredLeasesOperationTests(PostgresFixture fixture) 
     public async Task RecoverExpiredLeases_ExpiredClaimWithoutRetry_FailsTerminally()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        var taskId = Guid.NewGuid();
-        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(taskId));
+        var jobId = Guid.NewGuid();
+        await context.Store.EnqueueAsync(PostgresTestData.CreateRequest(jobId));
         await PostgresTestData.ClaimAsync(context.Store);
-        await context.ForceClaimExpiredAsync(taskId);
+        await context.ForceClaimExpiredAsync(jobId);
 
         (await context.Store.RecoverExpiredLeasesAsync(new RecoverExpiredLeasesRequest(DateTimeOffset.UtcNow))).ShouldBe(1);
 
-        var task = await context.ReadTaskAsync(taskId);
-        task.State.ShouldBe("Failed");
-        task.FailureTypeName.ShouldBe("Sheddueller.LeaseExpired");
+        var job = await context.ReadJobAsync(jobId);
+        job.State.ShouldBe("Failed");
+        job.FailureTypeName.ShouldBe("Sheddueller.LeaseExpired");
     }
 }

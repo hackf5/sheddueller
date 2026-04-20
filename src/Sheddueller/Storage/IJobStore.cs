@@ -1,64 +1,64 @@
 namespace Sheddueller.Storage;
 
 /// <summary>
-/// Stores task state and performs atomic claim selection.
+/// Stores job state and performs atomic claim selection.
 /// </summary>
-public interface ITaskStore
+public interface IJobStore
 {
     /// <summary>
-    /// Enqueues a new task and assigns its enqueue sequence.
+    /// Enqueues a new job and assigns its enqueue sequence.
     /// </summary>
-    ValueTask<EnqueueTaskResult> EnqueueAsync(
-        EnqueueTaskRequest request,
+    ValueTask<EnqueueJobResult> EnqueueAsync(
+        EnqueueJobRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Claims the next globally eligible task, if one is available.
+    /// Claims the next globally eligible job, if one is available.
     /// </summary>
-    ValueTask<ClaimTaskResult> TryClaimNextAsync(
-        ClaimTaskRequest request,
+    ValueTask<ClaimJobResult> TryClaimNextAsync(
+        ClaimJobRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Marks a claimed task as completed.
+    /// Marks a claimed job as completed.
     /// </summary>
     ValueTask<bool> MarkCompletedAsync(
-        CompleteTaskRequest request,
+        CompleteJobRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Marks a claimed task as failed.
+    /// Marks a claimed job as failed.
     /// </summary>
     ValueTask<bool> MarkFailedAsync(
-        FailTaskRequest request,
+        FailJobRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Renews a claimed task lease.
+    /// Renews a claimed job lease.
     /// </summary>
     ValueTask<bool> RenewLeaseAsync(
         RenewLeaseRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Releases a scheduler-interrupted task back to the queue without consuming retry budget.
+    /// Releases a scheduler-interrupted job back to the queue without consuming retry budget.
     /// </summary>
-    ValueTask<bool> ReleaseTaskAsync(
-        ReleaseTaskRequest request,
+    ValueTask<bool> ReleaseJobAsync(
+        ReleaseJobRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Recovers expired claimed tasks.
+    /// Recovers expired claimed jobs.
     /// </summary>
     ValueTask<int> RecoverExpiredLeasesAsync(
         RecoverExpiredLeasesRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Cancels a queued task.
+    /// Cancels a queued job.
     /// </summary>
     ValueTask<bool> CancelAsync(
-        CancelTaskRequest request,
+        CancelJobRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>

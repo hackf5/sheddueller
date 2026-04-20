@@ -29,7 +29,7 @@ public abstract class DashboardContractTests
 
         var page = await context.Reader.SearchJobsAsync(new DashboardJobQuery(Tag: new JobTag("listing_id", "23")));
 
-        page.Jobs.Select(job => job.TaskId).ShouldBe([tagged]);
+        page.Jobs.Select(job => job.JobId).ShouldBe([tagged]);
         page.Jobs[0].Tags.ShouldBe([new JobTag("listing_id", "23"), new JobTag("tenant", "acme")], ignoreOrder: true);
     }
 
@@ -43,7 +43,7 @@ public abstract class DashboardContractTests
         var claimable = Guid.NewGuid();
 
         await context.Store.EnqueueAsync(CreateRequest(running, priority: 100, groupKeys: ["shared"]));
-        (await ClaimAsync(context.Store)).TaskId.ShouldBe(running);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
         await context.Store.EnqueueAsync(CreateRequest(blocked, priority: 100, groupKeys: ["shared"]));
         await context.Store.EnqueueAsync(CreateRequest(delayed, notBeforeUtc: DateTimeOffset.UtcNow.AddMinutes(5)));
         await context.Store.EnqueueAsync(CreateRequest(claimable, priority: 50));
@@ -59,68 +59,68 @@ public abstract class DashboardContractTests
     public async Task Events_AppendReadLatestProgressAndCleanup_RoundTrips()
     {
         await using var context = await this.CreateContextAsync();
-        var taskId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
-        await context.Store.EnqueueAsync(CreateRequest(taskId));
+        await context.Store.EnqueueAsync(CreateRequest(jobId));
         var logEvent = await context.EventSink.AppendAsync(new AppendDashboardJobEventRequest(
-          taskId,
+          jobId,
           DashboardJobEventKind.Log,
           AttemptNumber: 0,
           LogLevel: JobLogLevel.Information,
           Message: "starting",
           Fields: new Dictionary<string, string>(StringComparer.Ordinal) { ["step"] = "one" }));
         var progressEvent = await context.EventSink.AppendAsync(new AppendDashboardJobEventRequest(
-          taskId,
+          jobId,
           DashboardJobEventKind.Progress,
           AttemptNumber: 0,
           Message: "half",
           ProgressPercent: 50));
 
-        var events = await ReadAllAsync(context.Reader, taskId);
+        var events = await ReadAllAsync(context.Reader, jobId);
         var sequences = events.Select(jobEvent => jobEvent.EventSequence).ToArray();
         sequences.SequenceEqual(sequences.Order()).ShouldBeTrue();
         logEvent.EventSequence.ShouldBeGreaterThan(0);
         progressEvent.EventSequence.ShouldBeGreaterThan(logEvent.EventSequence);
 
-        var detail = await context.Reader.GetJobAsync(taskId);
+        var detail = await context.Reader.GetJobAsync(jobId);
         detail.ShouldNotBeNull();
         detail.Summary.LatestProgress.ShouldNotBeNull().Percent.ShouldBe(50);
 
         var claimed = await ClaimAsync(context.Store);
-        await context.Store.MarkCompletedAsync(new CompleteTaskRequest(taskId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow));
+        await context.Store.MarkCompletedAsync(new CompleteJobRequest(jobId, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow));
         await Task.Delay(TimeSpan.FromMilliseconds(20));
 
         (await context.RetentionStore.CleanupAsync(TimeSpan.FromMilliseconds(1))).ShouldBeGreaterThan(0);
-        (await ReadAllAsync(context.Reader, taskId)).ShouldBeEmpty();
+        (await ReadAllAsync(context.Reader, jobId)).ShouldBeEmpty();
     }
 
-    protected static async ValueTask<ClaimedTask> ClaimAsync(ITaskStore store)
-      => (await store.TryClaimNextAsync(new ClaimTaskRequest("node-1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30))))
-        .ShouldBeOfType<ClaimTaskResult.Claimed>()
-        .Task;
+    protected static async ValueTask<ClaimedJob> ClaimAsync(IJobStore store)
+      => (await store.TryClaimNextAsync(new ClaimJobRequest("node-1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30))))
+        .ShouldBeOfType<ClaimJobResult.Claimed>()
+        .Job;
 
-    protected static EnqueueTaskRequest CreateRequest(
-        Guid taskId,
+    protected static EnqueueJobRequest CreateRequest(
+        Guid jobId,
         int priority = 0,
         DateTimeOffset? notBeforeUtc = null,
         IReadOnlyList<string>? groupKeys = null,
         IReadOnlyList<JobTag>? tags = null)
       => new(
-        taskId,
+        jobId,
         priority,
         typeof(DashboardContractService).AssemblyQualifiedName!,
         nameof(DashboardContractService.RunAsync),
         [typeof(CancellationToken).AssemblyQualifiedName!],
-        new SerializedTaskPayload(SystemTextJsonTaskPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
+        new SerializedJobPayload(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
         groupKeys ?? [],
         DateTimeOffset.UtcNow,
         notBeforeUtc,
         Tags: tags);
 
-    private static async ValueTask<IReadOnlyList<DashboardJobEvent>> ReadAllAsync(IDashboardJobReader reader, Guid taskId)
+    private static async ValueTask<IReadOnlyList<DashboardJobEvent>> ReadAllAsync(IDashboardJobReader reader, Guid jobId)
     {
         var events = new List<DashboardJobEvent>();
-        await foreach (var jobEvent in reader.ReadEventsAsync(taskId))
+        await foreach (var jobEvent in reader.ReadEventsAsync(jobId))
         {
             events.Add(jobEvent);
         }

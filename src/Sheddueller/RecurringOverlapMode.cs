@@ -11,7 +11,7 @@ public enum RecurringOverlapMode
     Skip,
 
     /// <summary>
-    /// Allows each due occurrence to create a task regardless of earlier non-terminal occurrences.
+    /// Allows each due occurrence to create a job regardless of earlier non-terminal occurrences.
     /// </summary>
     Allow,
 }

@@ -2,13 +2,13 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
-internal static class PostgresTaskGroups
+internal static class PostgresJobGroups
 {
-    public static async ValueTask<IReadOnlyList<string>> ReadTaskGroupKeysAsync(
+    public static async ValueTask<IReadOnlyList<string>> ReadJobGroupKeysAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -16,11 +16,11 @@ internal static class PostgresTaskGroups
         command.CommandText =
           $"""
           select group_key
-          from {context.Names.TaskConcurrencyGroups}
-          where task_id = @task_id
+          from {context.Names.JobConcurrencyGroups}
+          where job_id = @job_id
           order by group_key asc;
           """;
-        command.Parameters.AddWithValue("task_id", taskId);
+        command.Parameters.AddWithValue("job_id", jobId);
 
         var groupKeys = new List<string>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -155,11 +155,11 @@ internal static class PostgresTaskGroups
           .ConfigureAwait(false);
     }
 
-    public static async ValueTask ReplaceTaskGroupsAsync(
+    public static async ValueTask ReplaceJobGroupsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
-        Guid taskId,
+        Guid jobId,
         IReadOnlyList<string> groupKeys,
         CancellationToken cancellationToken)
     {
@@ -169,13 +169,13 @@ internal static class PostgresTaskGroups
               connection,
               transaction,
               $"""
-              insert into {context.Names.TaskConcurrencyGroups} (task_id, group_key)
-              values (@task_id, @group_key)
-              on conflict (task_id, group_key) do nothing;
+              insert into {context.Names.JobConcurrencyGroups} (job_id, group_key)
+              values (@job_id, @group_key)
+              on conflict (job_id, group_key) do nothing;
               """,
               command =>
               {
-                  command.Parameters.AddWithValue("task_id", taskId);
+                  command.Parameters.AddWithValue("job_id", jobId);
                   command.Parameters.AddWithValue("group_key", groupKey);
               },
               cancellationToken)

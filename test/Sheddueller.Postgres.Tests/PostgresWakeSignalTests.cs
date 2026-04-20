@@ -16,7 +16,7 @@ public sealed class PostgresWakeSignalTests(PostgresFixture fixture) : IClassFix
           .WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None)
           .AsTask();
 
-        await secondProvider.GetRequiredService<ITaskStore>().EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid()));
+        await secondProvider.GetRequiredService<IJobStore>().EnqueueAsync(PostgresTestData.CreateRequest(Guid.NewGuid()));
 
         await waitTask.WaitAsync(TimeSpan.FromSeconds(10));
     }

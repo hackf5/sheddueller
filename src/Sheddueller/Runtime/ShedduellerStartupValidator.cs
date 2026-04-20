@@ -58,9 +58,9 @@ internal sealed class ShedduellerStartupValidator(
             throw new InvalidOperationException("ShedduellerOptions.DefaultRetryPolicy is invalid.", exception);
         }
 
-        if (this._serviceProvider.GetService<ITaskStore>() is null)
+        if (this._serviceProvider.GetService<IJobStore>() is null)
         {
-            throw new InvalidOperationException("No Sheddueller task store provider has been registered.");
+            throw new InvalidOperationException("No Sheddueller job store provider has been registered.");
         }
 
         return Task.CompletedTask;

@@ -3,8 +3,8 @@ namespace Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
-internal sealed record PostgresClaimedTask(
-    Guid TaskId,
+internal sealed record PostgresClaimedJob(
+    Guid JobId,
     int AttemptCount,
     int MaxAttempts,
     RetryBackoffKind? RetryBackoffKind,
@@ -28,7 +28,7 @@ internal sealed record PostgresScheduleDefinition(
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
-    SerializedTaskPayload SerializedArguments,
+    SerializedJobPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys,
     RetryPolicy? RetryPolicy,
     DateTimeOffset? NextFireAtUtc)

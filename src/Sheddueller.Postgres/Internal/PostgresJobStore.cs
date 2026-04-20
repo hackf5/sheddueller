@@ -4,45 +4,45 @@ using Sheddueller.Dashboard;
 using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 
-internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options)
-    : ITaskStore, IDashboardJobReader, IDashboardEventSink, IDashboardEventRetentionStore
+internal sealed class PostgresJobStore(ShedduellerPostgresOptions options)
+    : IJobStore, IDashboardJobReader, IDashboardEventSink, IDashboardEventRetentionStore
 {
     private readonly PostgresOperationContext _context = new(options);
 
-    public ValueTask<EnqueueTaskResult> EnqueueAsync(
-        EnqueueTaskRequest request,
+    public ValueTask<EnqueueJobResult> EnqueueAsync(
+        EnqueueJobRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return EnqueueTaskOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return EnqueueJobOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
-    public ValueTask<ClaimTaskResult> TryClaimNextAsync(
-        ClaimTaskRequest request,
+    public ValueTask<ClaimJobResult> TryClaimNextAsync(
+        ClaimJobRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return TryClaimNextTaskOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return TryClaimNextJobOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
     public ValueTask<bool> MarkCompletedAsync(
-        CompleteTaskRequest request,
+        CompleteJobRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return MarkTaskCompletedOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return MarkJobCompletedOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
     public ValueTask<bool> MarkFailedAsync(
-        FailTaskRequest request,
+        FailJobRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return MarkTaskFailedOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return MarkJobFailedOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
     public ValueTask<bool> RenewLeaseAsync(
@@ -51,16 +51,16 @@ internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return RenewTaskLeaseOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return RenewJobLeaseOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
-    public ValueTask<bool> ReleaseTaskAsync(
-        ReleaseTaskRequest request,
+    public ValueTask<bool> ReleaseJobAsync(
+        ReleaseJobRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return ReleaseTaskOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return ReleaseJobOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
     public ValueTask<int> RecoverExpiredLeasesAsync(
@@ -73,12 +73,12 @@ internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options)
     }
 
     public ValueTask<bool> CancelAsync(
-        CancelTaskRequest request,
+        CancelJobRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return CancelTaskOperation.ExecuteAsync(this._context, request, cancellationToken);
+        return CancelJobOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
     public ValueTask SetConcurrencyLimitAsync(
@@ -149,20 +149,20 @@ internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options)
       => PostgresDashboardReadOperation.SearchJobsAsync(this._context, query, cancellationToken);
 
     public ValueTask<DashboardJobDetail?> GetJobAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default)
-      => PostgresDashboardReadOperation.GetJobAsync(this._context, taskId, cancellationToken);
+      => PostgresDashboardReadOperation.GetJobAsync(this._context, jobId, cancellationToken);
 
     public ValueTask<DashboardQueuePosition> GetQueuePositionAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default)
-      => PostgresDashboardReadOperation.GetQueuePositionAsync(this._context, taskId, cancellationToken);
+      => PostgresDashboardReadOperation.GetQueuePositionAsync(this._context, jobId, cancellationToken);
 
     public IAsyncEnumerable<DashboardJobEvent> ReadEventsAsync(
-        Guid taskId,
+        Guid jobId,
         DashboardEventQuery? query = null,
         CancellationToken cancellationToken = default)
-      => PostgresDashboardReadOperation.ReadEventsAsync(this._context, taskId, query, cancellationToken);
+      => PostgresDashboardReadOperation.ReadEventsAsync(this._context, jobId, query, cancellationToken);
 
     public ValueTask<DashboardJobEvent> AppendAsync(
         AppendDashboardJobEventRequest request,

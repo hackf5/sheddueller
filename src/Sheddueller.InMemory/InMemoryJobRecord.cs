@@ -3,16 +3,16 @@ namespace Sheddueller;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
-internal sealed class InMemoryTaskRecord(
-  Guid taskId,
-  TaskState state,
+internal sealed class InMemoryJobRecord(
+  Guid jobId,
+  JobState state,
   int priority,
   long enqueueSequence,
   DateTimeOffset enqueuedAtUtc,
   string serviceType,
   string methodName,
   IReadOnlyList<string> methodParameterTypes,
-  SerializedTaskPayload serializedArguments,
+  SerializedJobPayload serializedArguments,
   IReadOnlyList<string> concurrencyGroupKeys,
   DateTimeOffset? notBeforeUtc,
   int maxAttempts,
@@ -23,9 +23,9 @@ internal sealed class InMemoryTaskRecord(
   DateTimeOffset? scheduledFireAtUtc,
   IReadOnlyList<JobTag> tags)
 {
-    public Guid TaskId { get; } = taskId;
+    public Guid JobId { get; } = jobId;
 
-    public TaskState State { get; set; } = state;
+    public JobState State { get; set; } = state;
 
     public int Priority { get; } = priority;
 
@@ -39,7 +39,7 @@ internal sealed class InMemoryTaskRecord(
 
     public IReadOnlyList<string> MethodParameterTypes { get; } = methodParameterTypes;
 
-    public SerializedTaskPayload SerializedArguments { get; } = serializedArguments;
+    public SerializedJobPayload SerializedArguments { get; } = serializedArguments;
 
     public IReadOnlyList<string> ConcurrencyGroupKeys { get; } = concurrencyGroupKeys;
 
@@ -69,7 +69,7 @@ internal sealed class InMemoryTaskRecord(
 
     public DateTimeOffset? FailedAtUtc { get; set; }
 
-    public TaskFailureInfo? Failure { get; set; }
+    public JobFailureInfo? Failure { get; set; }
 
     public DateTimeOffset? CanceledAtUtc { get; set; }
 
@@ -82,16 +82,16 @@ internal sealed class InMemoryTaskRecord(
     public long DashboardEventSequence { get; set; }
 }
 
-internal sealed record InMemoryTaskSnapshot(
-  Guid TaskId,
-  TaskState State,
+internal sealed record InMemoryJobSnapshot(
+  Guid JobId,
+  JobState State,
   int Priority,
   long EnqueueSequence,
   DateTimeOffset EnqueuedAtUtc,
   string ServiceType,
   string MethodName,
   IReadOnlyList<string> MethodParameterTypes,
-  SerializedTaskPayload SerializedArguments,
+  SerializedJobPayload SerializedArguments,
   IReadOnlyList<string> ConcurrencyGroupKeys,
   DateTimeOffset? NotBeforeUtc,
   int AttemptCount,
@@ -106,7 +106,7 @@ internal sealed record InMemoryTaskSnapshot(
   DateTimeOffset? ClaimedAtUtc,
   DateTimeOffset? CompletedAtUtc,
   DateTimeOffset? FailedAtUtc,
-  TaskFailureInfo? Failure,
+  JobFailureInfo? Failure,
   DateTimeOffset? CanceledAtUtc,
   string? SourceScheduleKey,
   DateTimeOffset? ScheduledFireAtUtc,
@@ -118,7 +118,7 @@ internal sealed class InMemoryRecurringScheduleRecord(
   string serviceType,
   string methodName,
   IReadOnlyList<string> methodParameterTypes,
-  SerializedTaskPayload serializedArguments,
+  SerializedJobPayload serializedArguments,
   int priority,
   IReadOnlyList<string> concurrencyGroupKeys,
   RetryPolicy? retryPolicy,
@@ -136,7 +136,7 @@ internal sealed class InMemoryRecurringScheduleRecord(
 
     public IReadOnlyList<string> MethodParameterTypes { get; set; } = methodParameterTypes;
 
-    public SerializedTaskPayload SerializedArguments { get; set; } = serializedArguments;
+    public SerializedJobPayload SerializedArguments { get; set; } = serializedArguments;
 
     public int Priority { get; set; } = priority;
 

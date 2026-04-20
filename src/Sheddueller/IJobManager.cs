@@ -1,14 +1,14 @@
 namespace Sheddueller;
 
 /// <summary>
-/// Manages pending task instances.
+/// Manages pending job instances.
 /// </summary>
-public interface ITaskManager
+public interface IJobManager
 {
     /// <summary>
-    /// Cancels a queued task before it is claimed.
+    /// Cancels a queued job before it is claimed.
     /// </summary>
     ValueTask<bool> CancelAsync(
-        Guid taskId,
+        Guid jobId,
         CancellationToken cancellationToken = default);
 }

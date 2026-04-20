@@ -5,13 +5,13 @@ Last updated: 2026-04-19
 
 ## Summary
 
-Sheddueller v1 is an in-process task scheduler for `net10.0`. It executes immediate, fire-and-forget tasks across any number of homogeneous application hosts that share one logical task store.
+Sheddueller v1 is an in-process job scheduler for `net10.0`. It executes immediate, fire-and-forget jobs across any number of homogeneous application hosts that share one logical job store.
 
 V1 is defined by four core capabilities:
 
-- Strict numeric task priority.
+- Strict numeric job priority.
 - Dynamic cluster-wide concurrency groups.
-- Cancellation-aware expression-based task submission against DI services.
+- Cancellation-aware expression-based job submission against DI services.
 - Backend-agnostic storage, proven first by an in-memory provider.
 
 Hosting integration is built around the standard .NET host model:
@@ -21,7 +21,7 @@ Hosting integration is built around the standard .NET host model:
 
 ## Goals
 
-- Execute immediate tasks submitted by application code.
+- Execute immediate jobs submitted by application code.
 - Allow callers to assign any integer priority at enqueue time.
 - Enforce concurrency limits with runtime-defined group keys instead of preconfigured queues.
 - Allow any number of hosts to join the same cluster and compete for work from the shared store.
@@ -34,7 +34,7 @@ Non-goals are scoped to v1 unless explicitly marked permanent.
 
 - Delayed or scheduled execution.
 - Recurring or cron-based work.
-- Task chaining, workflows, or dependency graphs.
+- Job chaining, workflows, or dependency graphs.
 - Automatic retries or configurable retry policies.
 - Result storage or return-value retrieval.
 - First-class observability or operator dashboards.
@@ -44,10 +44,10 @@ Non-goals are scoped to v1 unless explicitly marked permanent.
 
 - Every application host is a homogeneous node. There is no leader role in v1.
 - Each node joins the cluster by registering Sheddueller in DI and running a hosted background worker.
-- All nodes share one logical `ITaskStore`.
-- Application code enqueues work through `ITaskEnqueuer`.
-- The worker claims tasks from the store, resolves the target service from DI, invokes the captured method with a scheduler-owned `CancellationToken`, and reports terminal completion back to the store.
-- Nodes execute up to `MaxConcurrentExecutionsPerNode` tasks concurrently. This node-local limit is separate from cluster-wide concurrency groups.
+- All nodes share one logical `IJobStore`.
+- Application code enqueues work through `IJobEnqueuer`.
+- The worker claims jobs from the store, resolves the target service from DI, invokes the captured method with a scheduler-owned `CancellationToken`, and reports terminal completion back to the store.
+- Nodes execute up to `MaxConcurrentExecutionsPerNode` jobs concurrently. This node-local limit is separate from cluster-wide concurrency groups.
 
 ## Public API Shape
 
@@ -85,7 +85,7 @@ Requirements:
 - `MaxConcurrentExecutionsPerNode` must be a positive integer. Its default is `Environment.ProcessorCount`.
 - `IdlePollingInterval` must be positive. It is the fallback poll cadence when no wake signal is received.
 - The core package must register `TimeProvider.System` by default when no `TimeProvider` is already registered.
-- Runtime-generated timestamps passed to `ITaskStore` must come from the registered `TimeProvider`.
+- Runtime-generated timestamps passed to `IJobStore` must come from the registered `TimeProvider`.
 
 ### Builder
 
@@ -97,11 +97,11 @@ public sealed class ShedduellerBuilder
     public ShedduellerBuilder ConfigureOptions(
         Action<ShedduellerOptions> configure);
 
-    public ShedduellerBuilder UseTaskPayloadSerializer<TSerializer>()
-        where TSerializer : class, ITaskPayloadSerializer;
+    public ShedduellerBuilder UseJobPayloadSerializer<TSerializer>()
+        where TSerializer : class, IJobPayloadSerializer;
 
-    public ShedduellerBuilder UseTaskPayloadSerializer(
-        ITaskPayloadSerializer serializer);
+    public ShedduellerBuilder UseJobPayloadSerializer(
+        IJobPayloadSerializer serializer);
 }
 ```
 
@@ -110,30 +110,30 @@ Requirements:
 - `ShedduellerBuilder` is the fluent configuration surface used by `AddSheddueller`.
 - `Services` exposes the underlying service collection for provider packages.
 - `ConfigureOptions` composes with other option configuration.
-- `UseTaskPayloadSerializer<TSerializer>` registers a singleton serializer implementation.
-- `UseTaskPayloadSerializer(ITaskPayloadSerializer)` registers the provided serializer instance as singleton.
-- If no serializer is configured, Sheddueller must use the built-in `SystemTextJsonTaskPayloadSerializer`.
+- `UseJobPayloadSerializer<TSerializer>` registers a singleton serializer implementation.
+- `UseJobPayloadSerializer(IJobPayloadSerializer)` registers the provided serializer instance as singleton.
+- If no serializer is configured, Sheddueller must use the built-in `SystemTextJsonJobPayloadSerializer`.
 - Store providers must extend `ShedduellerBuilder` from their own package. V1's in-memory provider exposes `UseInMemoryStore`.
-- `AddSheddueller` must fail during startup validation if no `ITaskStore` provider has been registered.
+- `AddSheddueller` must fail during startup validation if no `IJobStore` provider has been registered.
 - Startup validation should run before hosted workers begin claiming work.
 
-### Task Submission
+### Job Submission
 
 ```csharp
-public interface ITaskEnqueuer
+public interface IJobEnqueuer
 {
     ValueTask<Guid> EnqueueAsync<TService>(
         Expression<Func<TService, CancellationToken, Task>> work,
-        TaskSubmission? submission = null,
+        JobSubmission? submission = null,
         CancellationToken cancellationToken = default);
 
     ValueTask<Guid> EnqueueAsync<TService>(
         Expression<Func<TService, CancellationToken, ValueTask>> work,
-        TaskSubmission? submission = null,
+        JobSubmission? submission = null,
         CancellationToken cancellationToken = default);
 }
 
-public sealed record TaskSubmission(
+public sealed record JobSubmission(
     int Priority = 0,
     IReadOnlyList<string>? ConcurrencyGroupKeys = null);
 ```
@@ -142,18 +142,18 @@ Requirements:
 
 - The expression must be a single instance-method call on `TService`.
 - `TService` must be resolvable from DI at execution time.
-- Supported task methods return `Task` or `ValueTask`.
+- Supported job methods return `Task` or `ValueTask`.
 - The expression must accept the scheduler-provided `CancellationToken` and forward it to the target service method call.
-- The scheduler-provided `CancellationToken` is runtime-owned and is never serialized as part of the task payload.
+- The scheduler-provided `CancellationToken` is runtime-owned and is never serialized as part of the job payload.
 - Callers must not capture an external `CancellationToken` for execution control inside the submitted expression.
 - V1 supports non-generic instance method calls only.
 - V1 does not support open or closed generic target method calls.
 - Optional/default parameter behavior is not inferred. Every target method argument except the scheduler-owned cancellation token must appear explicitly in the method call expression.
 - Argument subexpressions are evaluated once at enqueue time and the resulting values are serialized.
-- Method arguments are captured at enqueue time and serialized through `ITaskPayloadSerializer`.
+- Method arguments are captured at enqueue time and serialized through `IJobPayloadSerializer`.
 - Captured argument values must be serializer-compatible.
-- `TaskSubmission.Priority` is an unconstrained sortable integer. Higher values mean higher priority.
-- `TaskSubmission.ConcurrencyGroupKeys` is optional. Missing or empty means the task has no concurrency-group constraints.
+- `JobSubmission.Priority` is an unconstrained sortable integer. Higher values mean higher priority.
+- `JobSubmission.ConcurrencyGroupKeys` is optional. Missing or empty means the job has no concurrency-group constraints.
 - Group keys are opaque, case-sensitive, non-empty strings.
 - Duplicate group keys in a submission must be deduplicated before persistence.
 
@@ -187,44 +187,44 @@ Requirements:
 
 - `limit` must be a positive integer.
 - A missing configured limit does not mean unlimited capacity. The scheduler must treat it as an effective limit of `1`.
-- Lowering a limit below the current number of claimed tasks must not preempt running work. It only blocks future claims until occupancy drops below the new limit.
+- Lowering a limit below the current number of claimed jobs must not preempt running work. It only blocks future claims until occupancy drops below the new limit.
 
-## Task Model
+## Job Model
 
-The persisted task record must contain at least the following fields:
+The persisted job record must contain at least the following fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `TaskId` | `Guid` | Stable identifier returned from `EnqueueAsync`. |
-| `State` | `TaskState` | One of `Queued`, `Claimed`, `Completed`, `Failed`. |
+| `JobId` | `Guid` | Stable identifier returned from `EnqueueAsync`. |
+| `State` | `JobState` | One of `Queued`, `Claimed`, `Completed`, `Failed`. |
 | `Priority` | `int` | Higher numbers run first. |
 | `EnqueueSequence` | `long` | Store-assigned, strictly monotonic ordering key used for FIFO within equal priority. |
 | `EnqueuedAtUtc` | `DateTimeOffset` | Timestamp recorded at enqueue time. |
 | `ServiceType` | `string` | Assembly-qualified or otherwise unambiguous service type identity. |
 | `MethodName` | `string` | Target method name. |
 | `MethodParameterTypes` | `string[]` | Unambiguous parameter type identities for overload resolution. |
-| `SerializedArguments` | `SerializedTaskPayload` | Serializer-owned payload for method arguments. |
-| `ConcurrencyGroupKeys` | `string[]` | Distinct persisted group keys for this task. |
-| `ClaimedByNodeId` | `string?` | Node that claimed the task, if any. |
+| `SerializedArguments` | `SerializedJobPayload` | Serializer-owned payload for method arguments. |
+| `ConcurrencyGroupKeys` | `string[]` | Distinct persisted group keys for this job. |
+| `ClaimedByNodeId` | `string?` | Node that claimed the job, if any. |
 | `ClaimedAtUtc` | `DateTimeOffset?` | When the claim occurred. |
 | `CompletedAtUtc` | `DateTimeOffset?` | When successful execution finished. |
 | `FailedAtUtc` | `DateTimeOffset?` | When failed execution finished. |
-| `Failure` | `TaskFailureInfo?` | Best-effort error details for failed tasks. |
+| `Failure` | `JobFailureInfo?` | Best-effort error details for failed jobs. |
 
-`TaskFailureInfo` must contain:
+`JobFailureInfo` must contain:
 
 - Exception type name.
 - Exception message.
 - Best-effort stack trace text.
 
-`TaskState` has the following meaning:
+`JobState` has the following meaning:
 
 - `Queued`: available to be considered for claiming.
 - `Claimed`: owned by a node and counted against every referenced concurrency group.
 - `Completed`: terminal success state.
 - `Failed`: terminal failure state.
 
-There is no separate `Running` state in v1. A claimed task is considered active until it transitions to `Completed` or `Failed`.
+There is no separate `Running` state in v1. A claimed job is considered active until it transitions to `Completed` or `Failed`.
 
 ## Scheduling Semantics
 
@@ -236,9 +236,9 @@ There is no separate `Running` state in v1. A claimed task is considered active 
 
 ### Claiming
 
-- A task may be claimed only from `Queued`.
-- Claiming a task must atomically transition it to `Claimed` and reserve capacity in every referenced concurrency group.
-- Two nodes must never successfully claim the same task.
+- A job may be claimed only from `Queued`.
+- Claiming a job must atomically transition it to `Claimed` and reserve capacity in every referenced concurrency group.
+- Two nodes must never successfully claim the same job.
 - Two nodes must never oversubscribe the same concurrency group beyond its effective limit.
 
 ### Concurrency Groups
@@ -247,62 +247,62 @@ There is no separate `Running` state in v1. A claimed task is considered active 
 - The effective limit for a group is:
   - the configured limit from `IConcurrencyGroupManager`, when present
   - otherwise `1`
-- A task with multiple group keys may start only when every group has available capacity.
-- Tasks without group keys are not subject to group-based throttling.
+- A job with multiple group keys may start only when every group has available capacity.
+- Jobs without group keys are not subject to group-based throttling.
 
 ### Scanning Behavior
 
-- The scheduler must not stop at the first queued task if that task is blocked by concurrency limits.
-- The scheduler must continue scanning queued tasks in global candidate order until it finds the first claimable task.
-- This rule exists so a blocked high-priority task does not stall unrelated work indefinitely.
+- The scheduler must not stop at the first queued job if that job is blocked by concurrency limits.
+- The scheduler must continue scanning queued jobs in global candidate order until it finds the first claimable job.
+- This rule exists so a blocked high-priority job does not stall unrelated work indefinitely.
 
 ### Execution
 
 - After claiming, the node resolves the target `TService` from DI.
-- Each claimed task executes in a fresh `IServiceScope`.
+- Each claimed job executes in a fresh `IServiceScope`.
 - The worker invokes the captured method using the deserialized arguments and a scheduler-owned execution `CancellationToken`.
-- On successful completion, the task transitions to `Completed`.
-- On exception, the task transitions to `Failed`.
-- If host shutdown cancels the execution token and user code observes it by throwing `OperationCanceledException` or returning a canceled task, v1 transitions the task to `Failed` with cancellation details because v1 has no `Canceled` state.
-- V1 does not retry failed tasks.
+- On successful completion, the job transitions to `Completed`.
+- On exception, the job transitions to `Failed`.
+- If host shutdown cancels the execution token and user code observes it by throwing `OperationCanceledException` or returning a canceled job, v1 transitions the job to `Failed` with cancellation details because v1 has no `Canceled` state.
+- V1 does not retry failed jobs.
 
 ### Worker Loop
 
-- The hosted worker must stop claiming new tasks when host shutdown begins.
+- The hosted worker must stop claiming new jobs when host shutdown begins.
 - The hosted worker must use signal-plus-poll waiting.
-- Enqueueing a task must signal workers that work may be available.
+- Enqueueing a job must signal workers that work may be available.
 - Updating a concurrency-group limit must signal workers that blocked work may now be available.
 - If a signal is missed, the worker must still make progress through fallback polling using `IdlePollingInterval`.
-- The wake signal is a core runtime service. It is not part of `ITaskStore`.
-- The worker must never execute more than `MaxConcurrentExecutionsPerNode` tasks concurrently.
+- The wake signal is a core runtime service. It is not part of `IJobStore`.
+- The worker must never execute more than `MaxConcurrentExecutionsPerNode` jobs concurrently.
 
 ### Node Failure
 
-- If a node dies after claiming a task, the task remains in `Claimed`.
+- If a node dies after claiming a job, the job remains in `Claimed`.
 - V1 does not include lease expiration, heartbeat renewal, or automatic reclaim.
 - This is an intentional limitation, not an implementation gap.
 
 ## Storage Abstraction
 
-`ITaskStore` is a first-class extension point. V1 ships with an in-memory implementation in a separate provider package, but the abstraction must be suitable for later relational providers.
+`IJobStore` is a first-class extension point. V1 ships with an in-memory implementation in a separate provider package, but the abstraction must be suitable for later relational providers.
 
 ```csharp
-public interface ITaskStore
+public interface IJobStore
 {
-    ValueTask<EnqueueTaskResult> EnqueueAsync(
-        EnqueueTaskRequest request,
+    ValueTask<EnqueueJobResult> EnqueueAsync(
+        EnqueueJobRequest request,
         CancellationToken cancellationToken = default);
 
-    ValueTask<ClaimTaskResult> TryClaimNextAsync(
-        ClaimTaskRequest request,
+    ValueTask<ClaimJobResult> TryClaimNextAsync(
+        ClaimJobRequest request,
         CancellationToken cancellationToken = default);
 
     ValueTask MarkCompletedAsync(
-        CompleteTaskRequest request,
+        CompleteJobRequest request,
         CancellationToken cancellationToken = default);
 
     ValueTask MarkFailedAsync(
-        FailTaskRequest request,
+        FailJobRequest request,
         CancellationToken cancellationToken = default);
 
     ValueTask SetConcurrencyLimitAsync(
@@ -314,50 +314,50 @@ public interface ITaskStore
         CancellationToken cancellationToken = default);
 }
 
-public sealed record EnqueueTaskRequest(
-    Guid TaskId,
+public sealed record EnqueueJobRequest(
+    Guid JobId,
     int Priority,
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
-    SerializedTaskPayload SerializedArguments,
+    SerializedJobPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys,
     DateTimeOffset EnqueuedAtUtc);
 
-public sealed record EnqueueTaskResult(
-    Guid TaskId,
+public sealed record EnqueueJobResult(
+    Guid JobId,
     long EnqueueSequence);
 
-public sealed record ClaimTaskRequest(
+public sealed record ClaimJobRequest(
     string NodeId,
     DateTimeOffset ClaimedAtUtc);
 
-public abstract record ClaimTaskResult
+public abstract record ClaimJobResult
 {
-    public sealed record Claimed(ClaimedTask Task) : ClaimTaskResult;
-    public sealed record NoTaskAvailable() : ClaimTaskResult;
+    public sealed record Claimed(ClaimedJob Job) : ClaimJobResult;
+    public sealed record NoJobAvailable() : ClaimJobResult;
 }
 
-public sealed record ClaimedTask(
-    Guid TaskId,
+public sealed record ClaimedJob(
+    Guid JobId,
     long EnqueueSequence,
     int Priority,
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
-    SerializedTaskPayload SerializedArguments,
+    SerializedJobPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys);
 
-public sealed record CompleteTaskRequest(
-    Guid TaskId,
+public sealed record CompleteJobRequest(
+    Guid JobId,
     string NodeId,
     DateTimeOffset CompletedAtUtc);
 
-public sealed record FailTaskRequest(
-    Guid TaskId,
+public sealed record FailJobRequest(
+    Guid JobId,
     string NodeId,
     DateTimeOffset FailedAtUtc,
-    TaskFailureInfo Failure);
+    JobFailureInfo Failure);
 
 public sealed record SetConcurrencyLimitRequest(
     string GroupKey,
@@ -367,47 +367,47 @@ public sealed record SetConcurrencyLimitRequest(
 
 The store contract must provide these capabilities:
 
-- Enqueue a task and assign its `EnqueueSequence`.
-- Return the next claimable task according to the scheduling rules.
+- Enqueue a job and assign its `EnqueueSequence`.
+- Return the next claimable job according to the scheduling rules.
 - Perform claim selection atomically with the transition to `Claimed`.
 - Persist terminal transitions to `Completed` and `Failed`.
 - Store and retrieve configured concurrency-group limits.
-- Read enough task state to enforce group occupancy across the cluster.
+- Read enough job state to enforce group occupancy across the cluster.
 - The operation timestamps supplied by the runtime are authoritative for v1 stores.
 
 Required behavioral rules:
 
 - Claim selection and group-capacity reservation must be one atomic store operation.
 - The store owns concurrency-group occupancy. The scheduler must not track cluster-wide group occupancy in memory.
-- Group occupancy is the number of tasks in `Claimed` that reference a given group key.
-- Terminal transitions must release all group occupancy held by that task.
+- Group occupancy is the number of jobs in `Claimed` that reference a given group key.
+- Terminal transitions must release all group occupancy held by that job.
 - The store abstraction must not encode PostgreSQL-, MySQL-, or provider-specific concepts into app-facing APIs.
 
 The spec does not lock v1 to a particular SQL schema. It locks the behavior and the storage responsibilities.
 
 ## Payload Serialization
 
-`ITaskPayloadSerializer` is a first-class extension point.
+`IJobPayloadSerializer` is a first-class extension point.
 
 ```csharp
-public interface ITaskPayloadSerializer
+public interface IJobPayloadSerializer
 {
-    ValueTask<SerializedTaskPayload> SerializeAsync(
+    ValueTask<SerializedJobPayload> SerializeAsync(
         IReadOnlyList<object?> arguments,
         IReadOnlyList<Type> parameterTypes,
         CancellationToken cancellationToken = default);
 
     ValueTask<IReadOnlyList<object?>> DeserializeAsync(
-        SerializedTaskPayload payload,
+        SerializedJobPayload payload,
         IReadOnlyList<Type> parameterTypes,
         CancellationToken cancellationToken = default);
 }
 
-public sealed record SerializedTaskPayload(
+public sealed record SerializedJobPayload(
     string ContentType,
     byte[] Data);
 
-public sealed class SystemTextJsonTaskPayloadSerializer : ITaskPayloadSerializer;
+public sealed class SystemTextJsonJobPayloadSerializer : IJobPayloadSerializer;
 ```
 
 Requirements:
@@ -417,7 +417,7 @@ Requirements:
 - The serializer owns only the method argument array. It does not own service type, method identity, priority, state, or concurrency metadata.
 - The serializer must preserve enough type information to rebind method arguments unambiguously.
 - The serializer boundary must be used by the in-memory store as well as future durable stores.
-- `SystemTextJsonTaskPayloadSerializer` is the default serializer.
+- `SystemTextJsonJobPayloadSerializer` is the default serializer.
 
 The in-memory provider must not bypass the serializer by storing raw delegate closures or live object instances.
 
@@ -435,8 +435,8 @@ public static class ShedduellerInMemoryBuilderExtensions
 
 Requirements:
 
-- `UseInMemoryStore` registers the in-memory `ITaskStore`.
-- It must implement the same `ITaskStore` contract later providers will implement.
+- `UseInMemoryStore` registers the in-memory `IJobStore`.
+- It must implement the same `IJobStore` contract later providers will implement.
 - It must enforce the same atomic claim and concurrency-group rules as future durable providers.
 - It is acceptable for its data to be process-local and non-durable.
 - It is the reference implementation for unit and integration tests in v1.
@@ -447,29 +447,29 @@ The v1 implementation is complete only when the following scenarios pass:
 
 1. Enqueueing `(service, cancellationToken) => service.DoWorkAsync(arg, cancellationToken)` persists the correct service identity, method identity, and serialized argument payload without serializing the cancellation token.
 2. Unsupported expression forms are rejected during enqueue.
-3. Between two tasks with the same priority, the earlier `EnqueueSequence` is claimed first.
-4. A higher-priority task is claimed before any lower-priority task that would otherwise be eligible.
-5. When the highest-priority queued task is blocked by group limits, the scheduler continues scanning and may claim a lower-priority task that is eligible.
-6. Two nodes competing for the same queued task cannot both claim it.
+3. Between two jobs with the same priority, the earlier `EnqueueSequence` is claimed first.
+4. A higher-priority job is claimed before any lower-priority job that would otherwise be eligible.
+5. When the highest-priority queued job is blocked by group limits, the scheduler continues scanning and may claim a lower-priority job that is eligible.
+6. Two nodes competing for the same queued job cannot both claim it.
 7. A group limit configured on one node is enforced cluster-wide across other nodes sharing the same store.
-8. A task with multiple group keys is claimable only when every referenced group has spare capacity.
-9. A task referencing an unseen group key is throttled as if that group had limit `1`.
+8. A job with multiple group keys is claimable only when every referenced group has spare capacity.
+9. A job referencing an unseen group key is throttled as if that group had limit `1`.
 10. Lowering a group limit below current occupancy does not cancel running work, but it blocks future claims for that group until occupancy drops.
-11. Successful execution moves the task to `Completed` and releases all held group occupancy.
-12. A thrown exception moves the task to `Failed`, stores failure details, and does not retry.
-13. A task claimed by a node that dies remains stuck in `Claimed`; the behavior is documented and tested as a v1 milestone constraint.
+11. Successful execution moves the job to `Completed` and releases all held group occupancy.
+12. A thrown exception moves the job to `Failed`, stores failure details, and does not retry.
+13. A job claimed by a node that dies remains stuck in `Claimed`; the behavior is documented and tested as a v1 milestone constraint.
 14. `AddSheddueller` registers the core runtime services, hosted worker, enqueuer, group manager, default JSON serializer, and configured store provider.
-15. Startup validation fails deterministically when no `ITaskStore` provider is registered.
+15. Startup validation fails deterministically when no `IJobStore` provider is registered.
 16. `UseInMemoryStore` from `Sheddueller.InMemory` wires the in-memory store as the active provider.
 17. `ShedduellerBuilder` composes option configuration and serializer configuration.
-18. The default `SystemTextJsonTaskPayloadSerializer` serializes/deserializes argument arrays through the serializer boundary.
-19. A custom `ITaskPayloadSerializer` can replace the default serializer.
+18. The default `SystemTextJsonJobPayloadSerializer` serializes/deserializes argument arrays through the serializer boundary.
+19. A custom `IJobPayloadSerializer` can replace the default serializer.
 20. Argument subexpressions are evaluated exactly once at enqueue time.
 21. Generic target methods, static methods, missing cancellation-token forwarding, and captured runtime-only values are rejected during enqueue.
-22. `ITaskStore.TryClaimNextAsync` atomically claims the first claimable task and reserves all referenced concurrency groups.
+22. `IJobStore.TryClaimNextAsync` atomically claims the first claimable job and reserves all referenced concurrency groups.
 23. The scheduler does not maintain cluster-wide concurrency-group occupancy in memory.
 24. The hosted worker wakes after enqueue and after concurrency-limit updates.
 25. The hosted worker still claims available work after a missed wake signal through fallback polling.
-26. Each task execution resolves `TService` from a fresh `IServiceScope`.
+26. Each job execution resolves `TService` from a fresh `IServiceScope`.
 27. `TimeProvider` controls enqueue, claim, completion, and failure timestamps in tests.
-28. Host-shutdown-observed cancellation records the task as `Failed` with cancellation details.
+28. Host-shutdown-observed cancellation records the job as `Failed` with cancellation details.

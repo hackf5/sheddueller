@@ -60,14 +60,14 @@ internal sealed class PostgresDashboardEventListener(
 
     private void OnNotification(object sender, NpgsqlNotificationEventArgs args)
     {
-        if (!TryParsePayload(args.Payload, options.SchemaName, out var taskId, out var eventSequence))
+        if (!TryParsePayload(args.Payload, options.SchemaName, out var jobId, out var eventSequence))
         {
             return;
         }
 
         _ = Task.Run(async () =>
         {
-            var jobEvent = await PostgresDashboardEvents.ReadEventAsync(this._context, taskId, eventSequence, CancellationToken.None)
+            var jobEvent = await PostgresDashboardEvents.ReadEventAsync(this._context, jobId, eventSequence, CancellationToken.None)
               .ConfigureAwait(false);
             if (jobEvent is not null)
             {
@@ -79,15 +79,15 @@ internal sealed class PostgresDashboardEventListener(
     private static bool TryParsePayload(
         string payload,
         string schemaName,
-        out Guid taskId,
+        out Guid jobId,
         out long eventSequence)
     {
-        taskId = default;
+        jobId = default;
         eventSequence = default;
         var parts = payload.Split('|', StringSplitOptions.None);
         return parts.Length == 3
           && string.Equals(parts[0], schemaName, StringComparison.Ordinal)
-          && Guid.TryParseExact(parts[1], "N", out taskId)
+          && Guid.TryParseExact(parts[1], "N", out jobId)
           && long.TryParse(parts[2], CultureInfo.InvariantCulture, out eventSequence);
     }
 }

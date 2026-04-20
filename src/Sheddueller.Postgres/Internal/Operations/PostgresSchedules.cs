@@ -284,7 +284,7 @@ internal static class PostgresSchedules
           $"""
           select exists (
               select 1
-              from {context.Names.Tasks}
+              from {context.Names.Jobs}
               where source_schedule_key = @schedule_key
                 and state in ('Queued', 'Claimed'));
           """;
@@ -293,13 +293,13 @@ internal static class PostgresSchedules
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? false);
     }
 
-    public static async ValueTask InsertMaterializedTaskAsync(
+    public static async ValueTask InsertMaterializedJobAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         PostgresScheduleDefinition schedule,
         PostgresRetryPolicy retry,
-        Guid taskId,
+        Guid jobId,
         DateTimeOffset materializedAtUtc,
         CancellationToken cancellationToken)
     {
@@ -307,8 +307,8 @@ internal static class PostgresSchedules
           connection,
           transaction,
           $"""
-          insert into {context.Names.Tasks} (
-              task_id,
+          insert into {context.Names.Jobs} (
+              job_id,
               state,
               priority,
               enqueued_at_utc,
@@ -325,7 +325,7 @@ internal static class PostgresSchedules
               source_schedule_key,
               scheduled_fire_at_utc)
           values (
-              @task_id,
+              @job_id,
               'Queued',
               @priority,
               transaction_timestamp(),
@@ -344,7 +344,7 @@ internal static class PostgresSchedules
           """,
           command =>
           {
-              command.Parameters.AddWithValue("task_id", taskId);
+              command.Parameters.AddWithValue("job_id", jobId);
               command.Parameters.AddWithValue("priority", schedule.Priority);
               command.Parameters.AddWithValue("service_type", schedule.ServiceType);
               command.Parameters.AddWithValue("method_name", schedule.MethodName);
@@ -360,13 +360,13 @@ internal static class PostgresSchedules
           },
           cancellationToken)
           .ConfigureAwait(false);
-        await PostgresTaskGroups.ReplaceTaskGroupsAsync(context, connection, transaction, taskId, schedule.ConcurrencyGroupKeys, cancellationToken)
+        await PostgresJobGroups.ReplaceJobGroupsAsync(context, connection, transaction, jobId, schedule.ConcurrencyGroupKeys, cancellationToken)
           .ConfigureAwait(false);
         await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
           context,
           connection,
           transaction,
-          new AppendDashboardJobEventRequest(taskId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
+          new AppendDashboardJobEventRequest(jobId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
           cancellationToken)
           .ConfigureAwait(false);
     }

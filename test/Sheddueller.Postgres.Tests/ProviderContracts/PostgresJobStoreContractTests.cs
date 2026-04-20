@@ -2,11 +2,11 @@ namespace Sheddueller.Postgres.Tests.ProviderContracts;
 
 using Sheddueller.ProviderContracts;
 
-public sealed class PostgresTaskStoreContractTests(PostgresFixture fixture) : TaskStoreContractTests, IClassFixture<PostgresFixture>
+public sealed class PostgresJobStoreContractTests(PostgresFixture fixture) : JobStoreContractTests, IClassFixture<PostgresFixture>
 {
-    protected override async ValueTask<TaskStoreContractContext> CreateContextAsync()
+    protected override async ValueTask<JobStoreContractContext> CreateContextAsync()
     {
         var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        return new TaskStoreContractContext(context.Store, context.MakeScheduleDueAsync, context);
+        return new JobStoreContractContext(context.Store, context.MakeScheduleDueAsync, context);
     }
 }

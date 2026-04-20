@@ -2,7 +2,7 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Sheddueller.Storage;
 
-internal static class RenewTaskLeaseOperation
+internal static class RenewJobLeaseOperation
 {
     public static async ValueTask<bool> ExecuteAsync(
         PostgresOperationContext context,
@@ -21,10 +21,10 @@ internal static class RenewTaskLeaseOperation
           connection,
           transaction,
           $"""
-          update {context.Names.Tasks}
+          update {context.Names.Jobs}
           set last_heartbeat_at_utc = transaction_timestamp(),
               lease_expires_at_utc = transaction_timestamp() + @lease_duration
-          where task_id = @task_id
+          where job_id = @job_id
             and state = 'Claimed'
             and claimed_by_node_id = @node_id
             and lease_token = @lease_token
@@ -32,7 +32,7 @@ internal static class RenewTaskLeaseOperation
           """,
           command =>
           {
-              command.Parameters.AddWithValue("task_id", request.TaskId);
+              command.Parameters.AddWithValue("job_id", request.JobId);
               command.Parameters.AddWithValue("node_id", request.NodeId);
               command.Parameters.AddWithValue("lease_token", request.LeaseToken);
               command.Parameters.AddWithValue("lease_duration", leaseDuration);

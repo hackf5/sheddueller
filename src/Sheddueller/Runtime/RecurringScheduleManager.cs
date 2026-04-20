@@ -9,8 +9,8 @@ using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
 internal sealed class RecurringScheduleManager(
-    ITaskStore store,
-    ITaskPayloadSerializer serializer,
+    IJobStore store,
+    IJobPayloadSerializer serializer,
     TimeProvider timeProvider,
     IShedduellerWakeSignal wakeSignal) : IRecurringScheduleManager
 {
@@ -78,7 +78,7 @@ internal sealed class RecurringScheduleManager(
         return await this.CreateOrUpdateParsedCoreAsync<TService>(
           scheduleKey,
           cronExpression,
-          TaskExpressionParser.Parse(work),
+          JobExpressionParser.Parse(work),
           options,
           cancellationToken)
           .ConfigureAwait(false);
@@ -87,7 +87,7 @@ internal sealed class RecurringScheduleManager(
     private async ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateParsedCoreAsync<TService>(
         string scheduleKey,
         string cronExpression,
-        ParsedTask parsedTask,
+        ParsedJob parsedTask,
         RecurringScheduleOptions? options,
         CancellationToken cancellationToken)
     {

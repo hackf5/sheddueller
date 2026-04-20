@@ -6,7 +6,7 @@ using Sheddueller.Storage;
 
 internal static class PostgresReaders
 {
-    public static ClaimedTask ReadClaimedTask(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
+    public static ClaimedJob ReadClaimedJob(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
       => new(
         reader.GetGuid(0),
         reader.GetInt64(1),
@@ -26,7 +26,7 @@ internal static class PostgresReaders
         reader.IsDBNull(15) ? null : reader.GetString(15),
         reader.IsDBNull(16) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(16)));
 
-    public static PostgresClaimedTask ReadPostgresClaimedTask(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
+    public static PostgresClaimedJob ReadPostgresClaimedJob(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
       => new(
         reader.GetGuid(0),
         reader.GetInt32(1),

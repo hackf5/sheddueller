@@ -5,11 +5,11 @@ using System.Globalization;
 using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
-internal static class CancelTaskOperation
+internal static class CancelJobOperation
 {
     public static async ValueTask<bool> ExecuteAsync(
         PostgresOperationContext context,
-        CancelTaskRequest request,
+        CancelJobRequest request,
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -18,14 +18,14 @@ internal static class CancelTaskOperation
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          update {context.Names.Tasks}
+          update {context.Names.Jobs}
           set state = 'Canceled',
               canceled_at_utc = transaction_timestamp()
-          where task_id = @task_id
+          where job_id = @job_id
             and state = 'Queued'
           returning attempt_count;
           """;
-        command.Parameters.AddWithValue("task_id", request.TaskId);
+        command.Parameters.AddWithValue("job_id", request.JobId);
 
         var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         if (result is not null)
@@ -34,7 +34,7 @@ internal static class CancelTaskOperation
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(request.TaskId, DashboardJobEventKind.Lifecycle, Convert.ToInt32(result, CultureInfo.InvariantCulture), Message: "Canceled"),
+              new AppendDashboardJobEventRequest(request.JobId, DashboardJobEventKind.Lifecycle, Convert.ToInt32(result, CultureInfo.InvariantCulture), Message: "Canceled"),
               cancellationToken)
               .ConfigureAwait(false);
         }
