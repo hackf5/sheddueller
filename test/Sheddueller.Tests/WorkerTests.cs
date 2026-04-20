@@ -50,7 +50,7 @@ public sealed class WorkerTests
         var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
 
         var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
-          (service, cancellationToken, job) => service.RecordWithContextAsync("context", job, cancellationToken));
+          (service, cancellationToken) => service.RecordWithContextAsync("context", Job.Context, cancellationToken));
 
         await WaitUntilAsync(() => store.GetSnapshot(taskId)?.State == TaskState.Completed);
 
@@ -64,6 +64,29 @@ public sealed class WorkerTests
 
         events.ShouldContain(jobEvent => jobEvent.Kind == DashboardJobEventKind.Log && jobEvent.Message == "context log");
         events.ShouldContain(jobEvent => jobEvent.Kind == DashboardJobEventKind.Progress && jobEvent.ProgressPercent == 25);
+
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task HostedWorker_ContextAwareRecurringSchedule_InjectsContextIntoMaterializedJob()
+    {
+        var timestamp = new DateTimeOffset(2026, 4, 19, 13, 0, 0, TimeSpan.Zero);
+        var timeProvider = new ManualTimeProvider(timestamp);
+        using var host = CreateHost(timeProvider);
+        await host.StartAsync();
+        var scheduleManager = host.Services.GetRequiredService<IRecurringScheduleManager>();
+        var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
+
+        await scheduleManager.CreateOrUpdateAsync<WorkerTestService>(
+          "recurring-context",
+          "* * * * *",
+          (service, cancellationToken) => service.RecordWithContextAsync("recurring-context", Job.Context, cancellationToken));
+
+        timeProvider.SetUtcNow(timestamp.AddMinutes(1));
+
+        await WaitUntilAsync(() => recorder.Values.Contains("recurring-context")
+          && recorder.ContextTaskIds.Any(taskId => taskId != Guid.Empty));
 
         await host.StopAsync();
     }

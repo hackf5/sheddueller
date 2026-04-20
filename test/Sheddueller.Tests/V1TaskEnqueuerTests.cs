@@ -50,7 +50,7 @@ public sealed class V1TaskEnqueuerTests
         var payload = new SamplePayload("alpha", 42);
 
         var taskId = await enqueuer.EnqueueAsync<EnqueueTestService>(
-          (service, cancellationToken, job) => service.HandleWithContextAsync(payload, job, cancellationToken));
+          (service, cancellationToken) => service.HandleWithContextAsync(payload, Job.Context, cancellationToken));
 
         var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
         snapshot.MethodParameterTypes.ShouldBe([
@@ -107,6 +107,14 @@ public sealed class V1TaskEnqueuerTests
         await Should.ThrowAsync<ArgumentException>(
           () => enqueuer.EnqueueAsync<EnqueueTestService>(
             (service, cancellationToken) => service.HandleObjectAsync(externalCancellationToken, cancellationToken)).AsTask());
+
+        await Should.ThrowAsync<ArgumentException>(
+          () => enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleWithContextAsync(payload, new StubJobContext(), cancellationToken)).AsTask());
+
+        await Should.ThrowAsync<ArgumentException>(
+          () => enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleObjectAsync(Job.Context, cancellationToken)).AsTask());
     }
 
     private static ServiceProvider CreateProvider(TimeProvider? timeProvider = null)
@@ -173,5 +181,27 @@ public sealed class V1TaskEnqueuerTests
         {
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class StubJobContext : IJobContext
+    {
+        public Guid TaskId => Guid.Empty;
+
+        public int AttemptNumber => 0;
+
+        public CancellationToken CancellationToken => CancellationToken.None;
+
+        public ValueTask LogAsync(
+            JobLogLevel level,
+            string message,
+            IReadOnlyDictionary<string, string>? fields = null,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask ReportProgressAsync(
+            double? percent,
+            string? message = null,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
     }
 }

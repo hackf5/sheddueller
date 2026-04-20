@@ -320,20 +320,24 @@ Expression<Func<TService, CancellationToken, Task>>
 Expression<Func<TService, CancellationToken, ValueTask>>
 ```
 
-V4 additionally allows:
+V4 keeps the same expression delegate shapes and adds a runtime-owned marker for handlers that accept `IJobContext`:
 
 ```csharp
-Expression<Func<TService, CancellationToken, IJobContext, Task>>
-Expression<Func<TService, CancellationToken, IJobContext, ValueTask>>
+public static class Job
+{
+    public static IJobContext Context { get; }
+}
 ```
 
 Requirements:
 
-- `ITaskEnqueuer` and `IRecurringScheduleManager` must both support the job-context-aware expression shapes.
+- `ITaskEnqueuer` and `IRecurringScheduleManager` must both support `Job.Context` inside the existing expression shapes.
 - `IJobContext` is optional. Handlers that do not report logs or progress do not need to accept it.
-- When the lambda includes `IJobContext`, the expression must pass the lambda's context parameter to the invoked service method.
+- When the invoked service method accepts `IJobContext`, the expression must pass `Job.Context` to that argument.
+- `Job.Context` is an expression marker only. Evaluating it directly must throw.
 - The expression parser treats `IJobContext` as runtime-owned and never serializes it as an argument payload.
 - Callers must not capture an external `IJobContext`.
+- `Job.Context` must not be accepted for non-`IJobContext` method parameters.
 - The runtime injects the real job context at invocation time.
 - The job context's `CancellationToken` is the same scheduler-owned execution token passed as the explicit handler cancellation token.
 - The same expression rules apply to immediate, delayed, retried, and recurring-materialized jobs.
@@ -342,8 +346,8 @@ Example:
 
 ```csharp
 await enqueuer.EnqueueAsync<IListingIndexer>(
-    (service, cancellationToken, job) =>
-        service.IndexListingAsync(23, cancellationToken, job),
+    (service, cancellationToken) =>
+        service.IndexListingAsync(23, Job.Context, cancellationToken),
     new TaskSubmission(
         Priority: 10,
         Tags: [new JobTag("listing_id", "23")]));

@@ -5,25 +5,9 @@ using System.Linq.Expressions;
 internal static class TaskExpressionParser
 {
     public static ParsedTask Parse<TService, TResult>(Expression<Func<TService, CancellationToken, TResult>> work)
-      => ParseCore<TService>(
-        work,
-        work.Parameters[0],
-        work.Parameters[1],
-        jobContextParameter: null);
-
-    public static ParsedTask Parse<TService, TResult>(Expression<Func<TService, CancellationToken, IJobContext, TResult>> work)
-      => ParseCore<TService>(
-        work,
-        work.Parameters[0],
-        work.Parameters[1],
-        work.Parameters[2]);
-
-    private static ParsedTask ParseCore<TService>(
-        LambdaExpression work,
-        ParameterExpression serviceParameter,
-        ParameterExpression cancellationTokenParameter,
-        ParameterExpression? jobContextParameter)
     {
+        var serviceParameter = work.Parameters[0];
+        var cancellationTokenParameter = work.Parameters[1];
         var body = StripConvert(work.Body);
 
         if (body is not MethodCallExpression methodCall)
@@ -42,7 +26,6 @@ internal static class TaskExpressionParser
         var serializableArguments = new List<object?>();
         var serializableParameterTypes = new List<Type>();
         var forwardedCancellationToken = false;
-        var forwardedJobContext = false;
 
         for (var i = 0; i < methodParameters.Length; i++)
         {
@@ -69,22 +52,25 @@ internal static class TaskExpressionParser
 
             if (parameter.ParameterType == typeof(IJobContext))
             {
-                if (jobContextParameter is null || !IsSameParameter(argument, jobContextParameter))
+                if (!IsJobContextMarker(argument))
                 {
                     throw new ArgumentException(
-                      "IJobContext target method parameters must receive the scheduler-owned job context.",
+                      "IJobContext target method parameters must receive the Job.Context marker.",
                       nameof(work));
                 }
 
-                forwardedJobContext = true;
                 continue;
             }
 
-            if (ReferencesParameter(argument, serviceParameter)
-                || ReferencesParameter(argument, cancellationTokenParameter)
-                || (jobContextParameter is not null && ReferencesParameter(argument, jobContextParameter)))
+            if (ReferencesJobContextMarker(argument))
             {
-                throw new ArgumentException("Only the target service instance, scheduler cancellation token, and job context may be runtime-bound.", nameof(work));
+                throw new ArgumentException("Job.Context can only be passed to IJobContext target method parameters.", nameof(work));
+            }
+
+            if (ReferencesParameter(argument, serviceParameter)
+                || ReferencesParameter(argument, cancellationTokenParameter))
+            {
+                throw new ArgumentException("Only the target service instance and scheduler cancellation token may be runtime-bound.", nameof(work));
             }
 
             ValidateSerializableParameterType(parameter.ParameterType, nameof(work));
@@ -98,11 +84,6 @@ internal static class TaskExpressionParser
         if (!forwardedCancellationToken)
         {
             throw new ArgumentException("Submitted work must forward the scheduler-owned CancellationToken.", nameof(work));
-        }
-
-        if (jobContextParameter is not null && !forwardedJobContext)
-        {
-            throw new ArgumentException("Submitted work must forward the scheduler-owned IJobContext.", nameof(work));
         }
 
         return new ParsedTask(
@@ -169,6 +150,21 @@ internal static class TaskExpressionParser
     private static bool IsSameParameter(Expression expression, ParameterExpression parameter)
       => ReferenceEquals(StripConvert(expression), parameter);
 
+    private static bool IsJobContextMarker(Expression expression)
+    {
+        var stripped = StripConvert(expression);
+        return stripped is MemberExpression { Member.Name: nameof(Job.Context), Expression: null } member
+          && member.Member.DeclaringType == typeof(Job);
+    }
+
+    private static bool ReferencesJobContextMarker(Expression expression)
+    {
+        var visitor = new JobContextMarkerVisitor();
+        visitor.Visit(expression);
+
+        return visitor.Found;
+    }
+
     private static void ValidateSerializableParameterType(Type type, string parameterName)
     {
         if (typeof(CancellationToken).IsAssignableFrom(type)
@@ -200,6 +196,21 @@ internal static class TaskExpressionParser
             }
 
             return node;
+        }
+    }
+
+    private sealed class JobContextMarkerVisitor : ExpressionVisitor
+    {
+        public bool Found { get; private set; }
+
+        protected override Expression VisitMember(MemberExpression node)
+        {
+            if (IsJobContextMarker(node))
+            {
+                this.Found = true;
+            }
+
+            return base.VisitMember(node);
         }
     }
 }
