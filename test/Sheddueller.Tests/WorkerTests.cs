@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
@@ -35,6 +36,34 @@ public sealed class WorkerTests
         recorder.ScopeIds.Distinct().Count().ShouldBe(2);
         store.GetSnapshot(first).ShouldNotBeNull().CompletedAtUtc.ShouldBe(timestamp);
         store.GetSnapshot(second).ShouldNotBeNull().CompletedAtUtc.ShouldBe(timestamp);
+
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task HostedWorker_JobContextAwareTask_InjectsContextAndRecordsTelemetry()
+    {
+        using var host = CreateHost();
+        await host.StartAsync();
+        var enqueuer = host.Services.GetRequiredService<ITaskEnqueuer>();
+        var store = host.Services.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var recorder = host.Services.GetRequiredService<WorkerExecutionRecorder>();
+
+        var taskId = await enqueuer.EnqueueAsync<WorkerTestService>(
+          (service, cancellationToken, job) => service.RecordWithContextAsync("context", job, cancellationToken));
+
+        await WaitUntilAsync(() => store.GetSnapshot(taskId)?.State == TaskState.Completed);
+
+        recorder.Values.ShouldContain("context");
+        recorder.ContextTaskIds.ShouldContain(taskId);
+        var events = new List<DashboardJobEvent>();
+        await foreach (var jobEvent in store.ReadEventsAsync(taskId))
+        {
+            events.Add(jobEvent);
+        }
+
+        events.ShouldContain(jobEvent => jobEvent.Kind == DashboardJobEventKind.Log && jobEvent.Message == "context log");
+        events.ShouldContain(jobEvent => jobEvent.Kind == DashboardJobEventKind.Progress && jobEvent.ProgressPercent == 25);
 
         await host.StopAsync();
     }
@@ -201,10 +230,17 @@ public sealed class WorkerTests
 
         public ConcurrentQueue<Guid> ScopeIds { get; } = new();
 
+        public ConcurrentQueue<Guid> ContextTaskIds { get; } = new();
+
         public void Record(Guid scopeId, string value)
         {
             Values.Enqueue(value);
             ScopeIds.Enqueue(scopeId);
+        }
+
+        public void RecordContextTask(Guid taskId)
+        {
+            ContextTaskIds.Enqueue(taskId);
         }
 
         public void MarkShutdownTaskStarted()
@@ -229,6 +265,19 @@ public sealed class WorkerTests
         {
             recorder.Record(marker.ScopeId, value);
             return Task.CompletedTask;
+        }
+
+        public async Task RecordWithContextAsync(string value, IJobContext jobContext, CancellationToken cancellationToken)
+        {
+            if (jobContext.CancellationToken != cancellationToken)
+            {
+                throw new InvalidOperationException("Job context token did not match the handler token.");
+            }
+
+            recorder.Record(marker.ScopeId, value);
+            recorder.RecordContextTask(jobContext.TaskId);
+            await jobContext.LogAsync(JobLogLevel.Information, "context log", cancellationToken: cancellationToken);
+            await jobContext.ReportProgressAsync(25, "context progress", cancellationToken);
         }
 
         public Task ThrowAsync(string message, CancellationToken cancellationToken)

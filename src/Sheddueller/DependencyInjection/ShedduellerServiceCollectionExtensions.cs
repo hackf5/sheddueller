@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 using Sheddueller;
+using Sheddueller.Dashboard;
 using Sheddueller.DependencyInjection;
 using Sheddueller.Enqueueing;
 using Sheddueller.Runtime;
@@ -34,6 +35,8 @@ public static class ShedduellerServiceCollectionExtensions
         services.TryAddSingleton<IConcurrencyGroupManager, ConcurrencyGroupManager>();
         services.TryAddSingleton<IShedduellerWakeSignal, ShedduellerWakeSignal>();
         services.TryAddSingleton<IShedduellerNodeIdProvider, ShedduellerNodeIdProvider>();
+        services.TryAddSingleton<IDashboardEventSink, NoOpDashboardEventSink>();
+        services.TryAddSingleton<IDashboardLiveUpdatePublisher, NoOpDashboardLiveUpdatePublisher>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerStartupValidator>());
         services.AddHostedService<ShedduellerWorker>();
 

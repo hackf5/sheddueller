@@ -1,0 +1,122 @@
+@page "/jobs"
+@inject IDashboardJobReader Reader
+
+<h2>Jobs</h2>
+
+<form>
+    <label>
+        Task id
+        <input @bind="_taskIdText" />
+    </label>
+    <label>
+        State
+        <select @bind="_stateText">
+            <option value="">Any</option>
+            @foreach (var state in Enum.GetValues<TaskState>())
+            {
+                <option value="@state">@state</option>
+            }
+        </select>
+    </label>
+    <label>
+        Service type
+        <input @bind="_serviceType" />
+    </label>
+    <label>
+        Method
+        <input @bind="_methodName" />
+    </label>
+    <label>
+        Tag name
+        <input @bind="_tagName" />
+    </label>
+    <label>
+        Tag value
+        <input @bind="_tagValue" />
+    </label>
+    <label>
+        Source schedule
+        <input @bind="_sourceScheduleKey" />
+    </label>
+</form>
+
+<button type="button" @onclick="SearchAsync">Search</button>
+
+@if (_error is not null)
+{
+    <p>@_error</p>
+}
+
+@if (_page is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <JobSummaryTable Title="Results" Jobs="_page.Jobs" />
+
+    @if (_page.ContinuationToken is not null)
+    {
+        <button type="button" @onclick="NextPageAsync">Next page</button>
+    }
+}
+
+@code {
+    private string _taskIdText = string.Empty;
+    private string _stateText = string.Empty;
+    private string _serviceType = string.Empty;
+    private string _methodName = string.Empty;
+    private string _tagName = string.Empty;
+    private string _tagValue = string.Empty;
+    private string _sourceScheduleKey = string.Empty;
+    private DashboardJobPage? _page;
+    private DashboardJobQuery _lastQuery = new();
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+      => await SearchAsync().ConfigureAwait(false);
+
+    private async Task SearchAsync()
+    {
+        _error = null;
+        try
+        {
+            _lastQuery = CreateQuery(continuationToken: null);
+            _page = await Reader.SearchJobsAsync(_lastQuery).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (_page?.ContinuationToken is null)
+        {
+            return;
+        }
+
+        _lastQuery = _lastQuery with { ContinuationToken = _page.ContinuationToken };
+        _page = await Reader.SearchJobsAsync(_lastQuery).ConfigureAwait(false);
+    }
+
+    private DashboardJobQuery CreateQuery(string? continuationToken)
+    {
+        var taskId = string.IsNullOrWhiteSpace(_taskIdText) ? (Guid?)null : Guid.Parse(_taskIdText);
+        var state = string.IsNullOrWhiteSpace(_stateText) ? (TaskState?)null : Enum.Parse<TaskState>(_stateText);
+        var tag = string.IsNullOrWhiteSpace(_tagName) && string.IsNullOrWhiteSpace(_tagValue)
+          ? null
+          : new JobTag(_tagName ?? string.Empty, _tagValue ?? string.Empty);
+
+        return new DashboardJobQuery(
+          taskId,
+          state,
+          string.IsNullOrWhiteSpace(_serviceType) ? null : _serviceType,
+          string.IsNullOrWhiteSpace(_methodName) ? null : _methodName,
+          tag,
+          string.IsNullOrWhiteSpace(_sourceScheduleKey) ? null : _sourceScheduleKey,
+          PageSize: 100,
+          ContinuationToken: continuationToken);
+    }
+}

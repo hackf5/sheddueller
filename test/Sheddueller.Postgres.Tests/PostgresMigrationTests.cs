@@ -13,7 +13,7 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
 
-        (await context.ReadSchemaVersionAsync()).ShouldBe(1);
+        (await context.ReadSchemaVersionAsync()).ShouldBe(2);
     }
 
     [Fact]
@@ -24,6 +24,6 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
 
         await migrator.ApplyAsync();
 
-        (await context.ReadSchemaVersionAsync()).ShouldBe(1);
+        (await context.ReadSchemaVersionAsync()).ShouldBe(2);
     }
 }

@@ -2,6 +2,7 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using System.Globalization;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class EnqueueTaskOperation
@@ -72,6 +73,15 @@ internal static class EnqueueTaskOperation
 
         var enqueueSequence = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
         await PostgresTaskGroups.ReplaceTaskGroupsAsync(context, connection, transaction, request.TaskId, request.ConcurrencyGroupKeys, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresTaskTags.ReplaceTaskTagsAsync(context, connection, transaction, request.TaskId, request.Tags, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendDashboardJobEventRequest(request.TaskId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
+          cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

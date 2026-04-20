@@ -26,6 +26,18 @@ internal sealed class TaskEnqueuer(
       CancellationToken cancellationToken = default)
       => this.EnqueueCoreAsync(work, submission, cancellationToken);
 
+    public ValueTask<Guid> EnqueueAsync<TService>(
+      System.Linq.Expressions.Expression<Func<TService, CancellationToken, IJobContext, Task>> work,
+      TaskSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.EnqueueContextCoreAsync(work, submission, cancellationToken);
+
+    public ValueTask<Guid> EnqueueAsync<TService>(
+      System.Linq.Expressions.Expression<Func<TService, CancellationToken, IJobContext, ValueTask>> work,
+      TaskSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.EnqueueContextCoreAsync(work, submission, cancellationToken);
+
     private async ValueTask<Guid> EnqueueCoreAsync<TService, TResult>(
       System.Linq.Expressions.Expression<Func<TService, CancellationToken, TResult>> work,
       TaskSubmission? submission,
@@ -33,8 +45,26 @@ internal sealed class TaskEnqueuer(
     {
         ArgumentNullException.ThrowIfNull(work);
 
-        var parsedTask = TaskExpressionParser.Parse(work);
+        return await this.EnqueueParsedCoreAsync<TService>(TaskExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<Guid> EnqueueContextCoreAsync<TService, TResult>(
+      System.Linq.Expressions.Expression<Func<TService, CancellationToken, IJobContext, TResult>> work,
+      TaskSubmission? submission,
+      CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        return await this.EnqueueParsedCoreAsync<TService>(TaskExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<Guid> EnqueueParsedCoreAsync<TService>(
+      ParsedTask parsedTask,
+      TaskSubmission? submission,
+      CancellationToken cancellationToken)
+    {
         var groups = SubmissionValidator.NormalizeConcurrencyGroupKeys(submission?.ConcurrencyGroupKeys);
+        var tags = SubmissionValidator.NormalizeJobTags(submission?.Tags);
         var retryPolicy = submission?.RetryPolicy ?? options.Value.DefaultRetryPolicy;
         var (maxAttempts, retryBackoffKind, retryBaseDelay, retryMaxDelay) = SubmissionValidator.NormalizeRetryPolicy(retryPolicy);
         var serializedArguments = await serializer
@@ -55,7 +85,10 @@ internal sealed class TaskEnqueuer(
           maxAttempts,
           retryBackoffKind,
           retryBaseDelay,
-          retryMaxDelay);
+          retryMaxDelay,
+          SourceScheduleKey: null,
+          ScheduledFireAtUtc: null,
+          Tags: tags);
 
         var result = await store.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
         wakeSignal.Notify();

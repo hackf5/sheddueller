@@ -5,6 +5,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Sheddueller;
+using Sheddueller.Dashboard;
 using Sheddueller.DependencyInjection;
 using Sheddueller.Storage;
 
@@ -20,7 +21,11 @@ public static class ShedduellerInMemoryBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.Services.Replace(ServiceDescriptor.Singleton<ITaskStore, InMemoryTaskStore>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<InMemoryTaskStore, InMemoryTaskStore>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<ITaskStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<InMemoryTaskStore>()));
         return builder;
     }
 }

@@ -20,4 +20,5 @@ public sealed record EnqueueTaskRequest(
     TimeSpan? RetryBaseDelay = null,
     TimeSpan? RetryMaxDelay = null,
     string? SourceScheduleKey = null,
-    DateTimeOffset? ScheduledFireAtUtc = null);
+    DateTimeOffset? ScheduledFireAtUtc = null,
+    IReadOnlyList<JobTag>? Tags = null);

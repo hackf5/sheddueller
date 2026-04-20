@@ -4,8 +4,9 @@ namespace Sheddueller.Postgres.Internal;
 
 internal sealed class PostgresNames
 {
-    public const int ExpectedSchemaVersion = 1;
+    public const int ExpectedSchemaVersion = 2;
     public const string WakeupChannel = "sheddueller_wakeup";
+    public const string DashboardEventChannel = "sheddueller_dashboard_event";
 
     public PostgresNames(string schemaName)
     {
@@ -14,9 +15,11 @@ internal sealed class PostgresNames
         this.SchemaInfo = this.Table("schema_info");
         this.Tasks = this.Table("tasks");
         this.TaskConcurrencyGroups = this.Table("task_concurrency_groups");
+        this.TaskTags = this.Table("task_tags");
         this.ConcurrencyGroups = this.Table("concurrency_groups");
         this.RecurringSchedules = this.Table("recurring_schedules");
         this.ScheduleConcurrencyGroups = this.Table("schedule_concurrency_groups");
+        this.DashboardEvents = this.Table("dashboard_events");
     }
 
     public string SchemaName { get; }
@@ -29,11 +32,15 @@ internal sealed class PostgresNames
 
     public string TaskConcurrencyGroups { get; }
 
+    public string TaskTags { get; }
+
     public string ConcurrencyGroups { get; }
 
     public string RecurringSchedules { get; }
 
     public string ScheduleConcurrencyGroups { get; }
+
+    public string DashboardEvents { get; }
 
     public static string QuoteIdentifier(string identifier)
       => $"\"{identifier.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";

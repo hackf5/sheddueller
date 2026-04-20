@@ -1,5 +1,6 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class MarkTaskFailedOperation
@@ -29,6 +30,24 @@ internal static class MarkTaskFailedOperation
 
         await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, task.GroupKeys, cancellationToken).ConfigureAwait(false);
         await PostgresClaimedTasks.ApplyFailedAttemptAsync(context, connection, transaction, task, request.Failure, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.AttemptFailed, task.AttemptCount, Message: request.Failure.Message),
+          cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendDashboardJobEventRequest(
+            task.TaskId,
+            DashboardJobEventKind.Lifecycle,
+            task.AttemptCount,
+            Message: task.AttemptCount < task.MaxAttempts ? "Retry scheduled" : "Failed"),
+          cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

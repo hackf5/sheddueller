@@ -1,0 +1,46 @@
+@inherits LayoutComponentBase
+
+<header>
+    <h1>Sheddueller</h1>
+    <nav>
+        <a href="">Overview</a>
+        <a href="jobs">Jobs</a>
+    </nav>
+</header>
+
+<main>
+    @Body
+</main>
+
+<style>
+    body {
+        font-family: sans-serif;
+        margin: 2rem;
+    }
+
+    nav {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+
+    th,
+    td {
+        border: 1px solid #ccc;
+        padding: 0.35rem;
+        text-align: left;
+        vertical-align: top;
+    }
+
+    form {
+        display: grid;
+        gap: 0.5rem;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        margin-bottom: 1rem;
+    }
+</style>

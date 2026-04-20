@@ -1,5 +1,6 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class ReleaseTaskOperation
@@ -11,7 +12,7 @@ internal static class ReleaseTaskOperation
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var groupKeys = await PostgresClaimedTasks.TryLockCurrentClaimGroupsAsync(
+        var task = await PostgresClaimedTasks.TryReadCurrentClaimForFailureAsync(
           context,
           connection,
           transaction,
@@ -21,13 +22,13 @@ internal static class ReleaseTaskOperation
           cancellationToken)
           .ConfigureAwait(false);
 
-        if (groupKeys is null)
+        if (task is null)
         {
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
 
-        await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, groupKeys, cancellationToken).ConfigureAwait(false);
+        await PostgresTaskGroups.DecrementGroupsAsync(context, connection, transaction, task.GroupKeys, cancellationToken).ConfigureAwait(false);
         var updated = await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
@@ -56,7 +57,18 @@ internal static class ReleaseTaskOperation
           cancellationToken)
           .ConfigureAwait(false);
 
-        await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        if (updated == 1)
+        {
+            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+              context,
+              connection,
+              transaction,
+              new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.Lifecycle, task.AttemptCount, Message: "Released"),
+              cancellationToken)
+              .ConfigureAwait(false);
+            await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return updated == 1;
     }

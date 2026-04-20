@@ -2,6 +2,7 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class PostgresSchedules
@@ -360,6 +361,13 @@ internal static class PostgresSchedules
           cancellationToken)
           .ConfigureAwait(false);
         await PostgresTaskGroups.ReplaceTaskGroupsAsync(context, connection, transaction, taskId, schedule.ConcurrencyGroupKeys, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+          context,
+          connection,
+          transaction,
+          new AppendDashboardJobEventRequest(taskId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
+          cancellationToken)
           .ConfigureAwait(false);
     }
 

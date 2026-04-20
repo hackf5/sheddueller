@@ -42,6 +42,31 @@ public sealed class V1TaskEnqueuerTests
     }
 
     [Fact]
+    public async Task Enqueue_JobContextAwareMethod_PersistsMethodIdentityWithoutSerializingContext()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<ITaskEnqueuer>();
+        var store = provider.GetRequiredService<ITaskStore>().ShouldBeOfType<InMemoryTaskStore>();
+        var payload = new SamplePayload("alpha", 42);
+
+        var taskId = await enqueuer.EnqueueAsync<EnqueueTestService>(
+          (service, cancellationToken, job) => service.HandleWithContextAsync(payload, job, cancellationToken));
+
+        var snapshot = store.GetSnapshot(taskId).ShouldNotBeNull();
+        snapshot.MethodParameterTypes.ShouldBe([
+          typeof(SamplePayload).AssemblyQualifiedName!,
+          typeof(IJobContext).AssemblyQualifiedName!,
+          typeof(CancellationToken).AssemblyQualifiedName!,
+        ]);
+
+        var arguments = await provider.GetRequiredService<ITaskPayloadSerializer>()
+          .DeserializeAsync(snapshot.SerializedArguments, [typeof(SamplePayload)]);
+
+        arguments.Count.ShouldBe(1);
+        arguments[0].ShouldBe(payload);
+    }
+
+    [Fact]
     public async Task Enqueue_ArgumentSubexpressions_EvaluatesExactlyOnce()
     {
         using var provider = CreateProvider();
@@ -120,6 +145,11 @@ public sealed class V1TaskEnqueuerTests
         }
 
         public Task HandleStringAsync(string value, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task HandleWithContextAsync(SamplePayload payload, IJobContext jobContext, CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
         }

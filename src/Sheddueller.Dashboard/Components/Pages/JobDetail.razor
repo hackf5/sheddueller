@@ -1,0 +1,160 @@
+@page "/jobs/{TaskId:guid}"
+@implements IDisposable
+@inject IDashboardJobReader Reader
+@inject DashboardLiveUpdateStream LiveUpdates
+
+<h2>Job Detail</h2>
+
+@if (_detail is null)
+{
+    <p>Job was not found.</p>
+}
+else
+{
+    <section>
+        <h3>Metadata</h3>
+        <dl>
+            <dt>Task id</dt>
+            <dd>@_detail.Summary.TaskId</dd>
+            <dt>State</dt>
+            <dd>@_detail.Summary.State</dd>
+            <dt>Handler</dt>
+            <dd>@_detail.Summary.ServiceType.@_detail.Summary.MethodName</dd>
+            <dt>Priority</dt>
+            <dd>@_detail.Summary.Priority</dd>
+            <dt>Enqueue sequence</dt>
+            <dd>@_detail.Summary.EnqueueSequence</dd>
+            <dt>Queue position</dt>
+            <dd>@FormatQueuePosition(_detail.Summary.QueuePosition)</dd>
+            <dt>Attempts</dt>
+            <dd>@_detail.Summary.AttemptCount / @_detail.Summary.MaxAttempts</dd>
+            <dt>Enqueued</dt>
+            <dd>@_detail.Summary.EnqueuedAtUtc</dd>
+            <dt>Not before</dt>
+            <dd>@_detail.Summary.NotBeforeUtc</dd>
+            <dt>Claimed</dt>
+            <dd>@_detail.ClaimedAtUtc by @_detail.ClaimedByNodeId</dd>
+            <dt>Lease expires</dt>
+            <dd>@_detail.LeaseExpiresAtUtc</dd>
+            <dt>Source schedule</dt>
+            <dd>@_detail.Summary.SourceScheduleKey</dd>
+            <dt>Scheduled fire</dt>
+            <dd>@_detail.ScheduledFireAtUtc</dd>
+        </dl>
+    </section>
+
+    <section>
+        <h3>Tags</h3>
+        @if (_detail.Summary.Tags.Count == 0)
+        {
+            <p>No tags.</p>
+        }
+        else
+        {
+            <ul>
+                @foreach (var tag in _detail.Summary.Tags)
+                {
+                    <li>@tag.Name = @tag.Value</li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section>
+        <h3>Latest Progress</h3>
+        @if (_detail.Summary.LatestProgress is null)
+        {
+            <p>No progress reported.</p>
+        }
+        else
+        {
+            <p>@_detail.Summary.LatestProgress.Percent% @_detail.Summary.LatestProgress.Message</p>
+        }
+    </section>
+
+    <section>
+        <h3>Events</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Seq</th>
+                    <th>Time</th>
+                    <th>Kind</th>
+                    <th>Attempt</th>
+                    <th>Level</th>
+                    <th>Message</th>
+                    <th>Progress</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var jobEvent in _events)
+                {
+                    <tr>
+                        <td>@jobEvent.EventSequence</td>
+                        <td>@jobEvent.OccurredAtUtc</td>
+                        <td>@jobEvent.Kind</td>
+                        <td>@jobEvent.AttemptNumber</td>
+                        <td>@jobEvent.LogLevel</td>
+                        <td>@jobEvent.Message</td>
+                        <td>@jobEvent.ProgressPercent</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    [Parameter]
+    public Guid TaskId { get; set; }
+
+    private DashboardJobDetail? _detail;
+    private IReadOnlyList<DashboardJobEvent> _events = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
+        await LoadAsync().ConfigureAwait(false);
+    }
+
+    public void Dispose()
+      => LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
+
+    private async ValueTask OnJobEventPublishedAsync(
+        DashboardJobEvent jobEvent,
+        CancellationToken cancellationToken)
+    {
+        if (jobEvent.TaskId != TaskId)
+        {
+            return;
+        }
+
+        await LoadAsync().ConfigureAwait(false);
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private async Task LoadAsync()
+    {
+        _detail = await Reader.GetJobAsync(TaskId).ConfigureAwait(false);
+        if (_detail is null)
+        {
+            _events = [];
+            return;
+        }
+
+        var events = new List<DashboardJobEvent>();
+        await foreach (var jobEvent in Reader.ReadEventsAsync(TaskId))
+        {
+            events.Add(jobEvent);
+        }
+
+        _events = events;
+    }
+
+    private static string FormatQueuePosition(DashboardQueuePosition? position)
+      => position is null
+        ? string.Empty
+        : position.Position is null
+          ? $"{position.Kind}: {position.Reason}"
+          : $"{position.Kind}: {position.Position}";
+}

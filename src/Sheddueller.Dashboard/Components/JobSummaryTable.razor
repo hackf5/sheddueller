@@ -1,0 +1,65 @@
+@if (Title is not null)
+{
+    <h3>@Title</h3>
+}
+
+@if (Jobs.Count == 0)
+{
+    <p>No jobs.</p>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>Task id</th>
+                <th>State</th>
+                <th>Handler</th>
+                <th>Priority</th>
+                <th>Enqueued</th>
+                <th>Attempts</th>
+                <th>Progress</th>
+                <th>Queue</th>
+                <th>Terminal</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var job in Jobs)
+            {
+                <tr>
+                    <td><a href="jobs/@job.TaskId">@job.TaskId</a></td>
+                    <td>@job.State</td>
+                    <td>@job.ServiceType.@job.MethodName</td>
+                    <td>@job.Priority</td>
+                    <td>@job.EnqueuedAtUtc</td>
+                    <td>@job.AttemptCount / @job.MaxAttempts</td>
+                    <td>@FormatProgress(job.LatestProgress)</td>
+                    <td>@FormatQueue(job.QueuePosition)</td>
+                    <td>@(job.CompletedAtUtc ?? job.FailedAtUtc ?? job.CanceledAtUtc)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter]
+    public string? Title { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<DashboardJobSummary> Jobs { get; set; } = [];
+
+    private static string FormatProgress(DashboardProgressSnapshot? progress)
+      => progress is null
+        ? string.Empty
+        : progress.Percent is null
+          ? progress.Message ?? string.Empty
+          : $"{progress.Percent}% {progress.Message}";
+
+    private static string FormatQueue(DashboardQueuePosition? position)
+      => position is null
+        ? string.Empty
+        : position.Position is null
+          ? position.Kind.ToString()
+          : position.Position.Value.ToString(CultureInfo.InvariantCulture);
+}

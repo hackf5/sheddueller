@@ -20,7 +20,8 @@ internal sealed class InMemoryTaskRecord(
   TimeSpan? retryBaseDelay,
   TimeSpan? retryMaxDelay,
   string? sourceScheduleKey,
-  DateTimeOffset? scheduledFireAtUtc)
+  DateTimeOffset? scheduledFireAtUtc,
+  IReadOnlyList<JobTag> tags)
 {
     public Guid TaskId { get; } = taskId;
 
@@ -75,6 +76,10 @@ internal sealed class InMemoryTaskRecord(
     public string? SourceScheduleKey { get; } = sourceScheduleKey;
 
     public DateTimeOffset? ScheduledFireAtUtc { get; } = scheduledFireAtUtc;
+
+    public IReadOnlyList<JobTag> Tags { get; } = tags;
+
+    public long DashboardEventSequence { get; set; }
 }
 
 internal sealed record InMemoryTaskSnapshot(
@@ -104,7 +109,8 @@ internal sealed record InMemoryTaskSnapshot(
   TaskFailureInfo? Failure,
   DateTimeOffset? CanceledAtUtc,
   string? SourceScheduleKey,
-  DateTimeOffset? ScheduledFireAtUtc);
+  DateTimeOffset? ScheduledFireAtUtc,
+  IReadOnlyList<JobTag> Tags);
 
 internal sealed class InMemoryRecurringScheduleRecord(
   string scheduleKey,

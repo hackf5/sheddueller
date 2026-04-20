@@ -1,5 +1,6 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class RecoverExpiredLeasesOperation
@@ -21,6 +22,24 @@ internal static class RecoverExpiredLeasesOperation
               transaction,
               task,
               new TaskFailureInfo("Sheddueller.LeaseExpired", "The task lease expired before the owning node renewed it.", null),
+              cancellationToken)
+              .ConfigureAwait(false);
+            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+              context,
+              connection,
+              transaction,
+              new AppendDashboardJobEventRequest(task.TaskId, DashboardJobEventKind.AttemptFailed, task.AttemptCount, Message: "The task lease expired before the owning node renewed it."),
+              cancellationToken)
+              .ConfigureAwait(false);
+            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+              context,
+              connection,
+              transaction,
+              new AppendDashboardJobEventRequest(
+                task.TaskId,
+                DashboardJobEventKind.Lifecycle,
+                task.AttemptCount,
+                Message: task.AttemptCount < task.MaxAttempts ? "Retry scheduled" : "Failed"),
               cancellationToken)
               .ConfigureAwait(false);
         }

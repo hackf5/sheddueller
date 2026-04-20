@@ -5,6 +5,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
+using Sheddueller.Dashboard;
 using Sheddueller.DependencyInjection;
 using Sheddueller.Postgres;
 using Sheddueller.Postgres.Internal;
@@ -31,10 +32,15 @@ public static class ShedduellerPostgresBuilderExtensions
         PostgresOptionsValidator.Validate(options);
 
         builder.Services.Replace(ServiceDescriptor.Singleton(options));
-        builder.Services.Replace(ServiceDescriptor.Singleton<ITaskStore, PostgresTaskStore>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<PostgresTaskStore, PostgresTaskStore>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<ITaskStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresTaskStore>()));
         builder.Services.Replace(ServiceDescriptor.Singleton<IPostgresMigrator, PostgresMigrator>());
         builder.Services.Replace(ServiceDescriptor.Singleton<IShedduellerWakeSignal, PostgresWakeSignal>());
         InsertStartupValidatorBeforeWorker(builder.Services);
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PostgresDashboardEventListener>());
 
         return builder;
     }

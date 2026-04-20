@@ -4,6 +4,7 @@ using System.Data;
 
 using Npgsql;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class TryClaimNextTaskOperation
@@ -83,6 +84,13 @@ internal static class TryClaimNextTaskOperation
 
             var claimed = PostgresReaders.ReadClaimedTask(reader, groupKeys);
             await reader.DisposeAsync().ConfigureAwait(false);
+            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+              context,
+              connection,
+              transaction,
+              new AppendDashboardJobEventRequest(claimed.TaskId, DashboardJobEventKind.AttemptStarted, claimed.AttemptCount, Message: "Attempt started"),
+              cancellationToken)
+              .ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
             return new ClaimTaskResult.Claimed(claimed);

@@ -28,6 +28,26 @@ public interface IRecurringScheduleManager
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Creates or replaces a job-context-aware task-returning recurring schedule definition.
+    /// </summary>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, IJobContext, Task>> work,
+        RecurringScheduleOptions? options = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates or replaces a job-context-aware value-task-returning recurring schedule definition.
+    /// </summary>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, IJobContext, ValueTask>> work,
+        RecurringScheduleOptions? options = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes a recurring schedule definition.
     /// </summary>
     ValueTask<bool> DeleteAsync(

@@ -1,9 +1,11 @@
 namespace Sheddueller.Postgres.Internal;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Postgres.Internal.Operations;
 using Sheddueller.Storage;
 
-internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options) : ITaskStore
+internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options)
+    : ITaskStore, IDashboardJobReader, IDashboardEventSink, IDashboardEventRetentionStore
 {
     private readonly PostgresOperationContext _context = new(options);
 
@@ -136,4 +138,43 @@ internal sealed class PostgresTaskStore(ShedduellerPostgresOptions options) : IT
 
         return MaterializeDueRecurringSchedulesOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
+
+    public ValueTask<DashboardJobOverview> GetOverviewAsync(
+        CancellationToken cancellationToken = default)
+      => PostgresDashboardReadOperation.GetOverviewAsync(this._context, cancellationToken);
+
+    public ValueTask<DashboardJobPage> SearchJobsAsync(
+        DashboardJobQuery query,
+        CancellationToken cancellationToken = default)
+      => PostgresDashboardReadOperation.SearchJobsAsync(this._context, query, cancellationToken);
+
+    public ValueTask<DashboardJobDetail?> GetJobAsync(
+        Guid taskId,
+        CancellationToken cancellationToken = default)
+      => PostgresDashboardReadOperation.GetJobAsync(this._context, taskId, cancellationToken);
+
+    public ValueTask<DashboardQueuePosition> GetQueuePositionAsync(
+        Guid taskId,
+        CancellationToken cancellationToken = default)
+      => PostgresDashboardReadOperation.GetQueuePositionAsync(this._context, taskId, cancellationToken);
+
+    public IAsyncEnumerable<DashboardJobEvent> ReadEventsAsync(
+        Guid taskId,
+        DashboardEventQuery? query = null,
+        CancellationToken cancellationToken = default)
+      => PostgresDashboardReadOperation.ReadEventsAsync(this._context, taskId, query, cancellationToken);
+
+    public ValueTask<DashboardJobEvent> AppendAsync(
+        AppendDashboardJobEventRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return PostgresDashboardEvents.AppendAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask<int> CleanupAsync(
+        TimeSpan retention,
+        CancellationToken cancellationToken = default)
+      => PostgresDashboardReadOperation.CleanupAsync(this._context, retention, cancellationToken);
 }

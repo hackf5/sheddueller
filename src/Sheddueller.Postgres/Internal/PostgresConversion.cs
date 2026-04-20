@@ -2,6 +2,7 @@ namespace Sheddueller.Postgres.Internal;
 
 using System.Globalization;
 
+using Sheddueller.Dashboard;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
@@ -30,6 +31,18 @@ internal static class PostgresConversion
 
     public static RecurringOverlapMode ToRecurringOverlapMode(object value)
       => Enum.Parse<RecurringOverlapMode>((string)value);
+
+    public static string ToText(DashboardJobEventKind value)
+      => value.ToString();
+
+    public static DashboardJobEventKind ToDashboardJobEventKind(object value)
+      => Enum.Parse<DashboardJobEventKind>((string)value);
+
+    public static string ToText(JobLogLevel value)
+      => value.ToString();
+
+    public static JobLogLevel? ToJobLogLevel(object value)
+      => value is DBNull ? null : Enum.Parse<JobLogLevel>((string)value);
 
     public static DateTimeOffset ToDateTimeOffset(object value)
       => value switch

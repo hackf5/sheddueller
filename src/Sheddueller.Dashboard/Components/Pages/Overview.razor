@@ -1,0 +1,43 @@
+@page "/"
+@inject IDashboardJobReader Reader
+
+<h2>Overview</h2>
+
+@if (_overview is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h3>Counts</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>State</th>
+                <th>Count</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var count in _overview.StateCounts.OrderBy(item => item.Key.ToString(), StringComparer.Ordinal))
+            {
+                <tr>
+                    <td>@count.Key</td>
+                    <td>@count.Value</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <JobSummaryTable Title="Running" Jobs="_overview.RunningJobs" />
+    <JobSummaryTable Title="Recently Failed" Jobs="_overview.RecentlyFailedJobs" />
+    <JobSummaryTable Title="Queued" Jobs="_overview.QueuedJobs" />
+    <JobSummaryTable Title="Delayed" Jobs="_overview.DelayedJobs" />
+    <JobSummaryTable Title="Retry Waiting" Jobs="_overview.RetryWaitingJobs" />
+}
+
+@code {
+    private DashboardJobOverview? _overview;
+
+    protected override async Task OnInitializedAsync()
+      => _overview = await Reader.GetOverviewAsync().ConfigureAwait(false);
+}

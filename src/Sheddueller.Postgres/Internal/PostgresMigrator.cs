@@ -1,4 +1,4 @@
-// spell-checker: ignore xact hashtext timestamptz bytea nonterminal
+// spell-checker: ignore xact hashtext timestamptz bytea nonterminal jsonb
 
 namespace Sheddueller.Postgres.Internal;
 
@@ -93,6 +93,7 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               retry_clone_source_task_id uuid null,
               cancellation_requested_at_utc timestamptz null,
               cancellation_observed_at_utc timestamptz null,
+              dashboard_event_sequence bigint not null default 0,
               constraint tasks_state_check check (state in ('Queued', 'Claimed', 'Completed', 'Failed', 'Canceled')),
               constraint tasks_attempt_count_check check (attempt_count >= 0),
               constraint tasks_max_attempts_check check (max_attempts >= 1),
@@ -103,6 +104,18 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               task_id uuid not null references {this._names.Tasks}(task_id) on delete cascade,
               group_key text not null,
               primary key (task_id, group_key)
+          );
+
+          alter table {this._names.Tasks}
+              add column if not exists dashboard_event_sequence bigint not null default 0;
+
+          create table if not exists {this._names.TaskTags} (
+              task_id uuid not null references {this._names.Tasks}(task_id) on delete cascade,
+              name text not null,
+              value text not null,
+              primary key (task_id, name, value),
+              constraint task_tags_name_check check (length(name) > 0),
+              constraint task_tags_value_check check (length(value) > 0)
           );
 
           create table if not exists {this._names.ConcurrencyGroups} (
@@ -144,6 +157,24 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               primary key (schedule_key, group_key)
           );
 
+          create table if not exists {this._names.DashboardEvents} (
+              task_id uuid not null references {this._names.Tasks}(task_id) on delete cascade,
+              event_sequence bigint not null,
+              event_id uuid not null unique,
+              kind text not null,
+              occurred_at_utc timestamptz not null,
+              attempt_number integer not null,
+              log_level text null,
+              message text null,
+              progress_percent double precision null,
+              fields jsonb null,
+              primary key (task_id, event_sequence),
+              constraint dashboard_events_kind_check check (kind in ('Lifecycle', 'AttemptStarted', 'AttemptCompleted', 'AttemptFailed', 'Log', 'Progress')),
+              constraint dashboard_events_attempt_number_check check (attempt_number >= 0),
+              constraint dashboard_events_log_level_check check (log_level is null or log_level in ('Trace', 'Debug', 'Information', 'Warning', 'Error', 'Critical')),
+              constraint dashboard_events_progress_percent_check check (progress_percent is null or (progress_percent >= 0 and progress_percent <= 100))
+          );
+
           create index if not exists idx_tasks_claim_scan
               on {this._names.Tasks} (priority desc, enqueue_sequence asc)
               where state = 'Queued';
@@ -160,8 +191,43 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               on {this._names.Tasks} (source_schedule_key)
               where state in ('Queued', 'Claimed');
 
+          create index if not exists idx_tasks_dashboard_newest
+              on {this._names.Tasks} (enqueue_sequence desc);
+
+          create index if not exists idx_tasks_dashboard_state_newest
+              on {this._names.Tasks} (state, enqueue_sequence desc);
+
+          create index if not exists idx_tasks_dashboard_service_method
+              on {this._names.Tasks} (service_type, method_name, enqueue_sequence desc);
+
+          create index if not exists idx_tasks_dashboard_source_schedule
+              on {this._names.Tasks} (source_schedule_key, enqueue_sequence desc)
+              where source_schedule_key is not null;
+
+          create index if not exists idx_tasks_dashboard_completed
+              on {this._names.Tasks} (completed_at_utc desc)
+              where completed_at_utc is not null;
+
+          create index if not exists idx_tasks_dashboard_failed
+              on {this._names.Tasks} (failed_at_utc desc)
+              where failed_at_utc is not null;
+
+          create index if not exists idx_tasks_dashboard_canceled
+              on {this._names.Tasks} (canceled_at_utc desc)
+              where canceled_at_utc is not null;
+
           create index if not exists idx_task_concurrency_groups_group_key
               on {this._names.TaskConcurrencyGroups} (group_key);
+
+          create index if not exists idx_task_tags_name_value_task_id
+              on {this._names.TaskTags} (name, value, task_id);
+
+          create index if not exists idx_dashboard_events_task_sequence
+              on {this._names.DashboardEvents} (task_id, event_sequence);
+
+          create index if not exists idx_dashboard_events_progress
+              on {this._names.DashboardEvents} (task_id, event_sequence desc)
+              where kind = 'Progress';
 
           create index if not exists idx_recurring_schedules_due
               on {this._names.RecurringSchedules} (next_fire_at_utc, schedule_key)

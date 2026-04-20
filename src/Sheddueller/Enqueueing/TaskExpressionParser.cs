@@ -5,9 +5,25 @@ using System.Linq.Expressions;
 internal static class TaskExpressionParser
 {
     public static ParsedTask Parse<TService, TResult>(Expression<Func<TService, CancellationToken, TResult>> work)
+      => ParseCore<TService>(
+        work,
+        work.Parameters[0],
+        work.Parameters[1],
+        jobContextParameter: null);
+
+    public static ParsedTask Parse<TService, TResult>(Expression<Func<TService, CancellationToken, IJobContext, TResult>> work)
+      => ParseCore<TService>(
+        work,
+        work.Parameters[0],
+        work.Parameters[1],
+        work.Parameters[2]);
+
+    private static ParsedTask ParseCore<TService>(
+        LambdaExpression work,
+        ParameterExpression serviceParameter,
+        ParameterExpression cancellationTokenParameter,
+        ParameterExpression? jobContextParameter)
     {
-        var serviceParameter = work.Parameters[0];
-        var cancellationTokenParameter = work.Parameters[1];
         var body = StripConvert(work.Body);
 
         if (body is not MethodCallExpression methodCall)
@@ -26,6 +42,7 @@ internal static class TaskExpressionParser
         var serializableArguments = new List<object?>();
         var serializableParameterTypes = new List<Type>();
         var forwardedCancellationToken = false;
+        var forwardedJobContext = false;
 
         for (var i = 0; i < methodParameters.Length; i++)
         {
@@ -50,9 +67,24 @@ internal static class TaskExpressionParser
                 continue;
             }
 
-            if (ReferencesParameter(argument, serviceParameter) || ReferencesParameter(argument, cancellationTokenParameter))
+            if (parameter.ParameterType == typeof(IJobContext))
             {
-                throw new ArgumentException("Only the target service instance and scheduler cancellation token may be runtime-bound.", nameof(work));
+                if (jobContextParameter is null || !IsSameParameter(argument, jobContextParameter))
+                {
+                    throw new ArgumentException(
+                      "IJobContext target method parameters must receive the scheduler-owned job context.",
+                      nameof(work));
+                }
+
+                forwardedJobContext = true;
+                continue;
+            }
+
+            if (ReferencesParameter(argument, serviceParameter)
+                || ReferencesParameter(argument, cancellationTokenParameter)
+                || (jobContextParameter is not null && ReferencesParameter(argument, jobContextParameter)))
+            {
+                throw new ArgumentException("Only the target service instance, scheduler cancellation token, and job context may be runtime-bound.", nameof(work));
             }
 
             ValidateSerializableParameterType(parameter.ParameterType, nameof(work));
@@ -66,6 +98,11 @@ internal static class TaskExpressionParser
         if (!forwardedCancellationToken)
         {
             throw new ArgumentException("Submitted work must forward the scheduler-owned CancellationToken.", nameof(work));
+        }
+
+        if (jobContextParameter is not null && !forwardedJobContext)
+        {
+            throw new ArgumentException("Submitted work must forward the scheduler-owned IJobContext.", nameof(work));
         }
 
         return new ParsedTask(
@@ -135,6 +172,7 @@ internal static class TaskExpressionParser
     private static void ValidateSerializableParameterType(Type type, string parameterName)
     {
         if (typeof(CancellationToken).IsAssignableFrom(type)
+            || typeof(IJobContext).IsAssignableFrom(type)
             || typeof(Delegate).IsAssignableFrom(type)
             || typeof(Stream).IsAssignableFrom(type))
         {
@@ -144,7 +182,7 @@ internal static class TaskExpressionParser
 
     private static void ValidateSerializableArgumentValue(object? value, string parameterName)
     {
-        if (value is CancellationToken or Delegate or Stream)
+        if (value is CancellationToken or IJobContext or Delegate or Stream)
         {
             throw new ArgumentException($"Argument value of type '{value.GetType()}' is not supported for serialized task arguments.", parameterName);
         }

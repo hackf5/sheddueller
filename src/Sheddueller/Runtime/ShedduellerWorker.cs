@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
+using Sheddueller.Dashboard;
 using Sheddueller.DependencyInjection;
 using Sheddueller.Enqueueing;
 using Sheddueller.Serialization;
@@ -19,7 +20,8 @@ internal sealed class ShedduellerWorker(
     IOptions<ShedduellerOptions> options,
     TimeProvider timeProvider,
     IShedduellerWakeSignal wakeSignal,
-    IShedduellerNodeIdProvider nodeIdProvider) : BackgroundService
+    IShedduellerNodeIdProvider nodeIdProvider,
+    IDashboardEventSink dashboardEventSink) : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
@@ -27,6 +29,7 @@ internal sealed class ShedduellerWorker(
     private readonly TimeProvider _timeProvider = timeProvider;
     private readonly IShedduellerWakeSignal _wakeSignal = wakeSignal;
     private readonly IShedduellerNodeIdProvider _nodeIdProvider = nodeIdProvider;
+    private readonly IDashboardEventSink _dashboardEventSink = dashboardEventSink;
     private readonly ConcurrentDictionary<Task, byte> _runningTasks = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -130,7 +133,8 @@ internal sealed class ShedduellerWorker(
     {
         var serviceType = TypeNameFormatter.Resolve(task.ServiceType);
         var methodParameterTypes = task.MethodParameterTypes.Select(TypeNameFormatter.Resolve).ToArray();
-        var serializableParameterTypes = methodParameterTypes.Where(type => type != typeof(CancellationToken)).ToArray();
+        var serializableParameterTypes = methodParameterTypes.Where(type => type != typeof(CancellationToken) && type != typeof(IJobContext)).ToArray();
+        var jobContext = new JobContext(task.TaskId, task.AttemptCount, this._dashboardEventSink, executionToken);
 
         var scope = this._scopeFactory.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
@@ -149,7 +153,7 @@ internal sealed class ShedduellerWorker(
                 .GetRequiredService<ITaskPayloadSerializer>()
                 .DeserializeAsync(task.SerializedArguments, serializableParameterTypes, executionToken)
                 .ConfigureAwait(false);
-            var invocationArguments = BuildInvocationArguments(methodParameterTypes, deserializedArguments, executionToken);
+            var invocationArguments = BuildInvocationArguments(methodParameterTypes, deserializedArguments, jobContext, executionToken);
             object? result;
 
             try
@@ -179,6 +183,7 @@ internal sealed class ShedduellerWorker(
     private static object?[] BuildInvocationArguments(
         Type[] methodParameterTypes,
         IReadOnlyList<object?> deserializedArguments,
+        IJobContext jobContext,
         CancellationToken executionToken)
     {
         var invocationArguments = new object?[methodParameterTypes.Length];
@@ -189,6 +194,12 @@ internal sealed class ShedduellerWorker(
             if (methodParameterTypes[i] == typeof(CancellationToken))
             {
                 invocationArguments[i] = executionToken;
+                continue;
+            }
+
+            if (methodParameterTypes[i] == typeof(IJobContext))
+            {
+                invocationArguments[i] = jobContext;
                 continue;
             }
 
