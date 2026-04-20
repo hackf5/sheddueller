@@ -37,7 +37,14 @@ public sealed class DashboardEndpointTests
 
         var canonicalRootResponse = await client.GetAsync(new Uri("/sheddueller/", UriKind.Relative));
         canonicalRootResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await canonicalRootResponse.Content.ReadAsStringAsync()).ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        var canonicalRootHtml = await canonicalRootResponse.Content.ReadAsStringAsync();
+        canonicalRootHtml.ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        canonicalRootHtml.ShouldContain("Operational Control");
+        canonicalRootHtml.ShouldContain("Health Triage");
+        canonicalRootHtml.ShouldContain("Running Jobs");
+        canonicalRootHtml.ShouldContain("Recently Failed");
+        canonicalRootHtml.ShouldContain("Queued (Next Up)");
+        canonicalRootHtml.ShouldContain($"href=\"jobs/{StubDashboardJobReader.JobId:D}\"");
 
         var jobsResponse = await client.GetAsync(new Uri("/sheddueller/jobs", UriKind.Relative));
         jobsResponse.StatusCode.ShouldBe(HttpStatusCode.OK);

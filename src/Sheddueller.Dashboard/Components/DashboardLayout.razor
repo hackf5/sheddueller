@@ -1,46 +1,422 @@
 @inherits LayoutComponentBase
 
-<header>
-    <h1>Sheddueller</h1>
-    <nav>
-        <a href="">Overview</a>
-        <a href="jobs">Jobs</a>
-    </nav>
-</header>
+<div class="sd-dashboard-shell">
+    <aside class="sd-sidebar" aria-label="Dashboard navigation">
+        <div class="sd-sidebar__brand">
+            <span class="sd-sidebar__title">Sheddueller</span>
+            <span class="sd-sidebar__subtitle">Operational Control</span>
+        </div>
 
-<main>
-    @Body
-</main>
+        <nav class="sd-sidebar__nav" aria-label="Primary">
+            <NavLink class="sd-sidebar__link" href="" Match="NavLinkMatch.All">
+                <span class="material-symbols-outlined" aria-hidden="true">dashboard</span>
+                <span>Overview</span>
+            </NavLink>
+            <NavLink class="sd-sidebar__link" href="jobs">
+                <span class="material-symbols-outlined" aria-hidden="true">format_list_bulleted</span>
+                <span>Jobs</span>
+            </NavLink>
+        </nav>
+
+        <nav class="sd-sidebar__nav sd-sidebar__nav--footer" aria-label="Secondary">
+            <span class="sd-sidebar__link sd-sidebar__link--muted" aria-disabled="true">
+                <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
+                <span>System Status</span>
+            </span>
+            <span class="sd-sidebar__link sd-sidebar__link--muted" aria-disabled="true">
+                <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
+                <span>Documentation</span>
+            </span>
+        </nav>
+    </aside>
+
+    <div class="sd-workspace">
+        <header class="sd-topbar">
+            <div class="sd-topbar__actions">
+                <label class="sd-search">
+                    <span class="material-symbols-outlined" aria-hidden="true">search</span>
+                    <input type="search" placeholder="Search logs, IDs..." aria-label="Search logs and IDs" disabled />
+                </label>
+
+                <div class="sd-topbar__utility">
+                    <button class="sd-icon-button" type="button" aria-label="Notifications" disabled>
+                        <span class="material-symbols-outlined" aria-hidden="true">notifications</span>
+                    </button>
+                    <button class="sd-icon-button" type="button" aria-label="Settings" disabled>
+                        <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+                    </button>
+                    <span class="sd-avatar" aria-hidden="true">
+                        <span class="material-symbols-outlined">person</span>
+                    </span>
+                </div>
+            </div>
+        </header>
+
+        <main class="sd-main">
+            @Body
+        </main>
+    </div>
+</div>
 
 <style>
+    :root {
+        --sd-background: #fcf8fa;
+        --sd-surface: #ffffff;
+        --sd-surface-low: #f6f3f5;
+        --sd-surface-container: #f0edef;
+        --sd-surface-high: #eae7e9;
+        --sd-surface-variant: #e4e2e4;
+        --sd-on-surface: #1b1b1d;
+        --sd-on-surface-variant: #45464d;
+        --sd-outline: #76777d;
+        --sd-outline-variant: #c6c6cd;
+        --sd-primary: #000000;
+        --sd-secondary: #515f74;
+        --sd-secondary-container: #d5e3fd;
+        --sd-on-secondary-container: #57657b;
+        --sd-error: #ba1a1a;
+        --sd-error-container: #ffdad6;
+        --sd-on-error-container: #93000a;
+        --sd-warning: #8a5a00;
+        --sd-warning-container: #ffedcc;
+        --sd-success: #166534;
+        --sd-success-container: #dcfce7;
+        --sd-info: #1d4ed8;
+        --sd-info-container: #dbeafe;
+        --sd-sidebar-width: 240px;
+        --sd-topbar-height: 56px;
+        --sd-page-margin: 24px;
+        --sd-gutter: 16px;
+        --sd-density-high: 8px;
+        --sd-density-comfortable: 16px;
+        --sd-radius: 4px;
+        color-scheme: light;
+    }
+
+    html,
     body {
-        font-family: sans-serif;
-        margin: 2rem;
+        min-height: 100%;
     }
 
-    nav {
+    body {
+        margin: 0;
+        background: var(--sd-background);
+        color: var(--sd-on-surface);
+        font-family: Inter, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 20px;
+        overflow: hidden;
+    }
+
+    *,
+    *::before,
+    *::after {
+        box-sizing: border-box;
+    }
+
+    a {
+        color: inherit;
+    }
+
+    button,
+    input,
+    select {
+        font: inherit;
+    }
+
+    .material-symbols-outlined {
+        font-family: 'Material Symbols Outlined';
+        font-size: 20px;
+        font-style: normal;
+        font-weight: normal;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        line-height: 1;
+    }
+
+    .sd-dashboard-shell {
         display: flex;
-        gap: 1rem;
-        margin-bottom: 1rem;
+        min-height: 100vh;
+        background: var(--sd-background);
+        color: var(--sd-on-surface);
     }
 
-    table {
-        border-collapse: collapse;
+    .sd-sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 50;
+        display: flex;
+        width: var(--sd-sidebar-width);
+        flex-direction: column;
+        border-right: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface);
+    }
+
+    .sd-sidebar__brand {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 24px;
+        border-bottom: 1px solid var(--sd-outline-variant);
+    }
+
+    .sd-sidebar__title {
+        color: var(--sd-primary);
+        font-family: "Space Grotesk", Inter, Arial, sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 24px;
+        text-transform: uppercase;
+    }
+
+    .sd-sidebar__subtitle {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .sd-sidebar__nav {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 4px;
+        padding: 16px 12px;
+    }
+
+    .sd-sidebar__nav--footer {
+        flex: 0;
+        border-top: 1px solid var(--sd-outline-variant);
+    }
+
+    .sd-sidebar__link {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 36px;
+        padding: 8px 16px;
+        border-radius: 2px;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
+        text-decoration: none;
+        transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    .sd-sidebar__link:hover {
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+    }
+
+    .sd-sidebar__link.active {
+        border-right: 2px solid var(--sd-primary);
+        background: var(--sd-surface-variant);
+        color: var(--sd-on-surface);
+    }
+
+    .sd-sidebar__link--muted {
+        cursor: default;
+    }
+
+    .sd-workspace {
+        display: flex;
+        width: calc(100% - var(--sd-sidebar-width));
+        min-height: 100vh;
+        margin-left: var(--sd-sidebar-width);
+        flex-direction: column;
+    }
+
+    .sd-topbar {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        display: flex;
+        min-height: var(--sd-topbar-height);
+        align-items: center;
+        justify-content: flex-end;
+        border-bottom: 1px solid var(--sd-outline-variant);
+        background: rgb(255 255 255 / 0.9);
+        backdrop-filter: blur(10px);
+        padding: 0 24px;
+    }
+
+    .sd-topbar__actions,
+    .sd-topbar__utility {
+        display: flex;
+        align-items: center;
+    }
+
+    .sd-topbar__actions {
+        gap: 16px;
+    }
+
+    .sd-topbar__utility {
+        gap: 8px;
+        margin-left: 8px;
+        padding-left: 16px;
+        border-left: 1px solid var(--sd-outline-variant);
+    }
+
+    .sd-search {
+        position: relative;
+        display: block;
+    }
+
+    .sd-search .material-symbols-outlined {
+        position: absolute;
+        top: 8px;
+        left: 10px;
+        color: var(--sd-outline);
+        font-size: 18px;
+    }
+
+    .sd-search input {
+        width: 256px;
+        min-height: 34px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+        padding: 6px 12px 6px 36px;
+    }
+
+    .sd-search input::placeholder {
+        color: var(--sd-outline);
+    }
+
+    .sd-icon-button {
+        display: inline-flex;
+        width: 32px;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: var(--sd-on-surface-variant);
+        opacity: 1;
+    }
+
+    .sd-avatar {
+        display: inline-flex;
+        width: 32px;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        margin-left: 8px;
+        overflow: hidden;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 999px;
+        background: var(--sd-surface-variant);
+        color: var(--sd-outline);
+    }
+
+    .sd-main {
+        min-height: calc(100vh - var(--sd-topbar-height));
+        overflow-y: auto;
+        padding: var(--sd-page-margin);
+    }
+
+    .sd-main h1,
+    .sd-main h2,
+    .sd-main h3 {
+        margin: 0;
+        font-family: "Space Grotesk", Inter, Arial, sans-serif;
+        font-weight: 600;
+    }
+
+    .sd-main h1 {
+        font-size: 24px;
+        line-height: 32px;
+    }
+
+    .sd-main h2 {
+        font-size: 18px;
+        line-height: 24px;
+    }
+
+    .sd-main h3 {
+        font-size: 16px;
+        line-height: 22px;
+    }
+
+    .sd-main p {
+        margin: 0;
+    }
+
+    .sd-main table {
         width: 100%;
+        border-collapse: collapse;
     }
 
-    th,
-    td {
-        border: 1px solid #ccc;
-        padding: 0.35rem;
+    .sd-main th,
+    .sd-main td {
+        border-bottom: 1px solid var(--sd-surface-variant);
+        padding: 8px 16px;
         text-align: left;
         vertical-align: top;
     }
 
-    form {
+    .sd-main th {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .sd-main form {
         display: grid;
-        gap: 0.5rem;
+        gap: 12px;
         grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-        margin-bottom: 1rem;
+        margin-bottom: 16px;
+    }
+
+    .sd-main label {
+        display: grid;
+        gap: 4px;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .sd-main input:not([type="search"]),
+    .sd-main select {
+        width: 100%;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface);
+        color: var(--sd-on-surface);
+        padding: 7px 10px;
+    }
+
+    .sd-main button:not(.sd-icon-button) {
+        border: 1px solid var(--sd-primary);
+        border-radius: var(--sd-radius);
+        background: var(--sd-primary);
+        color: #ffffff;
+        padding: 7px 12px;
+    }
+
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        border-radius: 3px;
+        background: var(--sd-outline-variant);
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--sd-outline);
     }
 </style>

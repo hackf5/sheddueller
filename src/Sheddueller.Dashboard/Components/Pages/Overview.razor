@@ -1,43 +1,763 @@
 @page "/"
 @inject IDashboardJobReader Reader
 
-<h2>Overview</h2>
+<div class="overview-page">
+    <header class="overview-header">
+        <div>
+            <h1>Health Triage</h1>
+            <p>Real-time job queue overview and anomaly detection.</p>
+        </div>
+    </header>
 
-@if (_overview is null)
-{
-    <p>Loading...</p>
-}
-else
-{
-    <h3>Counts</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>State</th>
-                <th>Count</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var count in _overview.StateCounts.OrderBy(item => item.Key.ToString(), StringComparer.Ordinal))
+    @if (_loadError is not null)
+    {
+        <section class="overview-panel overview-message overview-message--error" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <div>
+                <h2>Overview data failed to load</h2>
+                <p>@_loadError</p>
+            </div>
+        </section>
+    }
+    else if (_overview is null)
+    {
+        <section class="overview-panel overview-message" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <div>
+                <h2>Loading overview</h2>
+                <p>Reading current scheduler state.</p>
+            </div>
+        </section>
+    }
+    else
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+
+        <section class="summary-grid" aria-label="State counts">
+            @foreach (var state in Enum.GetValues<JobState>())
             {
-                <tr>
-                    <td>@count.Key</td>
-                    <td>@count.Value</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+                var count = GetStateCount(_overview, state);
+                var isFailed = state == JobState.Failed && count > 0;
 
-    <JobSummaryTable Title="Running" Jobs="_overview.RunningJobs" />
-    <JobSummaryTable Title="Recently Failed" Jobs="_overview.RecentlyFailedJobs" />
-    <JobSummaryTable Title="Queued" Jobs="_overview.QueuedJobs" />
-    <JobSummaryTable Title="Delayed" Jobs="_overview.DelayedJobs" />
-    <JobSummaryTable Title="Retry Waiting" Jobs="_overview.RetryWaitingJobs" />
-}
+                <a class="summary-card @(isFailed ? "summary-card--failed" : null)" href="jobs">
+                    <span class="summary-card__label">@state</span>
+                    <span class="summary-card__value">@FormatCount(count)</span>
+                </a>
+            }
+        </section>
+
+        <section class="priority-grid" aria-label="Job priority sections">
+            <div class="priority-grid__primary">
+                <section class="overview-panel">
+                    <div class="overview-panel__header">
+                        <h2>Running Jobs</h2>
+                        <a href="jobs">@FormatCount(_overview.RunningJobs.Count) active</a>
+                    </div>
+
+                    @if (_overview.RunningJobs.Count == 0)
+                    {
+                        <p class="overview-empty">No jobs are currently running.</p>
+                    }
+                    else
+                    {
+                        <div class="overview-table-wrap">
+                            <table class="overview-table">
+                                <thead>
+                                    <tr>
+                                        <th>Job ID</th>
+                                        <th>State</th>
+                                        <th>Handler</th>
+                                        <th>Progress</th>
+                                        <th class="text-right">Enqueued</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var job in _overview.RunningJobs)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                            </td>
+                                            <td>@RenderStateBadge(job.State)</td>
+                                            <td>
+                                                <span title="@FormatFullHandler(job)">@FormatHandler(job)</span>
+                                            </td>
+                                            <td class="muted">@FormatProgress(job.LatestProgress)</td>
+                                            <td>
+                                                @RenderTimestampBlock(job.EnqueuedAtUtc, nowUtc, alignEnd: true)
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <section class="overview-panel overview-panel--failed">
+                    <div class="overview-panel__header">
+                        <h2>Recently Failed</h2>
+                        <a class="attention-link" href="jobs">Attention Required</a>
+                    </div>
+
+                    @if (_overview.RecentlyFailedJobs.Count == 0)
+                    {
+                        <p class="overview-empty">No recently failed jobs.</p>
+                    }
+                    else
+                    {
+                        <div class="overview-table-wrap">
+                            <table class="overview-table">
+                                <thead>
+                                    <tr>
+                                        <th>Job ID</th>
+                                        <th>State</th>
+                                        <th>Handler</th>
+                                        <th>Error Context</th>
+                                        <th class="text-right">Failed At</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var job in _overview.RecentlyFailedJobs)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                            </td>
+                                            <td>@RenderStateBadge(job.State)</td>
+                                            <td>
+                                                <span title="@FormatFullHandler(job)">@FormatHandler(job)</span>
+                                            </td>
+                                            <td>
+                                                <span class="error-context" title="@FormatFailureContext(job)">@FormatFailureContext(job)</span>
+                                            </td>
+                                            <td>
+                                                @RenderTimestampBlock(GetTerminalTimestamp(job), nowUtc, alignEnd: true)
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+            </div>
+
+            <div class="priority-grid__secondary">
+                <section class="overview-panel">
+                    <div class="overview-panel__header">
+                        <h2>Retry-Waiting</h2>
+                    </div>
+
+                    @if (_overview.RetryWaitingJobs.Count == 0)
+                    {
+                        <p class="overview-empty">No jobs are waiting for retry.</p>
+                    }
+                    else
+                    {
+                        <ul class="compact-list">
+                            @foreach (var job in _overview.RetryWaitingJobs)
+                            {
+                                <li>
+                                    <div class="compact-list__topline">
+                                        <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                        <span class="attempt-pill">Attempt @FormatCount(job.AttemptCount)</span>
+                                    </div>
+                                    <div class="muted" title="@FormatFullHandler(job)">@FormatHandler(job)</div>
+                                    <div class="compact-list__footer">
+                                        <span class="error-context" title="@FormatFailureContext(job)">@FormatFailureContext(job)</span>
+                                        @RenderTimestampBlock(job.NotBeforeUtc, nowUtc, prefix: "Next:", alignEnd: true)
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+
+                <section class="overview-panel">
+                    <div class="overview-panel__header">
+                        <h2>Delayed</h2>
+                    </div>
+
+                    @if (_overview.DelayedJobs.Count == 0)
+                    {
+                        <p class="overview-empty">No delayed jobs are pending.</p>
+                    }
+                    else
+                    {
+                        <ul class="compact-list compact-list--simple">
+                            @foreach (var job in _overview.DelayedJobs)
+                            {
+                                <li>
+                                    <div>
+                                        <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                        <div class="muted" title="@FormatFullHandler(job)">@FormatHandler(job)</div>
+                                    </div>
+                                    @RenderTimestampBlock(job.NotBeforeUtc, nowUtc, alignEnd: true)
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+
+                <section class="overview-panel">
+                    <div class="overview-panel__header">
+                        <h2>Queued (Next Up)</h2>
+                        <a href="jobs">@FormatCount(_overview.QueuedJobs.Count) queued</a>
+                    </div>
+
+                    @if (_overview.QueuedJobs.Count == 0)
+                    {
+                        <p class="overview-empty">No queued jobs are claimable.</p>
+                    }
+                    else
+                    {
+                        <ul class="queue-list">
+                            @foreach (var job in _overview.QueuedJobs)
+                            {
+                                <li>
+                                    <div class="queue-list__job">
+                                        <span aria-hidden="true"></span>
+                                        <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                    </div>
+                                    <span class="muted" title="@FormatFullHandler(job)">@FormatHandler(job)</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+            </div>
+        </section>
+    }
+</div>
+
+<style>
+    .overview-page {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sd-gutter);
+    }
+
+    .overview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--sd-outline-variant);
+    }
+
+    .overview-header p {
+        margin-top: 4px;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .summary-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .summary-card {
+        display: flex;
+        min-height: 98px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface);
+        padding: 16px;
+        text-decoration: none;
+    }
+
+    .summary-card:hover {
+        background: var(--sd-surface-low);
+    }
+
+    .summary-card--failed {
+        border-color: var(--sd-error-container);
+        border-left: 4px solid var(--sd-error);
+    }
+
+    .summary-card__label {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .summary-card__value {
+        color: var(--sd-on-surface);
+        font-family: "Space Grotesk", Inter, Arial, sans-serif;
+        font-size: 24px;
+        font-weight: 600;
+        line-height: 32px;
+    }
+
+    .summary-card--failed .summary-card__value {
+        color: var(--sd-error);
+    }
+
+    .priority-grid {
+        display: grid;
+        gap: var(--sd-gutter);
+        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+        margin-top: 8px;
+    }
+
+    .priority-grid__primary,
+    .priority-grid__secondary {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sd-gutter);
+        min-width: 0;
+    }
+
+    .overview-panel {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface);
+    }
+
+    .overview-panel--failed::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 4px;
+        background: var(--sd-error);
+        content: "";
+    }
+
+    .overview-panel__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 50px;
+        border-bottom: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface-low);
+        padding: 12px 16px;
+    }
+
+    .overview-panel--failed .overview-panel__header {
+        padding-left: 20px;
+    }
+
+    .overview-panel__header a {
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .overview-panel__header a:hover {
+        color: var(--sd-on-surface);
+        text-decoration: underline;
+    }
+
+    .overview-panel__header .attention-link {
+        color: var(--sd-error);
+        font-weight: 500;
+    }
+
+    .overview-table-wrap {
+        overflow-x: auto;
+    }
+
+    .overview-table {
+        min-width: 760px;
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .overview-table tbody tr {
+        height: 40px;
+        transition: background-color 150ms ease;
+    }
+
+    .overview-table tbody tr:hover {
+        background: var(--sd-surface-low);
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    .overview-table .text-right {
+        text-align: right;
+    }
+
+    .job-id-link {
+        color: var(--sd-on-surface);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        line-height: 16px;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .job-id-link:hover {
+        text-decoration: underline;
+    }
+
+    .muted {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .error-context {
+        display: inline-block;
+        max-width: 220px;
+        overflow: hidden;
+        color: var(--sd-error);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 11px;
+        line-height: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .state-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 16px;
+        white-space: nowrap;
+    }
+
+    .state-badge::before {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: currentColor;
+        content: "";
+    }
+
+    .state-badge--queued {
+        background: var(--sd-surface-variant);
+        color: var(--sd-on-surface-variant);
+    }
+
+    .state-badge--claimed {
+        background: var(--sd-secondary-container);
+        color: var(--sd-on-secondary-container);
+    }
+
+    .state-badge--completed {
+        background: var(--sd-success-container);
+        color: var(--sd-success);
+    }
+
+    .state-badge--failed {
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    .state-badge--canceled {
+        background: var(--sd-warning-container);
+        color: var(--sd-warning);
+    }
+
+    .timestamp-block {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .timestamp-block--end {
+        align-items: flex-end;
+        text-align: right;
+    }
+
+    .timestamp-block__relative {
+        color: var(--sd-on-surface);
+        font-size: 12px;
+        line-height: 16px;
+        white-space: nowrap;
+    }
+
+    .timestamp-block__absolute {
+        color: var(--sd-on-surface-variant);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 10px;
+        line-height: 12px;
+        white-space: nowrap;
+    }
+
+    .overview-empty {
+        color: var(--sd-on-surface-variant);
+        padding: 16px;
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .overview-message {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 16px;
+    }
+
+    .overview-message .material-symbols-outlined {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .overview-message h2 {
+        font-size: 18px;
+        line-height: 24px;
+    }
+
+    .overview-message p {
+        margin-top: 4px;
+        color: var(--sd-on-surface-variant);
+    }
+
+    .overview-message--error {
+        border-color: var(--sd-error-container);
+    }
+
+    .overview-message--error .material-symbols-outlined,
+    .overview-message--error h2 {
+        color: var(--sd-error);
+    }
+
+    .compact-list,
+    .queue-list {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .compact-list li,
+    .queue-list li {
+        border-bottom: 1px solid var(--sd-surface-variant);
+        padding: 12px 16px;
+        transition: background-color 150ms ease;
+    }
+
+    .compact-list li:last-child,
+    .queue-list li:last-child {
+        border-bottom: 0;
+    }
+
+    .compact-list li:hover,
+    .queue-list li:hover {
+        background: var(--sd-surface-low);
+    }
+
+    .compact-list__topline,
+    .compact-list__footer,
+    .compact-list--simple li,
+    .queue-list li,
+    .queue-list__job {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .compact-list__topline {
+        margin-bottom: 4px;
+    }
+
+    .compact-list__footer {
+        align-items: flex-end;
+        margin-top: 8px;
+    }
+
+    .attempt-pill {
+        border-radius: 2px;
+        background: var(--sd-surface-variant);
+        color: var(--sd-on-surface);
+        padding: 2px 6px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .queue-list__job {
+        justify-content: flex-start;
+        min-width: 0;
+    }
+
+    .queue-list__job > span {
+        width: 6px;
+        height: 6px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: var(--sd-outline);
+    }
+
+    @@media (max-width: 1100px) {
+        .summary-grid,
+        .priority-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
 
 @code {
     private DashboardJobOverview? _overview;
+    private string? _loadError;
 
     protected override async Task OnInitializedAsync()
-      => _overview = await Reader.GetOverviewAsync().ConfigureAwait(false);
+    {
+        try
+        {
+            _overview = await Reader.GetOverviewAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _loadError = exception.Message;
+        }
+    }
+
+    private static int GetStateCount(DashboardJobOverview overview, JobState state)
+      => overview.StateCounts.TryGetValue(state, out var count) ? count : 0;
+
+    private static string CreateJobHref(DashboardJobSummary job)
+      => string.Create(CultureInfo.InvariantCulture, $"jobs/{job.JobId:D}");
+
+    private static string FormatCount(int count)
+      => count.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string FormatJobId(Guid jobId)
+      => jobId.ToString("D");
+
+    private static string FormatFullHandler(DashboardJobSummary job)
+      => string.Concat(job.ServiceType, ".", job.MethodName);
+
+    private static string FormatHandler(DashboardJobSummary job)
+      => string.Concat(GetShortTypeName(job.ServiceType), ".", job.MethodName);
+
+    private static string GetShortTypeName(string typeName)
+    {
+        var separatorIndex = typeName.LastIndexOf('.');
+        return separatorIndex < 0 || separatorIndex == typeName.Length - 1
+          ? typeName
+          : typeName[(separatorIndex + 1)..];
+    }
+
+    private static string FormatProgress(DashboardProgressSnapshot? progress)
+      => progress is null
+        ? "No progress reported"
+        : progress.Percent is null
+          ? progress.Message ?? "Progress reported"
+          : string.Create(CultureInfo.InvariantCulture, $"{progress.Percent:0.#}% {progress.Message}").Trim();
+
+    private static string FormatFailureContext(DashboardJobSummary job)
+      => FirstNonEmpty(
+        job.LatestProgress?.Message,
+        job.QueuePosition?.Reason,
+        "Unavailable");
+
+    private static string FirstNonEmpty(params string?[] values)
+      => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+    private static DateTimeOffset? GetTerminalTimestamp(DashboardJobSummary job)
+      => job.FailedAtUtc ?? job.CompletedAtUtc ?? job.CanceledAtUtc;
+
+    private static RenderFragment RenderStateBadge(JobState state)
+      => builder =>
+      {
+          builder.OpenElement(0, "span");
+          builder.AddAttribute(1, "class", string.Concat("state-badge ", GetStateBadgeClass(state)));
+          builder.AddContent(2, state.ToString());
+          builder.CloseElement();
+      };
+
+    private static string GetStateBadgeClass(JobState state)
+      => state switch
+      {
+          JobState.Queued => "state-badge--queued",
+          JobState.Claimed => "state-badge--claimed",
+          JobState.Completed => "state-badge--completed",
+          JobState.Failed => "state-badge--failed",
+          JobState.Canceled => "state-badge--canceled",
+          _ => "state-badge--queued",
+      };
+
+    private static RenderFragment RenderTimestampBlock(
+        DateTimeOffset? value,
+        DateTimeOffset nowUtc,
+        string? prefix = null,
+        bool alignEnd = false)
+      => builder =>
+      {
+          builder.OpenElement(0, "div");
+          builder.AddAttribute(1, "class", alignEnd ? "timestamp-block timestamp-block--end" : "timestamp-block");
+
+          builder.OpenElement(2, "span");
+          builder.AddAttribute(3, "class", "timestamp-block__relative");
+          builder.AddContent(4, FormatRelative(value, nowUtc, prefix));
+          builder.CloseElement();
+
+          builder.OpenElement(5, "span");
+          builder.AddAttribute(6, "class", "timestamp-block__absolute");
+          builder.AddContent(7, FormatUtc(value));
+          builder.CloseElement();
+
+          builder.CloseElement();
+      };
+
+    private static string FormatRelative(DateTimeOffset? value, DateTimeOffset nowUtc, string? prefix)
+    {
+        if (value is null)
+        {
+            return string.IsNullOrWhiteSpace(prefix) ? "Not set" : string.Concat(prefix, " not set");
+        }
+
+        var targetUtc = value.Value.ToUniversalTime();
+        var delta = targetUtc - nowUtc.ToUniversalTime();
+        var future = delta > TimeSpan.Zero;
+        var duration = future ? delta : -delta;
+        var text = FormatDuration(duration);
+        var relative = future
+          ? string.Concat("in ", text)
+          : string.Concat(text, " ago");
+
+        return string.IsNullOrWhiteSpace(prefix)
+          ? relative
+          : string.Concat(prefix, " ", relative);
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.FromMinutes(1))
+        {
+            return "<1m";
+        }
+
+        if (duration < TimeSpan.FromHours(1))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalMinutes):0}m");
+        }
+
+        if (duration < TimeSpan.FromDays(1))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalHours):0}h");
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalDays):0}d");
+    }
+
+    private static string FormatUtc(DateTimeOffset? value)
+      => value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
 }
