@@ -2,6 +2,7 @@
 
 namespace Microsoft.AspNetCore.Builder;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
 using Sheddueller.Dashboard.Components;
@@ -28,6 +29,20 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
 
         app.Map(path, branch =>
         {
+            if (RequiresCanonicalTrailingSlash(path))
+            {
+                branch.Use(async (context, next) =>
+                {
+                    if (!context.Request.Path.HasValue)
+                    {
+                        context.Response.Redirect(CreateCanonicalDashboardRoot(context, path: string.Empty));
+                        return;
+                    }
+
+                    await next(context).ConfigureAwait(false);
+                });
+            }
+
             branch.UseRouting();
             branch.UseAntiforgery();
             branch.UseEndpoints(endpoints =>
@@ -62,4 +77,14 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
 
         return group;
     }
+
+    private static bool RequiresCanonicalTrailingSlash(string path)
+      => path.Length > 1 && path[^1] != '/';
+
+    private static string CreateCanonicalDashboardRoot(HttpContext context, string path)
+      => string.Concat(
+        context.Request.PathBase.ToUriComponent(),
+        path,
+        "/",
+        context.Request.QueryString.ToUriComponent());
 }

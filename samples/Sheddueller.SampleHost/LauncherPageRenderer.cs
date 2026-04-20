@@ -63,7 +63,7 @@ internal static class LauncherPageRenderer
         builder.AppendLine("      <p>Launch representative jobs, then inspect them in the embedded dashboard while tuning the UI and scheduler behavior.</p>");
         builder.AppendLine("    </div>");
         builder.AppendLine("    <div class=\"hero-actions\">");
-        builder.AppendLine("      <a href=\"/sheddueller\">Open dashboard</a>");
+        builder.AppendLine("      <a href=\"/sheddueller/\">Open dashboard</a>");
         builder.AppendLine("      <a href=\"/sheddueller/jobs\">Open job search</a>");
         builder.AppendLine("    </div>");
         builder.AppendLine("  </section>");
