@@ -62,6 +62,7 @@
     :root {
         --sd-background: #fcf8fa;
         --sd-surface: #ffffff;
+        --sd-surface-lowest: #ffffff;
         --sd-surface-low: #f6f3f5;
         --sd-surface-container: #f0edef;
         --sd-surface-high: #eae7e9;
@@ -71,6 +72,7 @@
         --sd-outline: #76777d;
         --sd-outline-variant: #c6c6cd;
         --sd-primary: #000000;
+        --sd-on-primary: #ffffff;
         --sd-secondary: #515f74;
         --sd-secondary-container: #d5e3fd;
         --sd-on-secondary-container: #57657b;
@@ -83,6 +85,7 @@
         --sd-success-container: #dcfce7;
         --sd-info: #1d4ed8;
         --sd-info-container: #dbeafe;
+        --sd-topbar-background: rgb(255 255 255 / 0.9);
         --sd-sidebar-width: 240px;
         --sd-topbar-height: 56px;
         --sd-page-margin: 24px;
@@ -90,7 +93,39 @@
         --sd-density-high: 8px;
         --sd-density-comfortable: 16px;
         --sd-radius: 4px;
-        color-scheme: light;
+        color-scheme: light dark;
+    }
+
+    @@media (prefers-color-scheme: dark) {
+        :root {
+            --sd-background: #0b1326;
+            --sd-surface: #131b2e;
+            --sd-surface-lowest: #060e20;
+            --sd-surface-low: #171f33;
+            --sd-surface-container: #060e20;
+            --sd-surface-high: #222a3d;
+            --sd-surface-variant: #2d3449;
+            --sd-on-surface: #dae2fd;
+            --sd-on-surface-variant: #bdc8d1;
+            --sd-outline: #87929a;
+            --sd-outline-variant: #3e484f;
+            --sd-primary: #8ed5ff;
+            --sd-on-primary: #00354a;
+            --sd-secondary: #bcc7de;
+            --sd-secondary-container: #3e495d;
+            --sd-on-secondary-container: #d8e3fb;
+            --sd-error: #ffb4ab;
+            --sd-error-container: #93000a;
+            --sd-on-error-container: #ffdad6;
+            --sd-warning: #ffc176;
+            --sd-warning-container: #613b00;
+            --sd-success: #10b981;
+            --sd-success-container: #063f33;
+            --sd-info: #38bdf8;
+            --sd-info-container: #0b3c53;
+            --sd-topbar-background: rgb(19 27 46 / 0.9);
+            color-scheme: dark;
+        }
     }
 
     html,
@@ -148,7 +183,7 @@
         width: var(--sd-sidebar-width);
         flex-direction: column;
         border-right: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface);
+        background: var(--sd-surface-lowest);
     }
 
     .sd-sidebar__brand {
@@ -237,7 +272,7 @@
         align-items: center;
         justify-content: flex-end;
         border-bottom: 1px solid var(--sd-outline-variant);
-        background: rgb(255 255 255 / 0.9);
+        background: var(--sd-topbar-background);
         backdrop-filter: blur(10px);
         padding: 0 24px;
     }
@@ -398,7 +433,7 @@
         border: 1px solid var(--sd-primary);
         border-radius: var(--sd-radius);
         background: var(--sd-primary);
-        color: #ffffff;
+        color: var(--sd-on-primary);
         padding: 7px 12px;
     }
 
