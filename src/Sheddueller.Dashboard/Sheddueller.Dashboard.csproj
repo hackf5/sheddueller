@@ -5,6 +5,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.App.Internal.Assets" />
     <ProjectReference Include="..\Sheddueller\Sheddueller.csproj" />
   </ItemGroup>
 

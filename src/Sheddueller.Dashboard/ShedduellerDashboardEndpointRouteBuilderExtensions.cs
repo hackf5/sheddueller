@@ -2,8 +2,13 @@
 
 namespace Microsoft.AspNetCore.Builder;
 
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.StaticWebAssets;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 using Sheddueller.Dashboard.Components;
 using Sheddueller.Dashboard.Internal;
@@ -27,6 +32,11 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
             throw new ArgumentException("Dashboard path must be an absolute non-empty route path.", nameof(path));
         }
 
+        if (app is IEndpointRouteBuilder endpoints)
+        {
+            EnableStaticWebAssets(endpoints.ServiceProvider);
+        }
+
         app.Map(path, branch =>
         {
             if (RequiresCanonicalTrailingSlash(path))
@@ -43,10 +53,12 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
                 });
             }
 
+            branch.UseStaticFiles();
             branch.UseRouting();
             branch.UseAntiforgery();
             branch.UseEndpoints(endpoints =>
             {
+                MapStaticAssetsIfManifestExists(endpoints);
                 endpoints.MapRazorComponents<DashboardApp>()
                   .AddInteractiveServerRenderMode();
                 endpoints.MapHub<DashboardUpdatesHub>("/live");
@@ -70,7 +82,10 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
             throw new ArgumentException("Dashboard path must be an absolute non-empty route path.", nameof(path));
         }
 
+        EnableStaticWebAssets(endpoints.ServiceProvider);
+
         var group = endpoints.MapGroup(path);
+        MapStaticAssetsIfManifestExists(group);
         group.MapRazorComponents<DashboardApp>()
           .AddInteractiveServerRenderMode();
         group.MapHub<DashboardUpdatesHub>("/live");
@@ -80,6 +95,29 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
 
     private static bool RequiresCanonicalTrailingSlash(string path)
       => path.Length > 1 && path[^1] != '/';
+
+    private static void MapStaticAssetsIfManifestExists(IEndpointRouteBuilder endpoints)
+    {
+        var environment = endpoints.ServiceProvider.GetRequiredService<IHostEnvironment>();
+        var manifestPath = Path.Combine(
+          AppContext.BaseDirectory,
+          $"{environment.ApplicationName}.staticwebassets.endpoints.json");
+
+        if (File.Exists(manifestPath))
+        {
+            endpoints.MapStaticAssets(manifestPath);
+        }
+    }
+
+    private static void EnableStaticWebAssets(IServiceProvider serviceProvider)
+    {
+        var environment = serviceProvider.GetService<IWebHostEnvironment>();
+        var configuration = serviceProvider.GetService<IConfiguration>();
+        if (environment is not null && configuration is not null)
+        {
+            StaticWebAssetsLoader.UseStaticWebAssets(environment, configuration);
+        }
+    }
 
     private static string CreateCanonicalDashboardRoot(HttpContext context, string path)
       => string.Concat(

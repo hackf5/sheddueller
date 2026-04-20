@@ -41,6 +41,7 @@ public sealed class DashboardEndpointTests
         canonicalRootHtml.ShouldContain("base href=\"http://localhost/sheddueller/\"");
         canonicalRootHtml.ShouldContain("Operational Control");
         canonicalRootHtml.ShouldContain("Health Triage");
+        canonicalRootHtml.ShouldContain("_framework/blazor.web.js");
         canonicalRootHtml.ShouldContain("overview-live-status");
         canonicalRootHtml.ShouldContain("Updated");
         canonicalRootHtml.ShouldContain("Running Jobs");
