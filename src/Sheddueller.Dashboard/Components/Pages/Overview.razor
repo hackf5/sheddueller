@@ -9,8 +9,8 @@
             <h1>Health Triage</h1>
             <p>Real-time job queue overview and anomaly detection.</p>
         </div>
-        <div class="overview-live-status @GetLiveStatusClass()" aria-live="polite">
-            <span class="overview-live-status__dot" aria-hidden="true"></span>
+        <div class="sd-live-status @GetLiveStatusClass()" aria-live="polite">
+            <span class="sd-live-status__dot" aria-hidden="true"></span>
             <span>@GetLiveStatusText(DateTimeOffset.UtcNow)</span>
         </div>
     </header>
@@ -258,41 +258,6 @@
         color: var(--sd-on-surface-variant);
         font-size: 12px;
         line-height: 16px;
-    }
-
-    .overview-live-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 28px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface);
-        color: var(--sd-on-surface-variant);
-        padding: 5px 10px;
-        font-size: 12px;
-        line-height: 16px;
-        white-space: nowrap;
-    }
-
-    .overview-live-status__dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: var(--sd-success);
-    }
-
-    .overview-live-status--refreshing .overview-live-status__dot {
-        background: var(--sd-info);
-    }
-
-    .overview-live-status--error {
-        border-color: var(--sd-error-container);
-        color: var(--sd-error);
-    }
-
-    .overview-live-status--error .overview-live-status__dot {
-        background: var(--sd-error);
     }
 
     .summary-grid {
@@ -993,10 +958,10 @@
     {
         if (this._liveRefreshError is not null)
         {
-            return "overview-live-status--error";
+            return "sd-live-status--error";
         }
 
-        return this._isRefreshing ? "overview-live-status--refreshing" : string.Empty;
+        return this._isRefreshing ? "sd-live-status--refreshing" : string.Empty;
     }
 
     private string GetLiveStatusText(DateTimeOffset nowUtc)

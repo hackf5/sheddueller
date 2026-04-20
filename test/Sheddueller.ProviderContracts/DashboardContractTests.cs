@@ -34,6 +34,34 @@ public abstract class DashboardContractTests
     }
 
     [Fact]
+    public async Task SearchJobs_PagedQuery_ReturnsTotalMatchingCount()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "acme")]));
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "acme")]));
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "acme")]));
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "contoso")]));
+
+        var firstPage = await context.Reader.SearchJobsAsync(new DashboardJobQuery(
+          Tag: new JobTag("tenant", "acme"),
+          PageSize: 2));
+
+        firstPage.Jobs.Count.ShouldBe(2);
+        firstPage.TotalCount.ShouldBe(3L);
+        firstPage.ContinuationToken.ShouldNotBeNull();
+
+        var secondPage = await context.Reader.SearchJobsAsync(new DashboardJobQuery(
+          Tag: new JobTag("tenant", "acme"),
+          PageSize: 2,
+          ContinuationToken: firstPage.ContinuationToken));
+
+        secondPage.Jobs.Count.ShouldBe(1);
+        secondPage.TotalCount.ShouldBe(3L);
+        secondPage.ContinuationToken.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task QueuePosition_ClaimableDelayedBlockedAndMissing_ReportExplicitKinds()
     {
         await using var context = await this.CreateContextAsync();

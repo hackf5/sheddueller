@@ -41,8 +41,7 @@ internal static class PostgresDashboardReadOperation
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         var afterSequence = DecodeContinuationToken(query.ContinuationToken);
-        var conditions = new List<string>();
-        void configure(NpgsqlCommand command)
+        void configureFilters(NpgsqlCommand command, List<string> conditions)
         {
             if (query.JobId is { } jobId)
             {
@@ -104,19 +103,32 @@ internal static class PostgresDashboardReadOperation
                 conditions.Add("coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) <= @terminal_to_utc");
                 command.Parameters.AddWithValue("terminal_to_utc", terminalToUtc);
             }
-
-            if (afterSequence is { } sequence)
-            {
-                conditions.Add("job.enqueue_sequence < @after_sequence");
-                command.Parameters.AddWithValue("after_sequence", sequence);
-            }
-
-            command.Parameters.AddWithValue("limit", query.PageSize + 1);
         }
 
+        await using var countCommand = connection.CreateCommand();
+        var countConditions = new List<string>();
+        configureFilters(countCommand, countConditions);
+        countCommand.CommandText =
+          $"""
+          select count(*)
+          from {context.Names.Jobs} job
+          {CreateWhereClause(countConditions)};
+          """;
+        var totalCount = Convert.ToInt64(
+          await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+          CultureInfo.InvariantCulture);
+
         await using var command = connection.CreateCommand();
-        configure(command);
-        var whereClause = conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
+        var conditions = new List<string>();
+        configureFilters(command, conditions);
+        if (afterSequence is { } sequence)
+        {
+            conditions.Add("job.enqueue_sequence < @after_sequence");
+            command.Parameters.AddWithValue("after_sequence", sequence);
+        }
+
+        command.Parameters.AddWithValue("limit", query.PageSize + 1);
+        var whereClause = CreateWhereClause(conditions);
         command.CommandText =
           $"""
           {JobSelectSql(context)}
@@ -137,7 +149,10 @@ internal static class PostgresDashboardReadOperation
           ? pageRows[^1].EnqueueSequence.ToString(CultureInfo.InvariantCulture)
           : null;
 
-        return new DashboardJobPage(jobs, continuationToken);
+        return new DashboardJobPage(jobs, continuationToken)
+        {
+            TotalCount = totalCount,
+        };
     }
 
     public static async ValueTask<DashboardJobDetail?> GetJobAsync(
@@ -270,6 +285,9 @@ internal static class PostgresDashboardReadOperation
 
         return counts;
     }
+
+    private static string CreateWhereClause(List<string> conditions)
+      => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
 
     private static async ValueTask<IReadOnlyList<DashboardJobSummary>> ReadSummaryPageAsync(
         PostgresOperationContext context,

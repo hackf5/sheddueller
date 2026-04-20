@@ -561,8 +561,10 @@ internal sealed class InMemoryJobStore(IDashboardLiveUpdatePublisher liveUpdateP
         {
             var now = DateTimeOffset.UtcNow;
             var afterSequence = DecodeContinuationToken(query.ContinuationToken);
-            var matched = this._jobs.Values
+            var filtered = this._jobs.Values
               .Where(job => MatchesQuery(job, query))
+              .ToArray();
+            var matched = filtered
               .Where(job => afterSequence is null || job.EnqueueSequence < afterSequence.Value)
               .OrderByDescending(job => job.EnqueueSequence)
               .Take(query.PageSize + 1)
@@ -574,7 +576,10 @@ internal sealed class InMemoryJobStore(IDashboardLiveUpdatePublisher liveUpdateP
 
             return ValueTask.FromResult(new DashboardJobPage(
               [.. pageItems.Select(job => this.CreateSummaryNoLock(job, now))],
-              continuationToken));
+              continuationToken)
+            {
+                TotalCount = filtered.LongLength,
+            });
         }
     }
 

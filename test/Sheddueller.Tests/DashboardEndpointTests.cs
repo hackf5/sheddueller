@@ -44,7 +44,7 @@ public sealed class DashboardEndpointTests
         canonicalRootHtml.ShouldContain("_framework/blazor.web.js");
         canonicalRootHtml.ShouldContain("prefers-color-scheme: dark");
         canonicalRootHtml.ShouldContain("#0b1326");
-        canonicalRootHtml.ShouldContain("overview-live-status");
+        canonicalRootHtml.ShouldContain("sd-live-status");
         canonicalRootHtml.ShouldContain("Updated");
         canonicalRootHtml.ShouldContain("Running Jobs");
         canonicalRootHtml.ShouldContain("Recently Failed");
@@ -55,6 +55,11 @@ public sealed class DashboardEndpointTests
         jobsResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         var jobsHtml = await jobsResponse.Content.ReadAsStringAsync();
         jobsHtml.ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        jobsHtml.ShouldContain("Query Parameters");
+        jobsHtml.ShouldContain("Search Results");
+        jobsHtml.ShouldContain("sd-live-status");
+        jobsHtml.ShouldContain("Auto-refresh: On");
+        jobsHtml.ShouldContain("Execute Query");
         jobsHtml.ShouldContain($"href=\"jobs/{StubDashboardJobReader.JobId:D}\"");
 
         var detailResponse = await client.GetAsync(new Uri($"/sheddueller/jobs/{StubDashboardJobReader.JobId:D}", UriKind.Relative));

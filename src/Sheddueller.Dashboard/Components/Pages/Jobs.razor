@@ -1,122 +1,1279 @@
 @page "/jobs"
+@implements IDisposable
 @inject IDashboardJobReader Reader
+@inject DashboardLiveUpdateStream LiveUpdates
 
-<h2>Jobs</h2>
+<div class="jobs-page">
+    <aside class="jobs-query-panel">
+        <form class="jobs-query-form" @onsubmit="SearchAsync" @onsubmit:preventDefault="true">
+            <div class="jobs-query-panel__header">
+                <h2>Query Parameters</h2>
+                <button class="jobs-clear-button" type="button" @onclick="ClearAllAsync" disabled="@_isSearching">Clear All</button>
+            </div>
 
-<form>
-    <label>
-        Job id
-        <input @bind="_jobIdText" />
-    </label>
-    <label>
-        State
-        <select @bind="_stateText">
-            <option value="">Any</option>
-            @foreach (var state in Enum.GetValues<JobState>())
+            <div class="jobs-query-panel__body">
+                <label class="jobs-field">
+                    <span>Job ID</span>
+                    <input class="jobs-input jobs-input--mono" @bind="_jobIdText" @bind:event="oninput" placeholder="8c32d457-9e7a-42bb-8947-0c8fa54743be" />
+                </label>
+
+                <label class="jobs-field">
+                    <span>State</span>
+                    <select class="jobs-input" @bind="_stateText">
+                        <option value="">Any State</option>
+                        @foreach (var state in Enum.GetValues<JobState>())
+                        {
+                            <option value="@state">@state</option>
+                        }
+                    </select>
+                </label>
+
+                <label class="jobs-field">
+                    <span>Handler Service</span>
+                    <input class="jobs-input jobs-input--mono" @bind="_serviceType" @bind:event="oninput" placeholder="Sheddueller.Worker" />
+                </label>
+
+                <label class="jobs-field">
+                    <span>Method</span>
+                    <input class="jobs-input jobs-input--mono" @bind="_methodName" @bind:event="oninput" placeholder="RunAsync" />
+                </label>
+
+                <label class="jobs-field">
+                    <span>Tags (Exact Match)</span>
+                    <input class="jobs-input jobs-input--mono" @bind="_tagText" @bind:event="oninput" placeholder="tenant:acme" />
+                </label>
+
+                <label class="jobs-field">
+                    <span>Schedule Key</span>
+                    <input class="jobs-input jobs-input--mono" @bind="_sourceScheduleKey" @bind:event="oninput" placeholder="daily_rollup" />
+                </label>
+
+                <div class="jobs-time-group">
+                    <span class="jobs-time-group__label">Time Range (Enqueued UTC)</span>
+                    <div class="jobs-time-grid">
+                        <label class="jobs-field">
+                            <span>From</span>
+                            <input class="jobs-input jobs-input--mono" type="datetime-local" @bind="_enqueuedFromText" />
+                        </label>
+                        <label class="jobs-field">
+                            <span>To</span>
+                            <input class="jobs-input jobs-input--mono" type="datetime-local" @bind="_enqueuedToText" />
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="jobs-query-panel__footer">
+                <button class="jobs-execute-button" type="submit" disabled="@_isSearching">
+                    <span class="material-symbols-outlined" aria-hidden="true">search</span>
+                    <span>@(_isSearching ? "Running Query" : "Execute Query")</span>
+                </button>
+            </div>
+        </form>
+    </aside>
+
+    <section class="jobs-results">
+        <header class="jobs-toolbar">
+            <div>
+                <h1>Search Results</h1>
+                @if (_page is not null)
+                {
+                    <p>@FormatResultRange()</p>
+                }
+            </div>
+
+            <div class="jobs-toolbar__actions">
+                <div class="sd-live-status @GetLiveStatusClass()" aria-live="polite">
+                    <span class="sd-live-status__dot" aria-hidden="true"></span>
+                    <span>@GetLiveStatusText(DateTimeOffset.UtcNow)</span>
+                </div>
+                <button class="jobs-toolbar-button @(_autoRefreshEnabled ? "jobs-toolbar-button--active" : null)" type="button" @onclick="ToggleAutoRefreshAsync" aria-pressed="@_autoRefreshEnabled">
+                    <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+                    <span>Auto-refresh: @(_autoRefreshEnabled ? "On" : "Off")</span>
+                </button>
+            </div>
+        </header>
+
+        @if (_error is not null)
+        {
+            <section class="jobs-message jobs-message--error" aria-live="polite">
+                <span class="material-symbols-outlined" aria-hidden="true">error</span>
+                <div>
+                    <h2>Jobs failed to load</h2>
+                    <p>@_error</p>
+                </div>
+            </section>
+        }
+        else if (_page is null)
+        {
+            <section class="jobs-message" aria-live="polite">
+                <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+                <div>
+                    <h2>Loading jobs</h2>
+                    <p>Reading scheduler job records.</p>
+                </div>
+            </section>
+        }
+        else
+        {
+            var nowUtc = DateTimeOffset.UtcNow;
+
+            @if (_liveRefreshError is not null)
             {
-                <option value="@state">@state</option>
+                <section class="jobs-inline-alert jobs-inline-alert--error" aria-live="polite">
+                    <span class="material-symbols-outlined" aria-hidden="true">warning</span>
+                    <span>Auto-refresh failed: @_liveRefreshError</span>
+                </section>
             }
-        </select>
-    </label>
-    <label>
-        Service type
-        <input @bind="_serviceType" />
-    </label>
-    <label>
-        Method
-        <input @bind="_methodName" />
-    </label>
-    <label>
-        Tag name
-        <input @bind="_tagName" />
-    </label>
-    <label>
-        Tag value
-        <input @bind="_tagValue" />
-    </label>
-    <label>
-        Source schedule
-        <input @bind="_sourceScheduleKey" />
-    </label>
-</form>
+            else if (_isRefreshing)
+            {
+                <section class="jobs-inline-alert" aria-live="polite">
+                    <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+                    <span>Refreshing results</span>
+                </section>
+            }
 
-<button type="button" @onclick="SearchAsync">Search</button>
+            <div class="jobs-table-shell">
+                <div class="jobs-table-wrap">
+                    <table class="jobs-table">
+                        <thead>
+                            <tr>
+                                <th>Job ID</th>
+                                <th>State</th>
+                                <th>Disposition</th>
+                                <th>Handler</th>
+                                <th class="jobs-table__number">Pri</th>
+                                <th>Enqueued</th>
+                                <th class="jobs-table__number">Att</th>
+                                <th>Progress</th>
+                                <th>Terminal Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_jobs.Count == 0)
+                            {
+                                <tr>
+                                    <td class="jobs-empty-row" colspan="9">No jobs matched the current query.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var job in _jobs)
+                                {
+                                    <tr>
+                                        <td>
+                                            <a class="jobs-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                        </td>
+                                        <td>
+                                            <span class="jobs-state @GetStateBadgeClass(job.State)">
+                                                <span aria-hidden="true"></span>
+                                                @job.State
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="jobs-disposition @GetDispositionClass(job)" title="@FormatDisposition(job)">@FormatDisposition(job)</span>
+                                        </td>
+                                        <td>
+                                            <span class="jobs-handler" title="@FormatFullHandler(job)">@FormatFullHandler(job)</span>
+                                        </td>
+                                        <td class="jobs-table__number">@job.Priority</td>
+                                        <td>@RenderTimestampBlock(job.EnqueuedAtUtc, nowUtc)</td>
+                                        <td class="jobs-table__number">@FormatAttempts(job)</td>
+                                        <td>@RenderProgress(job.LatestProgress)</td>
+                                        <td>@RenderTimestampBlock(GetTerminalTimestamp(job), nowUtc)</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
 
-@if (_error is not null)
-{
-    <p>@_error</p>
-}
+                <footer class="jobs-pagination">
+                    @if (_page.ContinuationToken is null)
+                    {
+                        <span>End of results</span>
+                    }
+                    else
+                    {
+                        <button class="jobs-load-more-button" type="button" @onclick="LoadMoreAsync" disabled="@_isLoadingMore">
+                            @(_isLoadingMore ? "Loading Records" : "Load More Records")
+                        </button>
+                    }
+                </footer>
+            </div>
+        }
+    </section>
+</div>
 
-@if (_page is null)
-{
-    <p>Loading...</p>
-}
-else
-{
-    <JobSummaryTable Title="Results" Jobs="_page.Jobs" />
-
-    @if (_page.ContinuationToken is not null)
-    {
-        <button type="button" @onclick="NextPageAsync">Next page</button>
+<style>
+    .jobs-page {
+        display: grid;
+        min-height: calc(100vh - var(--sd-topbar-height) - (var(--sd-page-margin) * 2));
+        grid-template-columns: 320px minmax(0, 1fr);
+        gap: var(--sd-gutter);
     }
-}
+
+    .jobs-query-panel,
+    .jobs-results,
+    .jobs-table-shell {
+        min-width: 0;
+    }
+
+    .jobs-query-panel {
+        display: flex;
+    }
+
+    .jobs-query-form {
+        display: flex;
+        width: 100%;
+        min-height: 0;
+        flex-direction: column;
+        gap: 0;
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+    }
+
+    .jobs-query-panel__header,
+    .jobs-query-panel__footer {
+        flex: 0 0 auto;
+        border-color: var(--sd-outline-variant);
+        background: var(--sd-surface-low);
+    }
+
+    .jobs-query-panel__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--sd-outline-variant);
+        padding: 8px 16px;
+    }
+
+    .jobs-query-panel__body {
+        display: flex;
+        flex: 1 1 auto;
+        min-height: 0;
+        flex-direction: column;
+        gap: 16px;
+        overflow-y: auto;
+        padding: 16px;
+    }
+
+    .jobs-query-panel__footer {
+        border-top: 1px solid var(--sd-outline-variant);
+        padding: 16px;
+    }
+
+    .jobs-field {
+        display: flex;
+        gap: 4px;
+    }
+
+    .jobs-field > span,
+    .jobs-time-group__label {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .jobs-input {
+        width: 100%;
+        height: 32px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface);
+        padding: 6px 8px;
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .jobs-input--mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .jobs-input::placeholder {
+        color: var(--sd-outline);
+        font-family: Inter, Arial, sans-serif;
+    }
+
+    .jobs-input:focus {
+        border-color: var(--sd-primary);
+        box-shadow: 0 0 0 1px var(--sd-primary);
+        outline: none;
+    }
+
+    .jobs-time-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 4px;
+        border-top: 1px solid var(--sd-outline-variant);
+        padding-top: 12px;
+    }
+
+    .jobs-time-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    button.jobs-clear-button,
+    button.jobs-toolbar-button,
+    button.jobs-load-more-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        min-height: 32px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface);
+        padding: 6px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    button.jobs-clear-button {
+        min-height: auto;
+        border: 0;
+        background: transparent;
+        color: var(--sd-on-surface-variant);
+        padding: 0;
+    }
+
+    button.jobs-execute-button {
+        display: inline-flex;
+        width: 100%;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    button.jobs-execute-button .material-symbols-outlined {
+        font-size: 16px;
+    }
+
+    .jobs-page .jobs-toolbar__actions button.jobs-toolbar-button {
+        color: var(--sd-on-surface-variant);
+        white-space: nowrap;
+        border-color: var(--sd-outline-variant);
+        background: var(--sd-surface-lowest);
+    }
+
+    .jobs-page .jobs-toolbar__actions button.jobs-toolbar-button--active {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    button.jobs-load-more-button {
+        min-width: 160px;
+    }
+
+    button.jobs-clear-button:hover,
+    button.jobs-toolbar-button:hover,
+    button.jobs-load-more-button:hover {
+        color: var(--sd-primary);
+    }
+
+    .jobs-page button:disabled {
+        cursor: progress;
+        opacity: 0.65;
+    }
+
+    .jobs-results {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .jobs-toolbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+    }
+
+    .jobs-toolbar p {
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .jobs-toolbar__actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .jobs-message,
+    .jobs-inline-alert {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        padding: 16px;
+    }
+
+    .jobs-message .material-symbols-outlined,
+    .jobs-inline-alert .material-symbols-outlined {
+        color: var(--sd-primary);
+    }
+
+    .jobs-message--error,
+    .jobs-inline-alert--error {
+        border-color: var(--sd-error);
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    .jobs-message--error .material-symbols-outlined,
+    .jobs-inline-alert--error .material-symbols-outlined {
+        color: var(--sd-error);
+    }
+
+    .jobs-message p,
+    .jobs-inline-alert {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .jobs-inline-alert--error {
+        color: var(--sd-on-error-container);
+    }
+
+    .jobs-table-shell {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+    }
+
+    .jobs-table-wrap {
+        flex: 1 1 auto;
+        overflow: auto;
+    }
+
+    .jobs-table {
+        width: 100%;
+        min-width: 1060px;
+        border-collapse: collapse;
+        white-space: nowrap;
+    }
+
+    .jobs-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--sd-surface-low);
+    }
+
+    .jobs-table th,
+    .jobs-table td {
+        border-bottom: 1px solid var(--sd-outline-variant);
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: middle;
+    }
+
+    .jobs-table th {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .jobs-table td {
+        height: 40px;
+        color: var(--sd-on-surface);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .jobs-table tbody tr:hover {
+        background: var(--sd-surface-low);
+    }
+
+    .jobs-table__number {
+        text-align: right;
+    }
+
+    .jobs-id-link,
+    .jobs-handler,
+    .jobs-disposition,
+    .jobs-progress-text,
+    .jobs-timestamp__absolute {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .jobs-id-link {
+        color: var(--sd-primary);
+        font-size: 13px;
+        line-height: 18px;
+        text-decoration-color: var(--sd-outline-variant);
+        text-underline-offset: 2px;
+    }
+
+    .jobs-id-link:hover {
+        text-decoration-color: var(--sd-primary);
+    }
+
+    .jobs-handler {
+        display: block;
+        max-width: 240px;
+        overflow: hidden;
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        text-overflow: ellipsis;
+    }
+
+    .jobs-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .jobs-state > span {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--sd-outline);
+    }
+
+    .jobs-state--queued {
+        background: var(--sd-surface);
+        color: var(--sd-on-surface-variant);
+    }
+
+    .jobs-state--claimed {
+        border-color: var(--sd-secondary-container);
+        background: var(--sd-secondary-container);
+        color: var(--sd-on-secondary-container);
+    }
+
+    .jobs-state--claimed > span {
+        background: var(--sd-primary);
+    }
+
+    .jobs-state--completed {
+        background: var(--sd-surface-variant);
+        color: var(--sd-on-surface);
+    }
+
+    .jobs-state--failed {
+        border-color: var(--sd-error-container);
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    .jobs-state--failed > span {
+        background: var(--sd-error);
+    }
+
+    .jobs-state--canceled {
+        background: var(--sd-surface-high);
+        color: var(--sd-outline);
+    }
+
+    .jobs-disposition {
+        display: block;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .jobs-disposition--error {
+        color: var(--sd-error);
+    }
+
+    .jobs-disposition--muted {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .jobs-timestamp {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .jobs-timestamp__relative {
+        color: var(--sd-on-surface);
+    }
+
+    .jobs-timestamp__absolute,
+    .jobs-progress-text,
+    .jobs-empty-row,
+    .jobs-pagination {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        line-height: 16px;
+    }
+
+    .jobs-progress {
+        display: flex;
+        min-width: 104px;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .jobs-progress__track {
+        width: 100%;
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--sd-surface-variant);
+    }
+
+    .jobs-progress__bar {
+        height: 100%;
+        border-radius: inherit;
+        background: var(--sd-primary);
+    }
+
+    .jobs-empty-row {
+        height: 96px;
+        text-align: center;
+    }
+
+    .jobs-pagination {
+        display: flex;
+        min-height: 56px;
+        align-items: center;
+        justify-content: center;
+        border-top: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface-lowest);
+        padding: 12px 16px;
+    }
+
+    @@media (max-width: 1100px) {
+        .jobs-page {
+            grid-template-columns: 1fr;
+        }
+
+        .jobs-query-form {
+            max-height: none;
+        }
+    }
+
+    @@media (max-width: 720px) {
+        .jobs-toolbar,
+        .jobs-toolbar__actions,
+        .jobs-time-grid {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .jobs-toolbar__actions {
+            gap: 8px;
+        }
+
+        .jobs-time-grid {
+            display: flex;
+        }
+    }
+</style>
 
 @code {
+    private const int DefaultPageSize = 25;
+    private static readonly TimeSpan LiveRefreshThrottle = TimeSpan.FromSeconds(1);
+
+    private readonly object _liveRefreshGate = new();
+    private readonly List<DashboardJobSummary> _jobs = [];
     private string _jobIdText = string.Empty;
     private string _stateText = string.Empty;
     private string _serviceType = string.Empty;
     private string _methodName = string.Empty;
-    private string _tagName = string.Empty;
-    private string _tagValue = string.Empty;
+    private string _tagText = string.Empty;
     private string _sourceScheduleKey = string.Empty;
+    private string _enqueuedFromText = string.Empty;
+    private string _enqueuedToText = string.Empty;
     private DashboardJobPage? _page;
-    private DashboardJobQuery _lastQuery = new();
+    private DashboardJobQuery _lastQuery = new(PageSize: DefaultPageSize);
     private string? _error;
+    private string? _liveRefreshError;
+    private DateTimeOffset? _lastUpdatedUtc;
+    private bool _autoRefreshEnabled = true;
+    private bool _disposed;
+    private bool _isSearching;
+    private bool _isRefreshing;
+    private bool _isLoadingMore;
+    private bool _refreshRequested;
+    private bool _refreshLoopRunning;
 
     protected override async Task OnInitializedAsync()
-      => await SearchAsync().ConfigureAwait(false);
-
-    private async Task SearchAsync()
     {
-        _error = null;
-        try
+        LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
+        await this.SearchAsync().ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
+
+        lock (this._liveRefreshGate)
         {
-            _lastQuery = CreateQuery(continuationToken: null);
-            _page = await Reader.SearchJobsAsync(_lastQuery).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            _error = exception.Message;
+            this._disposed = true;
         }
     }
 
-    private async Task NextPageAsync()
+    private async Task SearchAsync()
     {
-        if (_page?.ContinuationToken is null)
+        this._error = null;
+        this._liveRefreshError = null;
+        this._isSearching = true;
+
+        try
+        {
+            var query = this.CreateQuery(pageSize: DefaultPageSize, continuationToken: null);
+            var page = await Reader.SearchJobsAsync(query).ConfigureAwait(false);
+            this._lastQuery = query;
+            this.ReplaceJobs(page);
+        }
+        catch (Exception exception)
+        {
+            this._error = exception.Message;
+        }
+        finally
+        {
+            this._isSearching = false;
+        }
+    }
+
+    private async Task ClearAllAsync()
+    {
+        this._jobIdText = string.Empty;
+        this._stateText = string.Empty;
+        this._serviceType = string.Empty;
+        this._methodName = string.Empty;
+        this._tagText = string.Empty;
+        this._sourceScheduleKey = string.Empty;
+        this._enqueuedFromText = string.Empty;
+        this._enqueuedToText = string.Empty;
+
+        await this.SearchAsync().ConfigureAwait(false);
+    }
+
+    private async Task LoadMoreAsync()
+    {
+        if (this._page?.ContinuationToken is null || this._isLoadingMore)
         {
             return;
         }
 
-        _lastQuery = _lastQuery with { ContinuationToken = _page.ContinuationToken };
-        _page = await Reader.SearchJobsAsync(_lastQuery).ConfigureAwait(false);
+        this._error = null;
+        this._isLoadingMore = true;
+
+        try
+        {
+            var page = await Reader.SearchJobsAsync(this._lastQuery with
+            {
+                PageSize = DefaultPageSize,
+                ContinuationToken = this._page.ContinuationToken,
+            }).ConfigureAwait(false);
+
+            this._jobs.AddRange(page.Jobs);
+            this._page = page;
+            this._lastUpdatedUtc = DateTimeOffset.UtcNow;
+        }
+        catch (Exception exception)
+        {
+            this._error = exception.Message;
+        }
+        finally
+        {
+            this._isLoadingMore = false;
+        }
     }
 
-    private DashboardJobQuery CreateQuery(string? continuationToken)
+    private async Task ToggleAutoRefreshAsync()
     {
-        var jobId = string.IsNullOrWhiteSpace(_jobIdText) ? (Guid?)null : Guid.Parse(_jobIdText);
-        var state = string.IsNullOrWhiteSpace(_stateText) ? (JobState?)null : Enum.Parse<JobState>(_stateText);
-        var tag = string.IsNullOrWhiteSpace(_tagName) && string.IsNullOrWhiteSpace(_tagValue)
-          ? null
-          : new JobTag(_tagName ?? string.Empty, _tagValue ?? string.Empty);
+        this._autoRefreshEnabled = !this._autoRefreshEnabled;
+        this._liveRefreshError = null;
+
+        if (this._autoRefreshEnabled)
+        {
+            await this.RefreshCurrentQueryAsync().ConfigureAwait(false);
+        }
+        else
+        {
+            lock (this._liveRefreshGate)
+            {
+                this._refreshRequested = false;
+            }
+        }
+    }
+
+    private ValueTask OnJobEventPublishedAsync(
+        DashboardJobEvent jobEvent,
+        CancellationToken cancellationToken)
+    {
+        _ = jobEvent;
+        _ = cancellationToken;
+
+        if (this._autoRefreshEnabled)
+        {
+            this.QueueLiveRefresh();
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private void QueueLiveRefresh()
+    {
+        var startLoop = false;
+
+        lock (this._liveRefreshGate)
+        {
+            if (this._disposed || !this._autoRefreshEnabled)
+            {
+                return;
+            }
+
+            this._refreshRequested = true;
+            if (!this._refreshLoopRunning)
+            {
+                this._refreshLoopRunning = true;
+                startLoop = true;
+            }
+        }
+
+        if (startLoop)
+        {
+            _ = this.RunLiveRefreshLoopAsync();
+        }
+    }
+
+    private async Task RunLiveRefreshLoopAsync()
+    {
+        var completedCleanly = false;
+
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(LiveRefreshThrottle).ConfigureAwait(false);
+
+                lock (this._liveRefreshGate)
+                {
+                    if (this._disposed || !this._autoRefreshEnabled)
+                    {
+                        this._refreshLoopRunning = false;
+                        completedCleanly = true;
+                        return;
+                    }
+
+                    if (!this._refreshRequested)
+                    {
+                        this._refreshLoopRunning = false;
+                        completedCleanly = true;
+                        return;
+                    }
+
+                    this._refreshRequested = false;
+                }
+
+                await this.RefreshCurrentQueryAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            lock (this._liveRefreshGate)
+            {
+                if (!completedCleanly && !this._disposed)
+                {
+                    this._refreshLoopRunning = false;
+                }
+            }
+        }
+    }
+
+    private async Task RefreshCurrentQueryAsync()
+    {
+        await this.InvokeIfNotDisposedAsync(() =>
+        {
+            this._isRefreshing = true;
+            this._liveRefreshError = null;
+            this.StateHasChanged();
+        }).ConfigureAwait(false);
+
+        try
+        {
+            var visiblePageSize = Math.Max(DefaultPageSize, this._jobs.Count);
+            var page = await Reader.SearchJobsAsync(this._lastQuery with
+            {
+                PageSize = visiblePageSize,
+                ContinuationToken = null,
+            }).ConfigureAwait(false);
+
+            await this.InvokeIfNotDisposedAsync(() =>
+            {
+                this.ReplaceJobs(page);
+                this._isRefreshing = false;
+                this.StateHasChanged();
+            }).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await this.InvokeIfNotDisposedAsync(() =>
+            {
+                this._liveRefreshError = exception.Message;
+                this._isRefreshing = false;
+                this.StateHasChanged();
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task InvokeIfNotDisposedAsync(Action action)
+    {
+        if (this.IsDisposed())
+        {
+            return;
+        }
+
+        await this.InvokeAsync(() =>
+        {
+            if (!this.IsDisposed())
+            {
+                action();
+            }
+        }).ConfigureAwait(false);
+    }
+
+    private bool IsDisposed()
+    {
+        lock (this._liveRefreshGate)
+        {
+            return this._disposed;
+        }
+    }
+
+    private void ReplaceJobs(DashboardJobPage page)
+    {
+        this._jobs.Clear();
+        this._jobs.AddRange(page.Jobs);
+        this._page = page;
+        this._lastUpdatedUtc = DateTimeOffset.UtcNow;
+    }
+
+    private DashboardJobQuery CreateQuery(
+        int pageSize,
+        string? continuationToken)
+    {
+        var jobId = ParseJobId(this._jobIdText);
+        var state = string.IsNullOrWhiteSpace(this._stateText) ? (JobState?)null : Enum.Parse<JobState>(this._stateText);
+        var tag = ParseTag(this._tagText);
+        var enqueuedFromUtc = ParseUtcDateTimeLocal(this._enqueuedFromText, "Enqueued from");
+        var enqueuedToUtc = ParseUtcDateTimeLocal(this._enqueuedToText, "Enqueued to");
+
+        if (enqueuedFromUtc is { } from && enqueuedToUtc is { } to && from > to)
+        {
+            throw new InvalidOperationException("Enqueued from must be earlier than enqueued to.");
+        }
 
         return new DashboardJobQuery(
           jobId,
           state,
-          string.IsNullOrWhiteSpace(_serviceType) ? null : _serviceType,
-          string.IsNullOrWhiteSpace(_methodName) ? null : _methodName,
+          NormalizeFilter(this._serviceType),
+          NormalizeFilter(this._methodName),
           tag,
-          string.IsNullOrWhiteSpace(_sourceScheduleKey) ? null : _sourceScheduleKey,
-          PageSize: 100,
+          NormalizeFilter(this._sourceScheduleKey),
+          enqueuedFromUtc,
+          enqueuedToUtc,
+          PageSize: pageSize,
           ContinuationToken: continuationToken);
     }
+
+    private static Guid? ParseJobId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!Guid.TryParse(value.Trim(), out var jobId))
+        {
+            throw new InvalidOperationException("Job ID must be a valid GUID.");
+        }
+
+        return jobId;
+    }
+
+    private static JobTag? ParseTag(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        var separatorIndex = trimmed.IndexOf(':', StringComparison.Ordinal);
+        if (separatorIndex <= 0 || separatorIndex == trimmed.Length - 1)
+        {
+            throw new InvalidOperationException("Tags must use name:value syntax.");
+        }
+
+        var name = trimmed[..separatorIndex].Trim();
+        var tagValue = trimmed[(separatorIndex + 1)..].Trim();
+        if (name.Length == 0 || tagValue.Length == 0)
+        {
+            throw new InvalidOperationException("Tags must include both a name and value.");
+        }
+
+        return new JobTag(name, tagValue);
+    }
+
+    private static DateTimeOffset? ParseUtcDateTimeLocal(
+        string value,
+        string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!DateTime.TryParse(
+            value.Trim(),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces,
+            out var parsed))
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture, $"{fieldName} must be a valid UTC date and time."));
+        }
+
+        return new DateTimeOffset(DateTime.SpecifyKind(parsed, DateTimeKind.Utc));
+    }
+
+    private static string? NormalizeFilter(string value)
+      => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private string FormatResultRange()
+    {
+        var loadedCount = this._jobs.Count;
+        if (loadedCount == 0)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"Showing 0 of {FormatCount(this._page?.TotalCount ?? 0)} jobs");
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"Showing 1-{FormatCount(loadedCount)} of {FormatCount(this._page?.TotalCount ?? loadedCount)} jobs");
+    }
+
+    private string GetLiveStatusClass()
+    {
+        if (this._liveRefreshError is not null)
+        {
+            return "sd-live-status--error";
+        }
+
+        return this._isRefreshing ? "sd-live-status--refreshing" : string.Empty;
+    }
+
+    private string GetLiveStatusText(DateTimeOffset nowUtc)
+    {
+        if (this._isRefreshing)
+        {
+            return "Refreshing...";
+        }
+
+        if (this._liveRefreshError is not null)
+        {
+            return "Refresh failed";
+        }
+
+        return this._lastUpdatedUtc is null
+          ? "Waiting for data"
+          : string.Concat("Updated ", FormatRelative(this._lastUpdatedUtc, nowUtc));
+    }
+
+    private static string CreateJobHref(DashboardJobSummary job)
+      => string.Create(CultureInfo.InvariantCulture, $"jobs/{job.JobId:D}");
+
+    private static string FormatJobId(Guid jobId)
+      => jobId.ToString("D");
+
+    private static string FormatCount(long count)
+      => count.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string FormatFullHandler(DashboardJobSummary job)
+      => string.Concat(job.ServiceType, ".", job.MethodName);
+
+    private static string FormatAttempts(DashboardJobSummary job)
+      => string.Create(CultureInfo.InvariantCulture, $"{job.AttemptCount}/{job.MaxAttempts}");
+
+    private static string FormatDisposition(DashboardJobSummary job)
+      => job.State switch
+      {
+          JobState.Failed => FirstNonEmpty(job.LatestProgress?.Message, job.QueuePosition?.Reason, "failed"),
+          JobState.Completed => "completed",
+          JobState.Canceled => "canceled",
+          _ => FormatQueueKind(job.QueuePosition?.Kind, job.State),
+      };
+
+    private static string FormatQueueKind(
+        DashboardQueuePositionKind? kind,
+        JobState state)
+      => kind switch
+      {
+          DashboardQueuePositionKind.Claimable => "claimable",
+          DashboardQueuePositionKind.Delayed => "delayed",
+          DashboardQueuePositionKind.RetryWaiting => "retry_waiting",
+          DashboardQueuePositionKind.BlockedByConcurrency => "blocked_by_concurrency",
+          DashboardQueuePositionKind.Claimed => "running_active",
+          DashboardQueuePositionKind.Terminal => "terminal",
+          DashboardQueuePositionKind.Canceled => "canceled",
+          DashboardQueuePositionKind.NotFound => "not_found",
+          _ => state.ToString().ToLowerInvariant(),
+      };
+
+    private static string FirstNonEmpty(params string?[] values)
+      => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+    private static DateTimeOffset? GetTerminalTimestamp(DashboardJobSummary job)
+      => job.FailedAtUtc ?? job.CompletedAtUtc ?? job.CanceledAtUtc;
+
+    private static string GetStateBadgeClass(JobState state)
+      => state switch
+      {
+          JobState.Queued => "jobs-state--queued",
+          JobState.Claimed => "jobs-state--claimed",
+          JobState.Completed => "jobs-state--completed",
+          JobState.Failed => "jobs-state--failed",
+          JobState.Canceled => "jobs-state--canceled",
+          _ => "jobs-state--queued",
+      };
+
+    private static string GetDispositionClass(DashboardJobSummary job)
+      => job.State == JobState.Failed ? "jobs-disposition--error" : "jobs-disposition--muted";
+
+    private static RenderFragment RenderTimestampBlock(
+        DateTimeOffset? value,
+        DateTimeOffset nowUtc)
+      => builder =>
+      {
+          builder.OpenElement(0, "div");
+          builder.AddAttribute(1, "class", "jobs-timestamp");
+
+          builder.OpenElement(2, "span");
+          builder.AddAttribute(3, "class", "jobs-timestamp__relative");
+          builder.AddContent(4, FormatRelative(value, nowUtc));
+          builder.CloseElement();
+
+          builder.OpenElement(5, "span");
+          builder.AddAttribute(6, "class", "jobs-timestamp__absolute");
+          builder.AddContent(7, FormatUtc(value));
+          builder.CloseElement();
+
+          builder.CloseElement();
+      };
+
+    private static RenderFragment RenderProgress(DashboardProgressSnapshot? progress)
+      => builder =>
+      {
+          if (progress?.Percent is not { } percent)
+          {
+              builder.OpenElement(0, "span");
+              builder.AddAttribute(1, "class", "jobs-progress-text");
+              builder.AddContent(2, progress?.Message ?? "N/A");
+              builder.CloseElement();
+              return;
+          }
+
+          var clampedPercent = Math.Clamp(percent, 0, 100);
+
+          builder.OpenElement(3, "div");
+          builder.AddAttribute(4, "class", "jobs-progress");
+
+          builder.OpenElement(5, "div");
+          builder.AddAttribute(6, "class", "jobs-progress__track");
+
+          builder.OpenElement(7, "div");
+          builder.AddAttribute(8, "class", "jobs-progress__bar");
+          builder.AddAttribute(9, "style", string.Create(CultureInfo.InvariantCulture, $"width: {clampedPercent:0.##}%"));
+          builder.CloseElement();
+
+          builder.CloseElement();
+
+          builder.OpenElement(10, "span");
+          builder.AddAttribute(11, "class", "jobs-progress-text");
+          builder.AddContent(12, FormatProgress(progress));
+          builder.CloseElement();
+
+          builder.CloseElement();
+      };
+
+    private static string FormatProgress(DashboardProgressSnapshot progress)
+      => progress.Percent is null
+        ? progress.Message ?? "Progress reported"
+        : string.Create(CultureInfo.InvariantCulture, $"{progress.Percent:0.#}% {progress.Message}").Trim();
+
+    private static string FormatRelative(
+        DateTimeOffset? value,
+        DateTimeOffset nowUtc)
+    {
+        if (value is null)
+        {
+            return "-";
+        }
+
+        var targetUtc = value.Value.ToUniversalTime();
+        var delta = targetUtc - nowUtc.ToUniversalTime();
+        var future = delta > TimeSpan.Zero;
+        var duration = future ? delta : -delta;
+        var text = FormatDuration(duration);
+
+        return future
+          ? string.Concat("in ", text)
+          : string.Concat(text, " ago");
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.FromMinutes(1))
+        {
+            return "<1m";
+        }
+
+        if (duration < TimeSpan.FromHours(1))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalMinutes):0}m");
+        }
+
+        if (duration < TimeSpan.FromDays(1))
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalHours):0}h");
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalDays):0}d");
+    }
+
+    private static string FormatUtc(DateTimeOffset? value)
+      => value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
 }

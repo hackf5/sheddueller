@@ -348,6 +348,41 @@
         color: var(--sd-outline);
     }
 
+    .sd-live-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface);
+        color: var(--sd-on-surface-variant);
+        padding: 5px 10px;
+        font-size: 12px;
+        line-height: 16px;
+        white-space: nowrap;
+    }
+
+    .sd-live-status__dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--sd-success);
+    }
+
+    .sd-live-status--refreshing .sd-live-status__dot {
+        background: var(--sd-info);
+    }
+
+    .sd-live-status--error {
+        border-color: var(--sd-error-container);
+        color: var(--sd-error);
+    }
+
+    .sd-live-status--error .sd-live-status__dot {
+        background: var(--sd-error);
+    }
+
     .sd-main {
         min-height: calc(100vh - var(--sd-topbar-height));
         overflow-y: auto;
