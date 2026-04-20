@@ -41,6 +41,8 @@ public sealed class DashboardEndpointTests
         canonicalRootHtml.ShouldContain("base href=\"http://localhost/sheddueller/\"");
         canonicalRootHtml.ShouldContain("Operational Control");
         canonicalRootHtml.ShouldContain("Health Triage");
+        canonicalRootHtml.ShouldContain("overview-live-status");
+        canonicalRootHtml.ShouldContain("Updated");
         canonicalRootHtml.ShouldContain("Running Jobs");
         canonicalRootHtml.ShouldContain("Recently Failed");
         canonicalRootHtml.ShouldContain("Queued (Next Up)");

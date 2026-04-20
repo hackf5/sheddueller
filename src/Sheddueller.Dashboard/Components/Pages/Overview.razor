@@ -1,11 +1,17 @@
 @page "/"
+@implements IDisposable
 @inject IDashboardJobReader Reader
+@inject DashboardLiveUpdateStream LiveUpdates
 
 <div class="overview-page">
     <header class="overview-header">
         <div>
             <h1>Health Triage</h1>
             <p>Real-time job queue overview and anomaly detection.</p>
+        </div>
+        <div class="overview-live-status @GetLiveStatusClass()" aria-live="polite">
+            <span class="overview-live-status__dot" aria-hidden="true"></span>
+            <span>@GetLiveStatusText(DateTimeOffset.UtcNow)</span>
         </div>
     </header>
 
@@ -242,6 +248,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 16px;
         padding-bottom: 8px;
         border-bottom: 1px solid var(--sd-outline-variant);
     }
@@ -251,6 +258,41 @@
         color: var(--sd-on-surface-variant);
         font-size: 12px;
         line-height: 16px;
+    }
+
+    .overview-live-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface);
+        color: var(--sd-on-surface-variant);
+        padding: 5px 10px;
+        font-size: 12px;
+        line-height: 16px;
+        white-space: nowrap;
+    }
+
+    .overview-live-status__dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--sd-success);
+    }
+
+    .overview-live-status--refreshing .overview-live-status__dot {
+        background: var(--sd-info);
+    }
+
+    .overview-live-status--error {
+        border-color: var(--sd-error-container);
+        color: var(--sd-error);
+    }
+
+    .overview-live-status--error .overview-live-status__dot {
+        background: var(--sd-error);
     }
 
     .summary-grid {
@@ -614,18 +656,204 @@
 </style>
 
 @code {
+    private static readonly TimeSpan LiveRefreshThrottle = TimeSpan.FromSeconds(1);
+
+    private readonly object _liveRefreshGate = new();
     private DashboardJobOverview? _overview;
     private string? _loadError;
+    private string? _liveRefreshError;
+    private DateTimeOffset? _lastUpdatedUtc;
+    private bool _disposed;
+    private bool _isRefreshing;
+    private bool _refreshRequested;
+    private bool _refreshLoopRunning;
 
     protected override async Task OnInitializedAsync()
     {
+        LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
+        await this.LoadOverviewAsync(isInitialLoad: true).ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
+
+        lock (this._liveRefreshGate)
+        {
+            this._disposed = true;
+        }
+    }
+
+    private ValueTask OnJobEventPublishedAsync(
+        DashboardJobEvent jobEvent,
+        CancellationToken cancellationToken)
+    {
+        _ = jobEvent;
+        _ = cancellationToken;
+
+        this.QueueLiveRefresh();
+        return ValueTask.CompletedTask;
+    }
+
+    private void QueueLiveRefresh()
+    {
+        var startLoop = false;
+
+        lock (this._liveRefreshGate)
+        {
+            if (this._disposed)
+            {
+                return;
+            }
+
+            this._refreshRequested = true;
+            if (!this._refreshLoopRunning)
+            {
+                this._refreshLoopRunning = true;
+                startLoop = true;
+            }
+        }
+
+        if (startLoop)
+        {
+            _ = this.RunLiveRefreshLoopAsync();
+        }
+    }
+
+    private async Task RunLiveRefreshLoopAsync()
+    {
+        var completedCleanly = false;
+
         try
         {
-            _overview = await Reader.GetOverviewAsync().ConfigureAwait(false);
+            while (true)
+            {
+                await Task.Delay(LiveRefreshThrottle).ConfigureAwait(false);
+
+                lock (this._liveRefreshGate)
+                {
+                    if (this._disposed)
+                    {
+                        completedCleanly = true;
+                        return;
+                    }
+
+                    if (!this._refreshRequested)
+                    {
+                        this._refreshLoopRunning = false;
+                        completedCleanly = true;
+                        return;
+                    }
+
+                    this._refreshRequested = false;
+                }
+
+                await this.LoadOverviewAsync(isInitialLoad: false).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            lock (this._liveRefreshGate)
+            {
+                if (!completedCleanly && !this._disposed)
+                {
+                    this._refreshLoopRunning = false;
+                }
+            }
+        }
+    }
+
+    private async Task LoadOverviewAsync(bool isInitialLoad)
+    {
+        if (!isInitialLoad)
+        {
+            await this.ApplyLiveRefreshStartedAsync().ConfigureAwait(false);
+        }
+
+        try
+        {
+            var overview = await Reader.GetOverviewAsync().ConfigureAwait(false);
+            await this.ApplyLoadedOverviewAsync(overview, isInitialLoad).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            _loadError = exception.Message;
+            await this.ApplyLoadErrorAsync(exception.Message, isInitialLoad).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ApplyLiveRefreshStartedAsync()
+      => await this.InvokeIfNotDisposedAsync(() =>
+      {
+          this._isRefreshing = true;
+          this._liveRefreshError = null;
+          this.StateHasChanged();
+      }).ConfigureAwait(false);
+
+    private async Task ApplyLoadedOverviewAsync(
+        DashboardJobOverview overview,
+        bool isInitialLoad)
+    {
+        if (isInitialLoad)
+        {
+            this._overview = overview;
+            this._loadError = null;
+            this._liveRefreshError = null;
+            this._lastUpdatedUtc = DateTimeOffset.UtcNow;
+            this._isRefreshing = false;
+            return;
+        }
+
+        await this.InvokeIfNotDisposedAsync(() =>
+        {
+            this._overview = overview;
+            this._loadError = null;
+            this._liveRefreshError = null;
+            this._lastUpdatedUtc = DateTimeOffset.UtcNow;
+            this._isRefreshing = false;
+            this.StateHasChanged();
+        }).ConfigureAwait(false);
+    }
+
+    private async Task ApplyLoadErrorAsync(
+        string message,
+        bool isInitialLoad)
+    {
+        if (isInitialLoad)
+        {
+            this._loadError = message;
+            this._isRefreshing = false;
+            return;
+        }
+
+        await this.InvokeIfNotDisposedAsync(() =>
+        {
+            this._liveRefreshError = message;
+            this._isRefreshing = false;
+            this.StateHasChanged();
+        }).ConfigureAwait(false);
+    }
+
+    private async Task InvokeIfNotDisposedAsync(Action action)
+    {
+        if (this.IsDisposed())
+        {
+            return;
+        }
+
+        await this.InvokeAsync(() =>
+        {
+            if (!this.IsDisposed())
+            {
+                action();
+            }
+        }).ConfigureAwait(false);
+    }
+
+    private bool IsDisposed()
+    {
+        lock (this._liveRefreshGate)
+        {
+            return this._disposed;
         }
     }
 
@@ -760,4 +988,31 @@
 
     private static string FormatUtc(DateTimeOffset? value)
       => value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private string GetLiveStatusClass()
+    {
+        if (this._liveRefreshError is not null)
+        {
+            return "overview-live-status--error";
+        }
+
+        return this._isRefreshing ? "overview-live-status--refreshing" : string.Empty;
+    }
+
+    private string GetLiveStatusText(DateTimeOffset nowUtc)
+    {
+        if (this._isRefreshing)
+        {
+            return "Refreshing...";
+        }
+
+        if (this._liveRefreshError is not null)
+        {
+            return "Refresh failed";
+        }
+
+        return this._lastUpdatedUtc is null
+          ? "Waiting for data"
+          : string.Concat("Updated ", FormatRelative(this._lastUpdatedUtc, nowUtc, prefix: null));
+    }
 }
