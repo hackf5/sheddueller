@@ -3,4 +3,8 @@
     <ProjectReference Include="$(SrcDirectory)\Sheddueller.InMemory\Sheddueller.InMemory.csproj" />
     <ProjectReference Include="$(SrcDirectory)\Sheddueller\Sheddueller.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Sheddueller.ProviderContracts\*.cs" LinkBase="ProviderContracts" />
+  </ItemGroup>
 </Project>

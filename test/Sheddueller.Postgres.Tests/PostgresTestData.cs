@@ -1,0 +1,88 @@
+namespace Sheddueller.Postgres.Tests;
+
+using Sheddueller.Serialization;
+using Sheddueller.Storage;
+
+using Shouldly;
+
+internal static class PostgresTestData
+{
+    public static string ServiceType { get; } = typeof(PostgresTestService).AssemblyQualifiedName!;
+
+    public static string MethodName { get; } = nameof(PostgresTestService.RunAsync);
+
+    public static async ValueTask<ClaimedTask> ClaimAsync(
+        ITaskStore store,
+        string nodeId = "node-1",
+        TimeSpan? leaseDuration = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return (await store.TryClaimNextAsync(new ClaimTaskRequest(nodeId, now, now.Add(leaseDuration ?? TimeSpan.FromSeconds(30)))))
+          .ShouldBeOfType<ClaimTaskResult.Claimed>()
+          .Task;
+    }
+
+    public static ClaimTaskRequest ClaimRequest(
+        string nodeId = "node-1",
+        TimeSpan? leaseDuration = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new ClaimTaskRequest(nodeId, now, now.Add(leaseDuration ?? TimeSpan.FromSeconds(30)));
+    }
+
+    public static EnqueueTaskRequest CreateRequest(
+        Guid taskId,
+        int priority = 0,
+        DateTimeOffset? enqueuedAtUtc = null,
+        DateTimeOffset? notBeforeUtc = null,
+        int maxAttempts = 1,
+        RetryBackoffKind? retryBackoffKind = null,
+        TimeSpan? retryBaseDelay = null,
+        TimeSpan? retryMaxDelay = null,
+        IReadOnlyList<string>? groupKeys = null)
+      => new(
+        taskId,
+        priority,
+        ServiceType,
+        MethodName,
+        [typeof(CancellationToken).AssemblyQualifiedName!],
+        EmptyPayload(),
+        groupKeys ?? [],
+        enqueuedAtUtc ?? DateTimeOffset.UtcNow,
+        notBeforeUtc,
+        maxAttempts,
+        retryBackoffKind,
+        retryBaseDelay,
+        retryMaxDelay);
+
+    public static UpsertRecurringScheduleRequest CreateSchedule(
+        string scheduleKey,
+        int priority = 0,
+        IReadOnlyList<string>? groupKeys = null,
+        RetryPolicy? retryPolicy = null,
+        RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip)
+      => new(
+        scheduleKey,
+        "* * * * *",
+        ServiceType,
+        MethodName,
+        [typeof(CancellationToken).AssemblyQualifiedName!],
+        EmptyPayload(),
+        priority,
+        groupKeys ?? [],
+        retryPolicy,
+        overlapMode,
+        DateTimeOffset.UtcNow);
+
+    public static TaskFailureInfo CreateFailure()
+      => new("TestException", "failed", "stack");
+
+    public static SerializedTaskPayload EmptyPayload()
+      => new(SystemTextJsonTaskPayloadSerializer.JsonContentType, "[]"u8.ToArray());
+
+    private sealed class PostgresTestService
+    {
+        public Task RunAsync(CancellationToken cancellationToken)
+          => Task.CompletedTask;
+    }
+}
