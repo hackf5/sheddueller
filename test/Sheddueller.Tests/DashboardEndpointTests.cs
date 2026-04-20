@@ -61,6 +61,8 @@ public sealed class DashboardEndpointTests
         jobsHtml.ShouldContain("Auto-refresh: On");
         jobsHtml.ShouldContain("Execute Query");
         jobsHtml.ShouldContain($"href=\"jobs/{StubDashboardJobReader.JobId:D}\"");
+        jobsHtml.ShouldNotContain("@onclick");
+        jobsHtml.ShouldNotContain("@onsubmit");
 
         var detailResponse = await client.GetAsync(new Uri($"/sheddueller/jobs/{StubDashboardJobReader.JobId:D}", UriKind.Relative));
         detailResponse.StatusCode.ShouldBe(HttpStatusCode.OK);

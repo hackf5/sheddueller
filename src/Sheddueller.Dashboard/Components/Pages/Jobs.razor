@@ -53,11 +53,11 @@
                     <div class="jobs-time-grid">
                         <label class="jobs-field">
                             <span>From</span>
-                            <input class="jobs-input jobs-input--mono" type="datetime-local" @bind="_enqueuedFromText" />
+                            <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedFromText" @oninput="SetEnqueuedFromText" />
                         </label>
                         <label class="jobs-field">
                             <span>To</span>
-                            <input class="jobs-input jobs-input--mono" type="datetime-local" @bind="_enqueuedToText" />
+                            <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedToText" @oninput="SetEnqueuedToText" />
                         </label>
                     </div>
                 </div>
@@ -831,6 +831,12 @@
             }
         }
     }
+
+    private void SetEnqueuedFromText(ChangeEventArgs eventArgs)
+      => this._enqueuedFromText = eventArgs.Value?.ToString() ?? string.Empty;
+
+    private void SetEnqueuedToText(ChangeEventArgs eventArgs)
+      => this._enqueuedToText = eventArgs.Value?.ToString() ?? string.Empty;
 
     private ValueTask OnJobEventPublishedAsync(
         DashboardJobEvent jobEvent,
