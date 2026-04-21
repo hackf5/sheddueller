@@ -3,73 +3,89 @@
 @inject IDashboardJobReader Reader
 @inject DashboardLiveUpdateStream LiveUpdates
 
-<div class="jobs-page">
+<div class="@JobsPageClass">
     <aside class="jobs-query-panel">
-        <form class="jobs-query-form" @onsubmit="SearchAsync" @onsubmit:preventDefault="true">
-            <div class="jobs-query-panel__header">
-                <h2>Query Parameters</h2>
-                <button class="jobs-clear-button" type="button" @onclick="ClearAllAsync" disabled="@_isSearching">Clear All</button>
-            </div>
+        @if (this._filtersExpanded)
+        {
+            <form class="jobs-query-form" id="jobs-query-filters" @onsubmit="SearchAsync" @onsubmit:preventDefault="true">
+                <div class="jobs-query-panel__header">
+                    <div class="jobs-query-panel__title">
+                        <button class="jobs-filter-toggle-button" type="button" @onclick="CollapseFilters" aria-label="Collapse query filters" aria-expanded="true" aria-controls="jobs-query-filters">
+                            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+                        </button>
+                        <h2>Query Parameters</h2>
+                    </div>
+                    <button class="jobs-clear-button" type="button" @onclick="ClearAllAsync" disabled="@_isSearching">Clear All</button>
+                </div>
 
-            <div class="jobs-query-panel__body">
-                <label class="jobs-field">
-                    <span>Job ID</span>
-                    <input class="jobs-input jobs-input--mono" @bind="_jobIdText" @bind:event="oninput" placeholder="8c32d457-9e7a-42bb-8947-0c8fa54743be" />
-                </label>
+                <div class="jobs-query-panel__body">
+                    <label class="jobs-field">
+                        <span>Job ID</span>
+                        <input class="jobs-input jobs-input--mono" @bind="_jobIdText" @bind:event="oninput" placeholder="8c32d457-9e7a-42bb-8947-0c8fa54743be" />
+                    </label>
 
-                <label class="jobs-field">
-                    <span>State</span>
-                    <select class="jobs-input" @bind="_stateText">
-                        <option value="">Any State</option>
-                        @foreach (var state in Enum.GetValues<JobState>())
-                        {
-                            <option value="@state">@state</option>
-                        }
-                    </select>
-                </label>
+                    <label class="jobs-field">
+                        <span>State</span>
+                        <select class="jobs-input" @bind="_stateText">
+                            <option value="">Any State</option>
+                            @foreach (var state in Enum.GetValues<JobState>())
+                            {
+                                <option value="@state">@state</option>
+                            }
+                        </select>
+                    </label>
 
-                <label class="jobs-field">
-                    <span>Handler Service</span>
-                    <input class="jobs-input jobs-input--mono" @bind="_serviceType" @bind:event="oninput" placeholder="Sheddueller.Worker" />
-                </label>
+                    <label class="jobs-field">
+                        <span>Handler Service</span>
+                        <input class="jobs-input jobs-input--mono" @bind="_serviceType" @bind:event="oninput" placeholder="Sheddueller.Worker" />
+                    </label>
 
-                <label class="jobs-field">
-                    <span>Method</span>
-                    <input class="jobs-input jobs-input--mono" @bind="_methodName" @bind:event="oninput" placeholder="RunAsync" />
-                </label>
+                    <label class="jobs-field">
+                        <span>Method</span>
+                        <input class="jobs-input jobs-input--mono" @bind="_methodName" @bind:event="oninput" placeholder="RunAsync" />
+                    </label>
 
-                <label class="jobs-field">
-                    <span>Tags (Exact Match)</span>
-                    <input class="jobs-input jobs-input--mono" @bind="_tagText" @bind:event="oninput" placeholder="tenant:acme" />
-                </label>
+                    <label class="jobs-field">
+                        <span>Tags (Exact Match)</span>
+                        <input class="jobs-input jobs-input--mono" @bind="_tagText" @bind:event="oninput" placeholder="tenant:acme" />
+                    </label>
 
-                <label class="jobs-field">
-                    <span>Schedule Key</span>
-                    <input class="jobs-input jobs-input--mono" @bind="_sourceScheduleKey" @bind:event="oninput" placeholder="daily_rollup" />
-                </label>
+                    <label class="jobs-field">
+                        <span>Schedule Key</span>
+                        <input class="jobs-input jobs-input--mono" @bind="_sourceScheduleKey" @bind:event="oninput" placeholder="daily_rollup" />
+                    </label>
 
-                <div class="jobs-time-group">
-                    <span class="jobs-time-group__label">Time Range (Enqueued UTC)</span>
-                    <div class="jobs-time-grid">
-                        <label class="jobs-field">
-                            <span>From</span>
-                            <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedFromText" @oninput="SetEnqueuedFromText" />
-                        </label>
-                        <label class="jobs-field">
-                            <span>To</span>
-                            <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedToText" @oninput="SetEnqueuedToText" />
-                        </label>
+                    <div class="jobs-time-group">
+                        <span class="jobs-time-group__label">Time Range (Enqueued UTC)</span>
+                        <div class="jobs-time-grid">
+                            <label class="jobs-field">
+                                <span>From</span>
+                                <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedFromText" @oninput="SetEnqueuedFromText" />
+                            </label>
+                            <label class="jobs-field">
+                                <span>To</span>
+                                <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedToText" @oninput="SetEnqueuedToText" />
+                            </label>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="jobs-query-panel__footer">
-                <button class="jobs-execute-button" type="submit" disabled="@_isSearching">
-                    <span class="material-symbols-outlined" aria-hidden="true">search</span>
-                    <span>@(_isSearching ? "Running Query" : "Execute Query")</span>
-                </button>
-            </div>
-        </form>
+                <div class="jobs-query-panel__footer">
+                    <button class="jobs-execute-button" type="submit" disabled="@_isSearching">
+                        <span class="material-symbols-outlined" aria-hidden="true">search</span>
+                        <span>@(_isSearching ? "Running Query" : "Execute Query")</span>
+                    </button>
+                </div>
+            </form>
+        }
+        else
+        {
+            <button class="jobs-filter-rail" type="button" @onclick="ExpandFilters" aria-label="Expand query filters" aria-expanded="false" aria-controls="jobs-query-filters">
+                <span class="material-symbols-outlined" aria-hidden="true">filter_list</span>
+                <span class="jobs-filter-rail__label">Filters</span>
+                <span class="material-symbols-outlined jobs-filter-rail__chevron" aria-hidden="true">chevron_right</span>
+            </button>
+        }
     </aside>
 
     <section class="jobs-results">
@@ -209,8 +225,13 @@
     .jobs-page {
         display: grid;
         min-height: calc(100vh - var(--sd-topbar-height) - (var(--sd-page-margin) * 2));
-        grid-template-columns: 320px minmax(0, 1fr);
+        grid-template-columns: 48px minmax(0, 1fr);
         gap: var(--sd-gutter);
+        transition: grid-template-columns 180ms ease;
+    }
+
+    .jobs-page--filters-expanded {
+        grid-template-columns: 320px minmax(0, 1fr);
     }
 
     .jobs-query-panel,
@@ -221,6 +242,46 @@
 
     .jobs-query-panel {
         display: flex;
+    }
+
+    button.jobs-filter-rail {
+        display: flex;
+        width: 100%;
+        min-height: 0;
+        align-items: center;
+        flex-direction: column;
+        gap: 16px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface-variant);
+        cursor: pointer;
+        padding: 16px 0;
+        transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    button.jobs-filter-rail:hover {
+        background: var(--sd-surface-low);
+        color: var(--sd-on-surface);
+    }
+
+    .jobs-filter-rail .material-symbols-outlined {
+        font-size: 20px;
+    }
+
+    .jobs-filter-rail__label {
+        writing-mode: vertical-rl;
+        color: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+        transform: rotate(180deg);
+    }
+
+    .jobs-filter-rail__chevron {
+        margin-top: auto;
     }
 
     .jobs-query-form {
@@ -247,8 +308,40 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 12px;
         border-bottom: 1px solid var(--sd-outline-variant);
         padding: 8px 16px;
+    }
+
+    .jobs-query-panel__title {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+    }
+
+    button.jobs-filter-toggle-button {
+        display: inline-flex;
+        width: 24px;
+        height: 24px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: var(--sd-on-surface-variant);
+        padding: 0;
+        transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    button.jobs-filter-toggle-button:hover {
+        background: var(--sd-surface-container);
+        color: var(--sd-primary);
+    }
+
+    button.jobs-filter-toggle-button .material-symbols-outlined {
+        font-size: 20px;
     }
 
     .jobs-query-panel__body {
@@ -680,6 +773,23 @@
             grid-template-columns: 1fr;
         }
 
+        button.jobs-filter-rail {
+            min-height: 48px;
+            justify-content: flex-start;
+            flex-direction: row;
+            padding: 0 12px;
+        }
+
+        .jobs-filter-rail__label {
+            writing-mode: horizontal-tb;
+            transform: none;
+        }
+
+        .jobs-filter-rail__chevron {
+            margin-top: 0;
+            margin-left: auto;
+        }
+
         .jobs-query-form {
             max-height: none;
         }
@@ -723,12 +833,16 @@
     private string? _liveRefreshError;
     private DateTimeOffset? _lastUpdatedUtc;
     private bool _autoRefreshEnabled = true;
+    private bool _filtersExpanded;
     private bool _disposed;
     private bool _isSearching;
     private bool _isRefreshing;
     private bool _isLoadingMore;
     private bool _refreshRequested;
     private bool _refreshLoopRunning;
+
+    private string JobsPageClass
+      => this._filtersExpanded ? "jobs-page jobs-page--filters-expanded" : "jobs-page";
 
     protected override async Task OnInitializedAsync()
     {
@@ -745,6 +859,12 @@
             this._disposed = true;
         }
     }
+
+    private void ExpandFilters()
+      => this._filtersExpanded = true;
+
+    private void CollapseFilters()
+      => this._filtersExpanded = false;
 
     private async Task SearchAsync()
     {

@@ -55,12 +55,14 @@ public sealed class DashboardEndpointTests
         jobsResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
         var jobsHtml = await jobsResponse.Content.ReadAsStringAsync();
         jobsHtml.ShouldContain("base href=\"http://localhost/sheddueller/\"");
-        jobsHtml.ShouldContain("Query Parameters");
+        jobsHtml.ShouldContain("Expand query filters");
+        jobsHtml.ShouldContain("Filters");
         jobsHtml.ShouldContain("Search Results");
         jobsHtml.ShouldContain("sd-live-status");
         jobsHtml.ShouldContain("Auto-refresh: On");
-        jobsHtml.ShouldContain("Execute Query");
         jobsHtml.ShouldContain($"href=\"jobs/{StubDashboardJobReader.JobId:D}\"");
+        jobsHtml.ShouldNotContain("Query Parameters");
+        jobsHtml.ShouldNotContain("Execute Query");
         jobsHtml.ShouldNotContain("@onclick");
         jobsHtml.ShouldNotContain("@onsubmit");
 
