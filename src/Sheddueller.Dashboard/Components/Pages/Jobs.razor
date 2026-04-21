@@ -10,808 +10,873 @@
             <form class="jobs-query-form" id="jobs-query-filters" @onsubmit="SearchAsync" @onsubmit:preventDefault="true">
                 <div class="jobs-query-panel__header">
                     <div class="jobs-query-panel__title">
-                        <button class="jobs-filter-toggle-button" type="button" @onclick="CollapseFilters" aria-label="Collapse query filters" aria-expanded="true" aria-controls="jobs-query-filters">
+                        <button class="jobs-filter-toggle-button" type="button" @onclick="CollapseFilters"
+                                aria-label="Collapse query filters" aria-expanded="true" aria-controls="jobs-query-filters">
                             <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
                         </button>
                         <h2>Query Parameters</h2>
                     </div>
-                    <button class="jobs-clear-button" type="button" @onclick="ClearAllAsync" disabled="@_isSearching">Clear All</button>
-                </div>
+                    <button class="jobs-clear-button" type="button" @onclick="ClearAllAsync" disabled="@_isSearching">Clear
+                        All</button>
+                    </div>
 
-                <div class="jobs-query-panel__body">
-                    <label class="jobs-field">
-                        <span>Job ID</span>
-                        <input class="jobs-input jobs-input--mono" @bind="_jobIdText" @bind:event="oninput" placeholder="8c32d457-9e7a-42bb-8947-0c8fa54743be" />
-                    </label>
+                    <div class="jobs-query-panel__body">
+                        <label class="jobs-field">
+                            <span>Job ID</span>
+                            <input class="jobs-input jobs-input--mono" @bind="_jobIdText" @bind:event="oninput"
+                                   placeholder="8c32d457-9e7a-42bb-8947-0c8fa54743be" />
+                        </label>
 
-                    <label class="jobs-field">
-                        <span>State</span>
-                        <select class="jobs-input" @bind="_stateText">
-                            <option value="">Any State</option>
-                            @foreach (var state in Enum.GetValues<JobState>())
-                            {
-                                <option value="@state">@state</option>
-                            }
-                        </select>
-                    </label>
+                        <label class="jobs-field">
+                            <span>State</span>
+                            <select class="jobs-input" @bind="_stateText">
+                                <option value="">Any State</option>
+                                @foreach (var state in Enum.GetValues<JobState>())
+                                {
+                                    <option value="@state">@state</option>
+                                }
+                            </select>
+                        </label>
 
-                    <label class="jobs-field">
-                        <span>Handler Service</span>
-                        <input class="jobs-input jobs-input--mono" @bind="_serviceType" @bind:event="oninput" placeholder="Sheddueller.Worker" />
-                    </label>
+                        <label class="jobs-field">
+                            <span>Handler Service</span>
+                            <input class="jobs-input jobs-input--mono" @bind="_serviceType" @bind:event="oninput"
+                                   placeholder="Sheddueller.Worker" />
+                        </label>
 
-                    <label class="jobs-field">
-                        <span>Method</span>
-                        <input class="jobs-input jobs-input--mono" @bind="_methodName" @bind:event="oninput" placeholder="RunAsync" />
-                    </label>
+                        <label class="jobs-field">
+                            <span>Method</span>
+                            <input class="jobs-input jobs-input--mono" @bind="_methodName" @bind:event="oninput"
+                                   placeholder="RunAsync" />
+                        </label>
 
-                    <label class="jobs-field">
-                        <span>Tags (Exact Match)</span>
-                        <input class="jobs-input jobs-input--mono" @bind="_tagText" @bind:event="oninput" placeholder="tenant:acme" />
-                    </label>
+                        <label class="jobs-field">
+                            <span>Tags (Exact Match)</span>
+                            <input class="jobs-input jobs-input--mono" @bind="_tagText" @bind:event="oninput"
+                                   placeholder="tenant:acme" />
+                        </label>
 
-                    <label class="jobs-field">
-                        <span>Schedule Key</span>
-                        <input class="jobs-input jobs-input--mono" @bind="_sourceScheduleKey" @bind:event="oninput" placeholder="daily_rollup" />
-                    </label>
+                        <label class="jobs-field">
+                            <span>Schedule Key</span>
+                            <input class="jobs-input jobs-input--mono" @bind="_sourceScheduleKey" @bind:event="oninput"
+                                   placeholder="daily_rollup" />
+                        </label>
 
-                    <div class="jobs-time-group">
-                        <span class="jobs-time-group__label">Time Range (Enqueued UTC)</span>
-                        <div class="jobs-time-grid">
-                            <label class="jobs-field">
-                                <span>From</span>
-                                <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedFromText" @oninput="SetEnqueuedFromText" />
-                            </label>
-                            <label class="jobs-field">
-                                <span>To</span>
-                                <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedToText" @oninput="SetEnqueuedToText" />
-                            </label>
+                        <div class="jobs-time-group">
+                            <span class="jobs-time-group__label">Time Range (Enqueued UTC)</span>
+                            <div class="jobs-time-grid">
+                                <label class="jobs-field">
+                                    <span>From</span>
+                                    <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedFromText"
+                                           @oninput="SetEnqueuedFromText" />
+                                </label>
+                                <label class="jobs-field">
+                                    <span>To</span>
+                                    <input class="jobs-input jobs-input--mono" type="datetime-local" value="@_enqueuedToText"
+                                           @oninput="SetEnqueuedToText" />
+                                </label>
+                            </div>
                         </div>
                     </div>
+
+                    <div class="jobs-query-panel__footer">
+                        <button class="jobs-execute-button" type="submit" disabled="@_isSearching">
+                            <span class="material-symbols-outlined" aria-hidden="true">search</span>
+                            <span>@(_isSearching ? "Running Query" : "Execute Query")</span>
+                        </button>
+                    </div>
+                </form>
+            }
+        else
+            {
+                <button class="jobs-filter-rail" type="button" @onclick="ExpandFilters" aria-label="Expand query filters"
+                        aria-expanded="false" aria-controls="jobs-query-filters">
+                    <span class="material-symbols-outlined" aria-hidden="true">filter_list</span>
+                    <span class="jobs-filter-rail__label">Filters</span>
+                    <span class="material-symbols-outlined jobs-filter-rail__chevron" aria-hidden="true">chevron_right</span>
+                </button>
+            }
+        </aside>
+
+        <section class="jobs-results">
+            <header class="jobs-toolbar">
+                <div>
+                    <h1>Search Results</h1>
+                    @if (_page is not null)
+                    {
+                        <p>@FormatResultRange()</p>
+                    }
                 </div>
 
-                <div class="jobs-query-panel__footer">
-                    <button class="jobs-execute-button" type="submit" disabled="@_isSearching">
-                        <span class="material-symbols-outlined" aria-hidden="true">search</span>
-                        <span>@(_isSearching ? "Running Query" : "Execute Query")</span>
+                <div class="jobs-toolbar__actions">
+                    <div class="sd-live-status @GetLiveStatusClass()" aria-live="polite">
+                        <span class="sd-live-status__dot" aria-hidden="true"></span>
+                        <span>@GetLiveStatusText(DateTimeOffset.UtcNow)</span>
+                    </div>
+                    <button class="jobs-toolbar-button @(_autoRefreshEnabled ? "jobs-toolbar-button--active" : null)"
+                            type="button" @onclick="ToggleAutoRefreshAsync" aria-pressed="@_autoRefreshEnabled">
+                        <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+                        <span>Auto-refresh: @(_autoRefreshEnabled ? "On" : "Off")</span>
                     </button>
                 </div>
-            </form>
-        }
-        else
-        {
-            <button class="jobs-filter-rail" type="button" @onclick="ExpandFilters" aria-label="Expand query filters" aria-expanded="false" aria-controls="jobs-query-filters">
-                <span class="material-symbols-outlined" aria-hidden="true">filter_list</span>
-                <span class="jobs-filter-rail__label">Filters</span>
-                <span class="material-symbols-outlined jobs-filter-rail__chevron" aria-hidden="true">chevron_right</span>
-            </button>
-        }
-    </aside>
+            </header>
 
-    <section class="jobs-results">
-        <header class="jobs-toolbar">
-            <div>
-                <h1>Search Results</h1>
-                @if (_page is not null)
+            @if (_error is not null)
+            {
+                <section class="jobs-message jobs-message--error" aria-live="polite">
+                    <span class="material-symbols-outlined" aria-hidden="true">error</span>
+                    <div>
+                        <h2>Jobs failed to load</h2>
+                        <p>@_error</p>
+                    </div>
+                </section>
+            }
+            else if (_page is null)
+            {
+                <section class="jobs-message" aria-live="polite">
+                    <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+                    <div>
+                        <h2>Loading jobs</h2>
+                        <p>Reading scheduler job records.</p>
+                    </div>
+                </section>
+            }
+            else
+            {
+                var nowUtc = DateTimeOffset.UtcNow;
+
+                @if (_liveRefreshError is not null)
                 {
-                    <p>@FormatResultRange()</p>
+                    <section class="jobs-inline-alert jobs-inline-alert--error" aria-live="polite">
+                        <span class="material-symbols-outlined" aria-hidden="true">warning</span>
+                        <span>Auto-refresh failed: @_liveRefreshError</span>
+                    </section>
                 }
-            </div>
+                else if (_isRefreshing)
+                {
+                    <section class="jobs-inline-alert" aria-live="polite">
+                        <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+                        <span>Refreshing results</span>
+                    </section>
+                }
 
-            <div class="jobs-toolbar__actions">
-                <div class="sd-live-status @GetLiveStatusClass()" aria-live="polite">
-                    <span class="sd-live-status__dot" aria-hidden="true"></span>
-                    <span>@GetLiveStatusText(DateTimeOffset.UtcNow)</span>
-                </div>
-                <button class="jobs-toolbar-button @(_autoRefreshEnabled ? "jobs-toolbar-button--active" : null)" type="button" @onclick="ToggleAutoRefreshAsync" aria-pressed="@_autoRefreshEnabled">
-                    <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
-                    <span>Auto-refresh: @(_autoRefreshEnabled ? "On" : "Off")</span>
-                </button>
-            </div>
-        </header>
-
-        @if (_error is not null)
-        {
-            <section class="jobs-message jobs-message--error" aria-live="polite">
-                <span class="material-symbols-outlined" aria-hidden="true">error</span>
-                <div>
-                    <h2>Jobs failed to load</h2>
-                    <p>@_error</p>
-                </div>
-            </section>
-        }
-        else if (_page is null)
-        {
-            <section class="jobs-message" aria-live="polite">
-                <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
-                <div>
-                    <h2>Loading jobs</h2>
-                    <p>Reading scheduler job records.</p>
-                </div>
-            </section>
-        }
-        else
-        {
-            var nowUtc = DateTimeOffset.UtcNow;
-
-            @if (_liveRefreshError is not null)
-            {
-                <section class="jobs-inline-alert jobs-inline-alert--error" aria-live="polite">
-                    <span class="material-symbols-outlined" aria-hidden="true">warning</span>
-                    <span>Auto-refresh failed: @_liveRefreshError</span>
-                </section>
-            }
-            else if (_isRefreshing)
-            {
-                <section class="jobs-inline-alert" aria-live="polite">
-                    <span class="material-symbols-outlined" aria-hidden="true">sync</span>
-                    <span>Refreshing results</span>
-                </section>
-            }
-
-            <div class="jobs-table-shell">
-                <div class="jobs-table-wrap">
-                    <table class="jobs-table">
-                        <thead>
-                            <tr>
-                                <th>Job ID</th>
-                                <th>State</th>
-                                <th>Disposition</th>
-                                <th>Handler</th>
-                                <th class="jobs-table__number">Pri</th>
-                                <th>Enqueued</th>
-                                <th class="jobs-table__number">Att</th>
-                                <th>Progress</th>
-                                <th>Terminal Time</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @if (_jobs.Count == 0)
-                            {
+                <div class="jobs-table-shell">
+                    <div class="jobs-table-wrap">
+                        <table class="jobs-table">
+                            <colgroup>
+                                <col class="jobs-table__col--job-id" />
+                                <col class="jobs-table__col--state" />
+                                <col class="jobs-table__col--disposition" />
+                                <col class="jobs-table__col--handler" />
+                                <col class="jobs-table__col--priority" />
+                                <col class="jobs-table__col--timestamp" />
+                                <col class="jobs-table__col--attempts" />
+                                <col class="jobs-table__col--progress-unit" />
+                                <col class="jobs-table__col--progress-unit" />
+                                <col class="jobs-table__col--timestamp" />
+                            </colgroup>
+                            <thead>
                                 <tr>
-                                    <td class="jobs-empty-row" colspan="9">No jobs matched the current query.</td>
+                                    <th>Job ID</th>
+                                    <th>State</th>
+                                    <th>Disposition</th>
+                                    <th>Handler</th>
+                                    <th class="jobs-table__number">Pri</th>
+                                    <th>Enqueued</th>
+                                    <th class="jobs-table__number">Att</th>
+                                    <th colspan="2">Progress</th>
+                                    <th>Terminal Time</th>
                                 </tr>
-                            }
-                            else
-                            {
-                                @foreach (var job in _jobs)
+                            </thead>
+                            <tbody>
+                                @if (_jobs.Count == 0)
                                 {
                                     <tr>
-                                        <td>
-                                            <a class="jobs-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
-                                        </td>
-                                        <td>
-                                            <span class="jobs-state @GetStateBadgeClass(job.State)">
-                                                <span aria-hidden="true"></span>
-                                                @job.State
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <span class="jobs-disposition @GetDispositionClass(job)" title="@FormatDisposition(job)">@FormatDisposition(job)</span>
-                                        </td>
-                                        <td>
-                                            <span class="jobs-handler" title="@FormatFullHandler(job)">@FormatFullHandler(job)</span>
-                                        </td>
-                                        <td class="jobs-table__number">@job.Priority</td>
-                                        <td>@RenderTimestampBlock(job.EnqueuedAtUtc, nowUtc)</td>
-                                        <td class="jobs-table__number">@FormatAttempts(job)</td>
-                                        <td>@RenderProgress(job.LatestProgress)</td>
-                                        <td>@RenderTimestampBlock(GetTerminalTimestamp(job), nowUtc)</td>
+                                        <td class="jobs-empty-row" colspan="10">No jobs matched the current query.</td>
                                     </tr>
                                 }
-                            }
-                        </tbody>
-                    </table>
+                                else
+                                {
+                                    @foreach (var job in _jobs)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <a class="jobs-id-link" href="@CreateJobHref(job)"
+                                                   title="@FormatJobId(job.JobId)">@FormatJobId(job.JobId)</a>
+                                            </td>
+                                            <td>
+                                                <span class="jobs-state @GetStateBadgeClass(job.State)">
+                                                    <span aria-hidden="true"></span>
+                                                    @job.State
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="jobs-disposition @GetDispositionClass(job)"
+                                                      title="@FormatDisposition(job)">@FormatDisposition(job)</span>
+                                            </td>
+                                            <td>
+                                                <span class="jobs-handler"
+                                                      title="@FormatFullHandler(job)">@FormatFullHandler(job)</span>
+                                            </td>
+                                            <td class="jobs-table__number">@job.Priority</td>
+                                            <td>@RenderTimestampBlock(job.EnqueuedAtUtc, nowUtc)</td>
+                                            <td class="jobs-table__number">@FormatAttempts(job)</td>
+                                            <td colspan="2">@RenderProgress(job.LatestProgress)</td>
+                                            <td>@RenderTimestampBlock(GetTerminalTimestamp(job), nowUtc)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <footer class="jobs-pagination">
+                        @if (_page.ContinuationToken is null)
+                        {
+                            <span>End of results</span>
+                        }
+                        else
+                        {
+                            <button class="jobs-load-more-button" type="button" @onclick="LoadMoreAsync" disabled="@_isLoadingMore">
+                                @(_isLoadingMore ? "Loading Records" : "Load More Records")
+                            </button>
+                        }
+                    </footer>
                 </div>
-
-                <footer class="jobs-pagination">
-                    @if (_page.ContinuationToken is null)
-                    {
-                        <span>End of results</span>
-                    }
-                    else
-                    {
-                        <button class="jobs-load-more-button" type="button" @onclick="LoadMoreAsync" disabled="@_isLoadingMore">
-                            @(_isLoadingMore ? "Loading Records" : "Load More Records")
-                        </button>
-                    }
-                </footer>
-            </div>
-        }
-    </section>
-</div>
-
-<style>
-    .jobs-page {
-        display: grid;
-        min-height: calc(100vh - var(--sd-topbar-height) - (var(--sd-page-margin) * 2));
-        grid-template-columns: 48px minmax(0, 1fr);
-        gap: var(--sd-gutter);
-        transition: grid-template-columns 180ms ease;
-    }
-
-    .jobs-page--filters-expanded {
-        grid-template-columns: 320px minmax(0, 1fr);
-    }
-
-    .jobs-query-panel,
-    .jobs-results,
-    .jobs-table-shell {
-        min-width: 0;
-    }
-
-    .jobs-query-panel {
-        display: flex;
-    }
-
-    button.jobs-filter-rail {
-        display: flex;
-        width: 100%;
-        min-height: 0;
-        align-items: center;
-        flex-direction: column;
-        gap: 16px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface-variant);
-        cursor: pointer;
-        padding: 16px 0;
-        transition: background-color 150ms ease, color 150ms ease;
-    }
-
-    button.jobs-filter-rail:hover {
-        background: var(--sd-surface-low);
-        color: var(--sd-on-surface);
-    }
-
-    .jobs-filter-rail .material-symbols-outlined {
-        font-size: 20px;
-    }
-
-    .jobs-filter-rail__label {
-        writing-mode: vertical-rl;
-        color: inherit;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-        transform: rotate(180deg);
-    }
-
-    .jobs-filter-rail__chevron {
-        margin-top: auto;
-    }
-
-    .jobs-query-form {
-        display: flex;
-        width: 100%;
-        min-height: 0;
-        flex-direction: column;
-        gap: 0;
-        margin: 0;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-    }
-
-    .jobs-query-panel__header,
-    .jobs-query-panel__footer {
-        flex: 0 0 auto;
-        border-color: var(--sd-outline-variant);
-        background: var(--sd-surface-low);
-    }
-
-    .jobs-query-panel__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 8px 16px;
-    }
-
-    .jobs-query-panel__title {
-        display: flex;
-        min-width: 0;
-        align-items: center;
-        gap: 8px;
-    }
-
-    button.jobs-filter-toggle-button {
-        display: inline-flex;
-        width: 24px;
-        height: 24px;
-        flex: 0 0 auto;
-        align-items: center;
-        justify-content: center;
-        border: 0;
-        border-radius: 2px;
-        background: transparent;
-        color: var(--sd-on-surface-variant);
-        padding: 0;
-        transition: background-color 150ms ease, color 150ms ease;
-    }
-
-    button.jobs-filter-toggle-button:hover {
-        background: var(--sd-surface-container);
-        color: var(--sd-primary);
-    }
-
-    button.jobs-filter-toggle-button .material-symbols-outlined {
-        font-size: 20px;
-    }
-
-    .jobs-query-panel__body {
-        display: flex;
-        flex: 1 1 auto;
-        min-height: 0;
-        flex-direction: column;
-        gap: 16px;
-        overflow-y: auto;
-        padding: 16px;
-    }
-
-    .jobs-query-panel__footer {
-        border-top: 1px solid var(--sd-outline-variant);
-        padding: 16px;
-    }
-
-    .jobs-field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .jobs-field > span,
-    .jobs-time-group__label {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    .jobs-input {
-        width: 100%;
-        height: 32px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 8px;
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .jobs-input--mono {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
-
-    .jobs-input::placeholder {
-        color: var(--sd-outline);
-        font-family: Inter, Arial, sans-serif;
-    }
-
-    .jobs-input:focus {
-        border-color: var(--sd-primary);
-        box-shadow: 0 0 0 1px var(--sd-primary);
-        outline: none;
-    }
-
-    .jobs-time-group {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        margin-top: 4px;
-        border-top: 1px solid var(--sd-outline-variant);
-        padding-top: 12px;
-    }
-
-    .jobs-time-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
-    }
-
-    button.jobs-clear-button,
-    button.jobs-toolbar-button,
-    button.jobs-load-more-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        min-height: 32px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 10px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    button.jobs-clear-button {
-        min-height: auto;
-        border: 0;
-        background: transparent;
-        color: var(--sd-on-surface-variant);
-        padding: 0;
-    }
-
-    button.jobs-execute-button {
-        display: inline-flex;
-        width: 100%;
-        height: 32px;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    button.jobs-execute-button .material-symbols-outlined {
-        font-size: 16px;
-    }
-
-    .jobs-page .jobs-toolbar__actions button.jobs-toolbar-button {
-        color: var(--sd-on-surface-variant);
-        white-space: nowrap;
-        border-color: var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-    }
-
-    .jobs-page .jobs-toolbar__actions button.jobs-toolbar-button--active {
-        border-color: var(--sd-primary);
-        color: var(--sd-primary);
-    }
-
-    button.jobs-load-more-button {
-        min-width: 160px;
-    }
-
-    button.jobs-clear-button:hover,
-    button.jobs-toolbar-button:hover,
-    button.jobs-load-more-button:hover {
-        color: var(--sd-primary);
-    }
-
-    .jobs-page button:disabled {
-        cursor: progress;
-        opacity: 0.65;
-    }
-
-    .jobs-results {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-    }
-
-    .jobs-toolbar {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .jobs-toolbar p {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .jobs-toolbar__actions {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-    }
-
-    .jobs-message,
-    .jobs-inline-alert {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        padding: 16px;
-    }
-
-    .jobs-message .material-symbols-outlined,
-    .jobs-inline-alert .material-symbols-outlined {
-        color: var(--sd-primary);
-    }
-
-    .jobs-message--error,
-    .jobs-inline-alert--error {
-        border-color: var(--sd-error);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .jobs-message--error .material-symbols-outlined,
-    .jobs-inline-alert--error .material-symbols-outlined {
-        color: var(--sd-error);
-    }
-
-    .jobs-message p,
-    .jobs-inline-alert {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-inline-alert--error {
-        color: var(--sd-on-error-container);
-    }
-
-    .jobs-table-shell {
-        display: flex;
-        flex: 1 1 auto;
-        flex-direction: column;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-    }
-
-    .jobs-table-wrap {
-        flex: 1 1 auto;
-        overflow: auto;
-    }
-
-    .jobs-table {
-        width: 100%;
-        min-width: 1060px;
-        border-collapse: collapse;
-        white-space: nowrap;
-    }
-
-    .jobs-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--sd-surface-low);
-    }
-
-    .jobs-table th,
-    .jobs-table td {
-        border-bottom: 1px solid var(--sd-outline-variant);
-        padding: 6px 8px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    .jobs-table th {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    .jobs-table td {
-        height: 40px;
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .jobs-table tbody tr:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .jobs-table__number {
-        text-align: right;
-    }
-
-    .jobs-id-link,
-    .jobs-handler,
-    .jobs-disposition,
-    .jobs-progress-text,
-    .jobs-timestamp__absolute {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
-
-    .jobs-id-link {
-        color: var(--sd-primary);
-        font-size: 13px;
-        line-height: 18px;
-        text-decoration-color: var(--sd-outline-variant);
-        text-underline-offset: 2px;
-    }
-
-    .jobs-id-link:hover {
-        text-decoration-color: var(--sd-primary);
-    }
-
-    .jobs-handler {
-        display: block;
-        max-width: 240px;
-        overflow: hidden;
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        text-overflow: ellipsis;
-    }
-
-    .jobs-state {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        padding: 2px 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    .jobs-state > span {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    .jobs-state--queued {
-        background: var(--sd-surface);
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-state--claimed {
-        border-color: var(--sd-secondary-container);
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .jobs-state--claimed > span {
-        background: var(--sd-primary);
-    }
-
-    .jobs-state--completed {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
-    }
-
-    .jobs-state--failed {
-        border-color: var(--sd-error-container);
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .jobs-state--failed > span {
-        background: var(--sd-error);
-    }
-
-    .jobs-state--canceled {
-        background: var(--sd-surface-high);
-        color: var(--sd-outline);
-    }
-
-    .jobs-disposition {
-        display: block;
-        max-width: 180px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .jobs-disposition--error {
-        color: var(--sd-error);
-    }
-
-    .jobs-disposition--muted {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .jobs-timestamp {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-    }
-
-    .jobs-timestamp__relative {
-        color: var(--sd-on-surface);
-    }
-
-    .jobs-timestamp__absolute,
-    .jobs-progress-text,
-    .jobs-empty-row,
-    .jobs-pagination {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-progress {
-        display: flex;
-        min-width: 104px;
-        flex-direction: column;
-        gap: 3px;
-    }
-
-    .jobs-progress__track {
-        width: 100%;
-        height: 6px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-    }
-
-    .jobs-progress__bar {
-        height: 100%;
-        border-radius: inherit;
-        background: var(--sd-primary);
-    }
-
-    .jobs-empty-row {
-        height: 96px;
-        text-align: center;
-    }
-
-    .jobs-pagination {
-        display: flex;
-        min-height: 56px;
-        align-items: center;
-        justify-content: center;
-        border-top: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-lowest);
-        padding: 12px 16px;
-    }
-
-    @@media (max-width: 1100px) {
+            }
+        </section>
+    </div>
+
+    <style>
         .jobs-page {
-            grid-template-columns: 1fr;
+            display: grid;
+            min-height: calc(100vh - var(--sd-topbar-height) - (var(--sd-page-margin) * 2));
+            grid-template-columns: 48px minmax(0, 1fr);
+            gap: var(--sd-gutter);
+            transition: grid-template-columns 180ms ease;
+        }
+
+        .jobs-page--filters-expanded {
+            grid-template-columns: 320px minmax(0, 1fr);
+        }
+
+        .jobs-query-panel,
+        .jobs-results,
+        .jobs-table-shell {
+            min-width: 0;
+        }
+
+        .jobs-query-panel {
+            display: flex;
         }
 
         button.jobs-filter-rail {
-            min-height: 48px;
-            justify-content: flex-start;
-            flex-direction: row;
-            padding: 0 12px;
+            display: flex;
+            width: 100%;
+            min-height: 0;
+            align-items: center;
+            flex-direction: column;
+            gap: 16px;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-lowest);
+            color: var(--sd-on-surface-variant);
+            cursor: pointer;
+            padding: 16px 0;
+            transition: background-color 150ms ease, color 150ms ease;
+        }
+
+        button.jobs-filter-rail:hover {
+            background: var(--sd-surface-low);
+            color: var(--sd-on-surface);
+        }
+
+        .jobs-filter-rail .material-symbols-outlined {
+            font-size: 20px;
         }
 
         .jobs-filter-rail__label {
-            writing-mode: horizontal-tb;
-            transform: none;
+            writing-mode: vertical-rl;
+            color: inherit;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+            transform: rotate(180deg);
         }
 
         .jobs-filter-rail__chevron {
-            margin-top: 0;
-            margin-left: auto;
+            margin-top: auto;
         }
 
         .jobs-query-form {
-            max-height: none;
-        }
-    }
-
-    @@media (max-width: 720px) {
-        .jobs-toolbar,
-        .jobs-toolbar__actions,
-        .jobs-time-grid {
-            align-items: stretch;
+            display: flex;
+            width: 100%;
+            min-height: 0;
             flex-direction: column;
+            gap: 0;
+            margin: 0;
+            overflow: hidden;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-lowest);
         }
 
-        .jobs-toolbar__actions {
+        .jobs-query-panel__header,
+        .jobs-query-panel__footer {
+            flex: 0 0 auto;
+            border-color: var(--sd-outline-variant);
+            background: var(--sd-surface-low);
+        }
+
+        .jobs-query-panel__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            border-bottom: 1px solid var(--sd-outline-variant);
+            padding: 8px 16px;
+        }
+
+        .jobs-query-panel__title {
+            display: flex;
+            min-width: 0;
+            align-items: center;
             gap: 8px;
         }
 
-        .jobs-time-grid {
-            display: flex;
+        button.jobs-filter-toggle-button {
+            display: inline-flex;
+            width: 24px;
+            height: 24px;
+            flex: 0 0 auto;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 2px;
+            background: transparent;
+            color: var(--sd-on-surface-variant);
+            padding: 0;
+            transition: background-color 150ms ease, color 150ms ease;
         }
-    }
-</style>
+
+        button.jobs-filter-toggle-button:hover {
+            background: var(--sd-surface-container);
+            color: var(--sd-primary);
+        }
+
+        button.jobs-filter-toggle-button .material-symbols-outlined {
+            font-size: 20px;
+        }
+
+        .jobs-query-panel__body {
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+            flex-direction: column;
+            gap: 16px;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .jobs-query-panel__footer {
+            border-top: 1px solid var(--sd-outline-variant);
+            padding: 16px;
+        }
+
+        .jobs-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .jobs-field>span,
+        .jobs-time-group__label {
+            color: var(--sd-on-surface-variant);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+        }
+
+        .jobs-input {
+            width: 100%;
+            height: 32px;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-lowest);
+            color: var(--sd-on-surface);
+            padding: 6px 8px;
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .jobs-input--mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .jobs-input::placeholder {
+            color: var(--sd-outline);
+            font-family: Inter, Arial, sans-serif;
+        }
+
+        .jobs-input:focus {
+            border-color: var(--sd-primary);
+            box-shadow: 0 0 0 1px var(--sd-primary);
+            outline: none;
+        }
+
+        .jobs-time-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 4px;
+            border-top: 1px solid var(--sd-outline-variant);
+            padding-top: 12px;
+        }
+
+        .jobs-time-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 8px;
+        }
+
+        button.jobs-clear-button,
+        button.jobs-toolbar-button,
+        button.jobs-load-more-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            min-height: 32px;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-lowest);
+            color: var(--sd-on-surface);
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+        }
+
+        button.jobs-clear-button {
+            min-height: auto;
+            border: 0;
+            background: transparent;
+            color: var(--sd-on-surface-variant);
+            padding: 0;
+        }
+
+        button.jobs-execute-button {
+            display: inline-flex;
+            width: 100%;
+            height: 32px;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+        }
+
+        button.jobs-execute-button .material-symbols-outlined {
+            font-size: 16px;
+        }
+
+        .jobs-page .jobs-toolbar__actions button.jobs-toolbar-button {
+            color: var(--sd-on-surface-variant);
+            white-space: nowrap;
+            border-color: var(--sd-outline-variant);
+            background: var(--sd-surface-lowest);
+        }
+
+        .jobs-page .jobs-toolbar__actions button.jobs-toolbar-button--active {
+            border-color: var(--sd-primary);
+            color: var(--sd-primary);
+        }
+
+        button.jobs-load-more-button {
+            min-width: 160px;
+        }
+
+        button.jobs-clear-button:hover,
+        button.jobs-toolbar-button:hover,
+        button.jobs-load-more-button:hover {
+            color: var(--sd-primary);
+        }
+
+        .jobs-page button:disabled {
+            cursor: progress;
+            opacity: 0.65;
+        }
+
+        .jobs-results {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .jobs-toolbar {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .jobs-toolbar p {
+            color: var(--sd-on-surface-variant);
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .jobs-toolbar__actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .jobs-message,
+        .jobs-inline-alert {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-lowest);
+            padding: 16px;
+        }
+
+        .jobs-message .material-symbols-outlined,
+        .jobs-inline-alert .material-symbols-outlined {
+            color: var(--sd-primary);
+        }
+
+        .jobs-message--error,
+        .jobs-inline-alert--error {
+            border-color: var(--sd-error);
+            background: var(--sd-error-container);
+            color: var(--sd-on-error-container);
+        }
+
+        .jobs-message--error .material-symbols-outlined,
+        .jobs-inline-alert--error .material-symbols-outlined {
+            color: var(--sd-error);
+        }
+
+        .jobs-message p,
+        .jobs-inline-alert {
+            color: var(--sd-on-surface-variant);
+        }
+
+        .jobs-inline-alert--error {
+            color: var(--sd-on-error-container);
+        }
+
+        .jobs-table-shell {
+            display: flex;
+            flex: 1 1 auto;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-lowest);
+        }
+
+        .jobs-table-wrap {
+            flex: 1 1 auto;
+            overflow: auto;
+        }
+
+        .jobs-table {
+            width: 100%;
+            min-width: 1320px;
+            border-collapse: collapse;
+            table-layout: fixed;
+            white-space: nowrap;
+        }
+
+        .jobs-table__col--job-id {
+            width: 168px;
+        }
+
+        .jobs-table__col--state {
+            width: 144px;
+        }
+
+        .jobs-table__col--disposition {
+            width: 152px;
+        }
+
+        .jobs-table__col--priority {
+            width: 64px;
+        }
+
+        .jobs-table__col--timestamp {
+            width: 172px;
+        }
+
+        .jobs-table__col--attempts {
+            width: 72px;
+        }
+
+        .jobs-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: var(--sd-surface-low);
+        }
+
+        .jobs-table th,
+        .jobs-table td {
+            border-bottom: 1px solid var(--sd-outline-variant);
+            padding: 6px 8px;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        .jobs-table th {
+            color: var(--sd-on-surface-variant);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+        }
+
+        .jobs-table td {
+            height: 40px;
+            color: var(--sd-on-surface);
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .jobs-table tbody tr:hover {
+            background: var(--sd-surface-low);
+        }
+
+        .jobs-table__number {
+            text-align: right;
+        }
+
+        .jobs-id-link,
+        .jobs-handler,
+        .jobs-disposition,
+        .jobs-progress-text,
+        .jobs-timestamp__absolute {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .jobs-id-link {
+            display: block;
+            overflow: hidden;
+            color: var(--sd-primary);
+            font-size: 13px;
+            line-height: 18px;
+            text-overflow: ellipsis;
+            text-decoration-color: var(--sd-outline-variant);
+            text-underline-offset: 2px;
+            white-space: nowrap;
+        }
+
+        .jobs-id-link:hover {
+            text-decoration-color: var(--sd-primary);
+        }
+
+        .jobs-handler {
+            display: block;
+            width: 100%;
+            overflow: hidden;
+            color: var(--sd-on-surface-variant);
+            font-size: 11px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .jobs-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+        }
+
+        .jobs-state>span {
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: var(--sd-outline);
+        }
+
+        .jobs-state--queued {
+            background: var(--sd-surface);
+            color: var(--sd-on-surface-variant);
+        }
+
+        .jobs-state--claimed {
+            border-color: var(--sd-secondary-container);
+            background: var(--sd-secondary-container);
+            color: var(--sd-on-secondary-container);
+        }
+
+        .jobs-state--claimed>span {
+            background: var(--sd-primary);
+        }
+
+        .jobs-state--completed {
+            background: var(--sd-surface-variant);
+            color: var(--sd-on-surface);
+        }
+
+        .jobs-state--failed {
+            border-color: var(--sd-error-container);
+            background: var(--sd-error-container);
+            color: var(--sd-on-error-container);
+        }
+
+        .jobs-state--failed>span {
+            background: var(--sd-error);
+        }
+
+        .jobs-state--canceled {
+            background: var(--sd-surface-high);
+            color: var(--sd-outline);
+        }
+
+        .jobs-disposition {
+            display: block;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .jobs-disposition--error {
+            color: var(--sd-error);
+        }
+
+        .jobs-disposition--muted {
+            color: var(--sd-on-surface-variant);
+        }
+
+        .jobs-timestamp {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .jobs-timestamp__relative {
+            color: var(--sd-on-surface);
+        }
+
+        .jobs-timestamp__absolute,
+        .jobs-progress-text,
+        .jobs-empty-row,
+        .jobs-pagination {
+            color: var(--sd-on-surface-variant);
+            font-size: 11px;
+            line-height: 16px;
+        }
+
+        .jobs-progress {
+            display: flex;
+            width: 100%;
+            min-width: 0;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .jobs-progress-text {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .jobs-progress__track {
+            width: 100%;
+            height: 6px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: var(--sd-surface-variant);
+        }
+
+        .jobs-progress__bar {
+            height: 100%;
+            border-radius: inherit;
+            background: var(--sd-primary);
+        }
+
+        .jobs-empty-row {
+            height: 96px;
+            text-align: center;
+        }
+
+        .jobs-pagination {
+            display: flex;
+            min-height: 56px;
+            align-items: center;
+            justify-content: center;
+            border-top: 1px solid var(--sd-outline-variant);
+            background: var(--sd-surface-lowest);
+            padding: 12px 16px;
+        }
+
+        @@media (max-width: 1100px) {
+            .jobs-page {
+                grid-template-columns: 1fr;
+            }
+
+            button.jobs-filter-rail {
+                min-height: 48px;
+                justify-content: flex-start;
+                flex-direction: row;
+                padding: 0 12px;
+            }
+
+            .jobs-filter-rail__label {
+                writing-mode: horizontal-tb;
+                transform: none;
+            }
+
+            .jobs-filter-rail__chevron {
+                margin-top: 0;
+                margin-left: auto;
+            }
+
+            .jobs-query-form {
+                max-height: none;
+            }
+        }
+
+        @@media (max-width: 720px) {
+
+            .jobs-toolbar,
+            .jobs-toolbar__actions,
+            .jobs-time-grid {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .jobs-toolbar__actions {
+                gap: 8px;
+            }
+
+            .jobs-time-grid {
+                display: flex;
+            }
+        }
+    </style>
 
 @code {
     private const int DefaultPageSize = 25;
@@ -1250,7 +1315,7 @@
       => count.ToString("N0", CultureInfo.InvariantCulture);
 
     private static string FormatFullHandler(DashboardJobSummary job)
-      => string.Concat(job.ServiceType, ".", job.MethodName);
+      => $"{job.MethodName} - {job.ServiceType}";
 
     private static string FormatAttempts(DashboardJobSummary job)
       => string.Create(CultureInfo.InvariantCulture, $"{job.AttemptCount}/{job.MaxAttempts}");
