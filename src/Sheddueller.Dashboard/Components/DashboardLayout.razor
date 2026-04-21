@@ -389,47 +389,44 @@
         padding: var(--sd-page-margin);
     }
 
-    .sd-main h1,
-    .sd-main h2,
-    .sd-main h3 {
+    :where(.sd-main h1, .sd-main h2, .sd-main h3) {
         margin: 0;
         font-family: "Space Grotesk", Inter, Arial, sans-serif;
         font-weight: 600;
     }
 
-    .sd-main h1 {
+    :where(.sd-main h1) {
         font-size: 24px;
         line-height: 32px;
     }
 
-    .sd-main h2 {
+    :where(.sd-main h2) {
         font-size: 18px;
         line-height: 24px;
     }
 
-    .sd-main h3 {
+    :where(.sd-main h3) {
         font-size: 16px;
         line-height: 22px;
     }
 
-    .sd-main p {
+    :where(.sd-main p) {
         margin: 0;
     }
 
-    .sd-main table {
+    :where(.sd-main table) {
         width: 100%;
         border-collapse: collapse;
     }
 
-    .sd-main th,
-    .sd-main td {
+    :where(.sd-main th, .sd-main td) {
         border-bottom: 1px solid var(--sd-surface-variant);
         padding: 8px 16px;
         text-align: left;
         vertical-align: top;
     }
 
-    .sd-main th {
+    :where(.sd-main th) {
         color: var(--sd-on-surface-variant);
         font-size: 11px;
         font-weight: 700;
@@ -439,14 +436,14 @@
         white-space: nowrap;
     }
 
-    .sd-main form {
+    :where(.sd-main form) {
         display: grid;
         gap: 12px;
         grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
         margin-bottom: 16px;
     }
 
-    .sd-main label {
+    :where(.sd-main label) {
         display: grid;
         gap: 4px;
         color: var(--sd-on-surface-variant);
@@ -454,8 +451,7 @@
         line-height: 16px;
     }
 
-    .sd-main input:not([type="search"]),
-    .sd-main select {
+    :where(.sd-main input:not([type="search"]), .sd-main select) {
         width: 100%;
         border: 1px solid var(--sd-outline-variant);
         border-radius: var(--sd-radius);
@@ -464,7 +460,7 @@
         padding: 7px 10px;
     }
 
-    .sd-main button:not(.sd-icon-button) {
+    :where(.sd-main button:not(.sd-icon-button)) {
         border: 1px solid var(--sd-primary);
         border-radius: var(--sd-radius);
         background: var(--sd-primary);
