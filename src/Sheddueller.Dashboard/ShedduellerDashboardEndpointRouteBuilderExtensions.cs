@@ -19,6 +19,22 @@ using Sheddueller.Dashboard.Internal;
 public static class ShedduellerDashboardEndpointRouteBuilderExtensions
 {
     /// <summary>
+    /// Maps the dashboard UI and live update hub under the supplied path using minimal hosting.
+    /// </summary>
+    /// <param name="app">The web application to map the dashboard branch on.</param>
+    /// <param name="path">The absolute route path for the dashboard root.</param>
+    /// <returns>The same web application for chained registration.</returns>
+    public static WebApplication MapShedduellerDashboard(
+        this WebApplication app,
+        string path = "/sheddueller")
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        ((IApplicationBuilder)app).MapShedduellerDashboard(path);
+        return app;
+    }
+
+    /// <summary>
     /// Maps the dashboard UI and live update hub under the supplied path using an application branch.
     /// </summary>
     /// <param name="app">The application builder to map the dashboard branch on.</param>

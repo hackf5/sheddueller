@@ -10,6 +10,8 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public NpgsqlDataSource DataSource { get; private set; } = null!;
 
+    public string ConnectionString { get; private set; } = string.Empty;
+
     public async ValueTask InitializeAsync()
     {
         var image = Environment.GetEnvironmentVariable("SHEDDUELLER_POSTGRES_IMAGE");
@@ -25,7 +27,8 @@ public sealed class PostgresFixture : IAsyncLifetime
           .Build();
 
         await this._container.StartAsync();
-        this.DataSource = NpgsqlDataSource.Create(this._container.GetConnectionString());
+        this.ConnectionString = this._container.GetConnectionString();
+        this.DataSource = NpgsqlDataSource.Create(this.ConnectionString);
     }
 
     public async ValueTask DisposeAsync()

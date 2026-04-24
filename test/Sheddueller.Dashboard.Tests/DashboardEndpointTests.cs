@@ -23,9 +23,21 @@ using Shouldly;
 public sealed class DashboardEndpointTests
 {
     [Fact]
-    public async Task MapShedduellerDashboard_ApplicationBranch_RedirectsToCanonicalRoot()
+    public async Task MapShedduellerDashboard_MinimalHosting_RedirectsToCanonicalRoot()
     {
         await using var app = await CreateStartedDashboardAsync();
+        var client = app.GetTestClient();
+
+        var response = await client.GetAsync(new Uri("/sheddueller", UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.Location?.OriginalString.ShouldBe("/sheddueller/");
+    }
+
+    [Fact]
+    public async Task MapShedduellerDashboard_ApplicationBranch_RedirectsToCanonicalRoot()
+    {
+        await using var app = await CreateStartedDashboardAsync(mapWithWebApplication: false);
         var client = app.GetTestClient();
 
         var response = await client.GetAsync(new Uri("/sheddueller", UriKind.Relative));
@@ -362,7 +374,9 @@ public sealed class DashboardEndpointTests
           disabled: true);
     }
 
-    private static async Task<WebApplication> CreateStartedDashboardAsync(bool prerender = true)
+    private static async Task<WebApplication> CreateStartedDashboardAsync(
+        bool prerender = true,
+        bool mapWithWebApplication = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -377,7 +391,15 @@ public sealed class DashboardEndpointTests
         builder.Services.AddShedduellerDashboard(options => options.Prerender = prerender);
 
         var app = builder.Build();
-        ((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+        if (mapWithWebApplication)
+        {
+            app.MapShedduellerDashboard("/sheddueller");
+        }
+        else
+        {
+            ((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+        }
+
         await app.StartAsync();
 
         return app;

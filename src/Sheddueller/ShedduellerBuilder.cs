@@ -35,6 +35,20 @@ public sealed class ShedduellerBuilder
     }
 
     /// <summary>
+    /// Configures Sheddueller runtime options with access to the final service provider.
+    /// </summary>
+    /// <param name="configure">The options callback to apply through the host options system.</param>
+    /// <returns>The same builder for chained configuration.</returns>
+    public ShedduellerBuilder ConfigureOptions(Action<IServiceProvider, ShedduellerOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        this.Services.AddOptions<ShedduellerOptions>()
+          .Configure<IServiceProvider>((options, serviceProvider) => configure(serviceProvider, options));
+        return this;
+    }
+
+    /// <summary>
     /// Replaces the job payload serializer with a singleton implementation type.
     /// </summary>
     /// <typeparam name="TSerializer">The serializer implementation type.</typeparam>

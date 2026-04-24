@@ -1,5 +1,3 @@
-using Npgsql;
-
 using Sheddueller;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Postgres;
@@ -9,21 +7,22 @@ using Sheddueller.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("Sheddueller")
-    ?? throw new InvalidOperationException("Connection string 'ConnectionStrings:Sheddueller' is required.");
-var schemaName = builder.Configuration["Sheddueller:Postgres:SchemaName"] ?? "sheddueller";
-await using var dataSource = NpgsqlDataSource.Create(connectionString);
-
-builder.Services.AddSingleton(dataSource);
 builder.Services.AddSingleton<DemoJobState>();
 builder.Services.AddTransient<DemoJobService>();
 
 builder.Services.AddShedduellerWorker(sheddueller => sheddueller
-  .UsePostgres(options =>
-  {
-      options.DataSource = dataSource;
-      options.SchemaName = schemaName;
-  })
+  .UsePostgres(
+    serviceProvider =>
+    {
+        var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+        return configuration.GetConnectionString("Sheddueller")
+          ?? throw new InvalidOperationException("Connection string 'ConnectionStrings:Sheddueller' is required.");
+    },
+    (serviceProvider, options) =>
+    {
+        var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+        options.SchemaName = configuration["Sheddueller:Postgres:SchemaName"] ?? "sheddueller";
+    })
   .ConfigureOptions(options =>
   {
       options.NodeId = "sample-host";
@@ -37,7 +36,7 @@ builder.Services.AddShedduellerDashboard(options => options.EventRetention = Tim
 
 var app = builder.Build();
 
-await app.Services.GetRequiredService<IPostgresMigrator>().ApplyAsync();
+await app.ApplyShedduellerPostgresMigrationsAsync();
 
 app.UseAntiforgery();
 
@@ -170,7 +169,7 @@ app.MapPost("/launch/cancelable", async (IJobEnqueuer enqueuer, CancellationToke
     return RedirectWithMessage($"Queued cancelable delayed job {jobId:D} for {notBeforeUtc:O}.");
 });
 
-((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+app.MapShedduellerDashboard("/sheddueller");
 
 await app.RunAsync();
 

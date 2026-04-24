@@ -2,6 +2,7 @@ namespace Sheddueller.Tests;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 using Sheddueller.Runtime;
 using Sheddueller.Serialization;
@@ -55,6 +56,20 @@ public sealed class RegistrationTests
         provider.GetServices<IHostedService>().ShouldBeEmpty();
     }
 
+    [Fact]
+    public void AddSheddueller_ServiceProviderAwareOptions_CanReadRegisteredServices()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(new NodeConfiguration("node-from-di"));
+        services.AddSheddueller(builder => builder.ConfigureOptions((serviceProvider, options) =>
+        {
+            options.NodeId = serviceProvider.GetRequiredService<NodeConfiguration>().NodeId;
+        }));
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IOptions<ShedduellerOptions>>().Value.NodeId.ShouldBe("node-from-di");
+    }
+
     private sealed class PassThroughSerializer : IJobPayloadSerializer
     {
         public ValueTask<SerializedJobPayload> SerializeAsync(
@@ -73,4 +88,6 @@ public sealed class RegistrationTests
             return ValueTask.FromResult<IReadOnlyList<object?>>(Array.Empty<object?>());
         }
     }
+
+    private sealed record NodeConfiguration(string NodeId);
 }
