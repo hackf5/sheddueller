@@ -35,6 +35,17 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public async Task MapShedduellerDashboard_DefaultOptions_DoesNotPrerenderRouteContent()
+    {
+        await using var app = await CreateStartedDashboardAsync(prerender: false);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/");
+
+        html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        html.ShouldContain("_framework/blazor.web.js");
+        html.ShouldNotContain("Operational Control");
+    }
+
+    [Fact]
     public async Task Overview_KnownData_RendersOperationalSummary()
     {
         await using var app = await CreateStartedDashboardAsync();
@@ -351,7 +362,7 @@ public sealed class DashboardEndpointTests
           disabled: true);
     }
 
-    private static async Task<WebApplication> CreateStartedDashboardAsync()
+    private static async Task<WebApplication> CreateStartedDashboardAsync(bool prerender = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -363,7 +374,7 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
         builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
-        builder.Services.AddShedduellerDashboard();
+        builder.Services.AddShedduellerDashboard(options => options.Prerender = prerender);
 
         var app = builder.Build();
         ((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
