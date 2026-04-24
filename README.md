@@ -4,7 +4,7 @@
 
 **Sheddueller** - someone who duels with sheds. Think _The Big Lebowski_, but with a PC instead of a White Russian, sword-fighting a small and meaner version of _Howl's Moving Castle_.
 
-![Sheddueller hero](assets/hero.png)
+![Sheddueller hero](https://raw.githubusercontent.com/hackf5/sheddueller/38186df123ce54ce1e3d476c866087a7b7333278/assets/hero.png)
 
 ## Motivation
 
@@ -26,13 +26,24 @@ This package has not yet been stress tested or battle hardened, so use with caut
 
 ## Packages
 
-| Package                 | Use it for                                                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------------- |
-| `Sheddueller`           | Core enqueueing, schedule management, runtime options, and abstractions.                     |
-| `Sheddueller.Postgres`  | PostgreSQL-backed storage, wake signals, inspection readers, and schema migrations.          |
-| `Sheddueller.Worker`    | Hosted worker execution loop for nodes that should claim and run jobs.                       |
-| `Sheddueller.Dashboard` | Embedded ASP.NET Core dashboard for jobs, schedules, nodes, metrics, and concurrency groups. |
-| `Sheddueller.Testing`   | Test fakes and capture helpers.                                                              |
+| Package                 | NuGet                                                  | Use it for                                                                                   |
+| ----------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `Sheddueller`           | [![NuGet][nuget-sheddueller-badge]][nuget-sheddueller] | Core enqueueing, schedule management, runtime options, and abstractions.                     |
+| `Sheddueller.Postgres`  | [![NuGet][nuget-postgres-badge]][nuget-postgres]       | PostgreSQL-backed storage, wake signals, inspection readers, and schema migrations.          |
+| `Sheddueller.Worker`    | [![NuGet][nuget-worker-badge]][nuget-worker]           | Hosted worker execution loop for nodes that should claim and run jobs.                       |
+| `Sheddueller.Dashboard` | [![NuGet][nuget-dashboard-badge]][nuget-dashboard]     | Embedded ASP.NET Core dashboard for jobs, schedules, nodes, metrics, and concurrency groups. |
+| `Sheddueller.Testing`   | [![NuGet][nuget-testing-badge]][nuget-testing]         | Test fakes and capture helpers.                                                              |
+
+[nuget-sheddueller-badge]: https://img.shields.io/nuget/vpre/Sheddueller
+[nuget-sheddueller]: https://www.nuget.org/packages/Sheddueller/
+[nuget-postgres-badge]: https://img.shields.io/nuget/vpre/Sheddueller.Postgres
+[nuget-postgres]: https://www.nuget.org/packages/Sheddueller.Postgres/
+[nuget-worker-badge]: https://img.shields.io/nuget/vpre/Sheddueller.Worker
+[nuget-worker]: https://www.nuget.org/packages/Sheddueller.Worker/
+[nuget-dashboard-badge]: https://img.shields.io/nuget/vpre/Sheddueller.Dashboard
+[nuget-dashboard]: https://www.nuget.org/packages/Sheddueller.Dashboard/
+[nuget-testing-badge]: https://img.shields.io/nuget/vpre/Sheddueller.Testing
+[nuget-testing]: https://www.nuget.org/packages/Sheddueller.Testing/
 
 ## Install
 
