@@ -61,6 +61,32 @@ internal static class SubmissionValidator
         return normalized;
     }
 
+    public static void ValidateIdempotency(JobSubmission? submission)
+    {
+        if (submission is null)
+        {
+            return;
+        }
+
+        if (!Enum.IsDefined(submission.IdempotencyKind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(submission), submission.IdempotencyKind, "Job idempotency kind is not supported.");
+        }
+
+        if (submission.IdempotencyKind != JobIdempotencyKind.None && submission.NotBeforeUtc is not null)
+        {
+            throw new ArgumentException("Idempotent jobs cannot be delayed with NotBeforeUtc.", nameof(submission));
+        }
+    }
+
+    public static void ValidateIdempotencyKey(string? idempotencyKey)
+    {
+        if (idempotencyKey is not null && idempotencyKey.Length == 0)
+        {
+            throw new ArgumentException("Idempotency keys must be non-empty strings.", nameof(idempotencyKey));
+        }
+    }
+
     public static void ValidateConcurrencyGroupKey(string? groupKey)
     {
         if (string.IsNullOrEmpty(groupKey))

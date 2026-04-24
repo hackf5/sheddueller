@@ -1,4 +1,4 @@
-// spell-checker: ignore xact hashtext timestamptz bytea nonterminal jsonb
+// spell-checker: ignore xact hashtext timestamptz bytea nonterminal jsonb trgm
 
 namespace Sheddueller.Postgres.Internal;
 
@@ -56,6 +56,8 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               $"PostgreSQL schema '{this._options.SchemaName}' version {currentVersion} is newer than provider version {PostgresNames.ExpectedSchemaVersion}.");
         }
 
+        await ExecuteAsync(connection, transaction, "create extension if not exists pg_trgm;", cancellationToken).ConfigureAwait(false);
+
         await ExecuteAsync(
           connection,
           transaction,
@@ -69,7 +71,12 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               not_before_utc timestamptz null,
               service_type text not null,
               method_name text not null,
+              handler_search_text text generated always as (
+                  service_type || E'\n' || method_name || E'\n' || split_part(service_type, ',', 1) || '.' || method_name
+              ) stored,
               method_parameter_types text[] not null,
+              invocation_target_kind text not null default 'Instance',
+              method_parameter_bindings text[] null,
               serialized_arguments_content_type text not null,
               serialized_arguments bytea not null,
               attempt_count integer not null,
@@ -93,11 +100,15 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               retry_clone_source_job_id uuid null,
               cancellation_requested_at_utc timestamptz null,
               cancellation_observed_at_utc timestamptz null,
-              dashboard_event_sequence bigint not null default 0,
+              schedule_occurrence_kind text null,
+              idempotency_key text null,
+              job_event_sequence bigint not null default 0,
               constraint jobs_state_check check (state in ('Queued', 'Claimed', 'Completed', 'Failed', 'Canceled')),
+              constraint jobs_invocation_target_kind_check check (invocation_target_kind in ('Instance', 'Static')),
               constraint jobs_attempt_count_check check (attempt_count >= 0),
               constraint jobs_max_attempts_check check (max_attempts >= 1),
-              constraint jobs_retry_backoff_kind_check check (retry_backoff_kind is null or retry_backoff_kind in ('Fixed', 'Exponential'))
+              constraint jobs_retry_backoff_kind_check check (retry_backoff_kind is null or retry_backoff_kind in ('Fixed', 'Exponential')),
+              constraint jobs_schedule_occurrence_kind_check check (schedule_occurrence_kind is null or schedule_occurrence_kind in ('Automatic', 'ManualTrigger'))
           );
 
           create table if not exists {this._names.JobConcurrencyGroups} (
@@ -107,7 +118,23 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           );
 
           alter table {this._names.Jobs}
-              add column if not exists dashboard_event_sequence bigint not null default 0;
+              add column if not exists job_event_sequence bigint not null default 0,
+              add column if not exists retry_clone_source_job_id uuid null,
+              add column if not exists cancellation_requested_at_utc timestamptz null,
+              add column if not exists cancellation_observed_at_utc timestamptz null,
+              add column if not exists schedule_occurrence_kind text null,
+              add column if not exists invocation_target_kind text not null default 'Instance',
+              add column if not exists method_parameter_bindings text[] null,
+              add column if not exists idempotency_key text null,
+              add column if not exists handler_search_text text generated always as (
+                  service_type || E'\n' || method_name || E'\n' || split_part(service_type, ',', 1) || '.' || method_name
+              ) stored;
+
+          alter table {this._names.Jobs}
+              drop constraint if exists jobs_invocation_target_kind_check,
+              add constraint jobs_invocation_target_kind_check check (invocation_target_kind in ('Instance', 'Static')),
+              drop constraint if exists jobs_schedule_occurrence_kind_check,
+              add constraint jobs_schedule_occurrence_kind_check check (schedule_occurrence_kind is null or schedule_occurrence_kind in ('Automatic', 'ManualTrigger'));
 
           create table if not exists {this._names.JobTags} (
               job_id uuid not null references {this._names.Jobs}(job_id) on delete cascade,
@@ -136,6 +163,8 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               service_type text not null,
               method_name text not null,
               method_parameter_types text[] not null,
+              invocation_target_kind text not null default 'Instance',
+              method_parameter_bindings text[] null,
               serialized_arguments_content_type text not null,
               serialized_arguments bytea not null,
               retry_policy_configured boolean not null,
@@ -147,9 +176,18 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               created_at_utc timestamptz not null,
               updated_at_utc timestamptz not null,
               constraint recurring_schedules_overlap_mode_check check (overlap_mode in ('Skip', 'Allow')),
+              constraint recurring_schedules_invocation_target_kind_check check (invocation_target_kind in ('Instance', 'Static')),
               constraint recurring_schedules_max_attempts_check check (max_attempts >= 1),
               constraint recurring_schedules_retry_backoff_kind_check check (retry_backoff_kind is null or retry_backoff_kind in ('Fixed', 'Exponential'))
           );
+
+          alter table {this._names.RecurringSchedules}
+              add column if not exists invocation_target_kind text not null default 'Instance',
+              add column if not exists method_parameter_bindings text[] null;
+
+          alter table {this._names.RecurringSchedules}
+              drop constraint if exists recurring_schedules_invocation_target_kind_check,
+              add constraint recurring_schedules_invocation_target_kind_check check (invocation_target_kind in ('Instance', 'Static'));
 
           create table if not exists {this._names.ScheduleConcurrencyGroups} (
               schedule_key text not null references {this._names.RecurringSchedules}(schedule_key) on delete cascade,
@@ -157,7 +195,16 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               primary key (schedule_key, group_key)
           );
 
-          create table if not exists {this._names.DashboardEvents} (
+          create table if not exists {this._names.ScheduleTags} (
+              schedule_key text not null references {this._names.RecurringSchedules}(schedule_key) on delete cascade,
+              name text not null,
+              value text not null,
+              primary key (schedule_key, name, value),
+              constraint schedule_tags_name_check check (length(name) > 0),
+              constraint schedule_tags_value_check check (length(value) > 0)
+          );
+
+          create table if not exists {this._names.JobEvents} (
               job_id uuid not null references {this._names.Jobs}(job_id) on delete cascade,
               event_sequence bigint not null,
               event_id uuid not null unique,
@@ -169,10 +216,24 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               progress_percent double precision null,
               fields jsonb null,
               primary key (job_id, event_sequence),
-              constraint dashboard_events_kind_check check (kind in ('Lifecycle', 'AttemptStarted', 'AttemptCompleted', 'AttemptFailed', 'Log', 'Progress')),
-              constraint dashboard_events_attempt_number_check check (attempt_number >= 0),
-              constraint dashboard_events_log_level_check check (log_level is null or log_level in ('Trace', 'Debug', 'Information', 'Warning', 'Error', 'Critical')),
-              constraint dashboard_events_progress_percent_check check (progress_percent is null or (progress_percent >= 0 and progress_percent <= 100))
+              constraint job_events_kind_check check (kind in ('Lifecycle', 'AttemptStarted', 'AttemptCompleted', 'AttemptFailed', 'Log', 'Progress', 'CancelRequested', 'CancelObserved')),
+              constraint job_events_attempt_number_check check (attempt_number >= 0),
+              constraint job_events_log_level_check check (log_level is null or log_level in ('Trace', 'Debug', 'Information', 'Warning', 'Error', 'Critical')),
+              constraint job_events_progress_percent_check check (progress_percent is null or (progress_percent >= 0 and progress_percent <= 100))
+          );
+
+          alter table {this._names.JobEvents}
+              drop constraint if exists job_events_kind_check,
+              add constraint job_events_kind_check check (kind in ('Lifecycle', 'AttemptStarted', 'AttemptCompleted', 'AttemptFailed', 'Log', 'Progress', 'CancelRequested', 'CancelObserved'));
+
+          create table if not exists {this._names.WorkerNodes} (
+              node_id text primary key,
+              first_seen_at_utc timestamptz not null,
+              last_heartbeat_at_utc timestamptz not null,
+              max_concurrent_executions_per_node integer not null,
+              current_execution_count integer not null,
+              constraint worker_nodes_max_concurrency_check check (max_concurrent_executions_per_node > 0),
+              constraint worker_nodes_current_execution_count_check check (current_execution_count >= 0)
           );
 
           create index if not exists idx_jobs_claim_scan
@@ -191,28 +252,35 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               on {this._names.Jobs} (source_schedule_key)
               where state in ('Queued', 'Claimed');
 
-          create index if not exists idx_jobs_dashboard_newest
+          create unique index if not exists idx_jobs_queued_idempotency_key
+              on {this._names.Jobs} (idempotency_key)
+              where state = 'Queued' and idempotency_key is not null;
+
+          create index if not exists idx_jobs_inspection_newest
               on {this._names.Jobs} (enqueue_sequence desc);
 
-          create index if not exists idx_jobs_dashboard_state_newest
+          create index if not exists idx_jobs_inspection_state_newest
               on {this._names.Jobs} (state, enqueue_sequence desc);
 
-          create index if not exists idx_jobs_dashboard_service_method
+          create index if not exists idx_jobs_inspection_service_method
               on {this._names.Jobs} (service_type, method_name, enqueue_sequence desc);
 
-          create index if not exists idx_jobs_dashboard_source_schedule
+          create index if not exists idx_jobs_inspection_handler_search_trgm
+              on {this._names.Jobs} using gin (handler_search_text gin_trgm_ops);
+
+          create index if not exists idx_jobs_inspection_source_schedule
               on {this._names.Jobs} (source_schedule_key, enqueue_sequence desc)
               where source_schedule_key is not null;
 
-          create index if not exists idx_jobs_dashboard_completed
+          create index if not exists idx_jobs_inspection_completed
               on {this._names.Jobs} (completed_at_utc desc)
               where completed_at_utc is not null;
 
-          create index if not exists idx_jobs_dashboard_failed
+          create index if not exists idx_jobs_inspection_failed
               on {this._names.Jobs} (failed_at_utc desc)
               where failed_at_utc is not null;
 
-          create index if not exists idx_jobs_dashboard_canceled
+          create index if not exists idx_jobs_inspection_canceled
               on {this._names.Jobs} (canceled_at_utc desc)
               where canceled_at_utc is not null;
 
@@ -222,11 +290,14 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create index if not exists idx_job_tags_name_value_job_id
               on {this._names.JobTags} (name, value, job_id);
 
-          create index if not exists idx_dashboard_events_job_sequence
-              on {this._names.DashboardEvents} (job_id, event_sequence);
+          create index if not exists idx_schedule_tags_name_value_schedule_key
+              on {this._names.ScheduleTags} (name, value, schedule_key);
 
-          create index if not exists idx_dashboard_events_progress
-              on {this._names.DashboardEvents} (job_id, event_sequence desc)
+          create index if not exists idx_job_events_job_sequence
+              on {this._names.JobEvents} (job_id, event_sequence);
+
+          create index if not exists idx_job_events_progress
+              on {this._names.JobEvents} (job_id, event_sequence desc)
               where kind = 'Progress';
 
           create index if not exists idx_recurring_schedules_due
@@ -235,6 +306,9 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
 
           create index if not exists idx_schedule_concurrency_groups_group_key
               on {this._names.ScheduleConcurrencyGroups} (group_key);
+
+          create index if not exists idx_worker_nodes_last_heartbeat
+              on {this._names.WorkerNodes} (last_heartbeat_at_utc);
           """,
           cancellationToken)
           .ConfigureAwait(false);

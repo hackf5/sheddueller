@@ -1,6 +1,6 @@
 # Sheddueller Sample Host
 
-This sample hosts the embedded Sheddueller dashboard and a small launcher UI for generating representative scheduler states on demand.
+This sample hosts the embedded Sheddueller dashboard, a worker node, and a small launcher UI for creating representative jobs and schedules on demand.
 
 ## Prerequisites
 
@@ -42,7 +42,7 @@ Open:
 - launcher: `http://localhost:5000/`
 - dashboard: `http://localhost:5000/sheddueller`
 
-The sample applies PostgreSQL schema migrations automatically on startup.
+The sample applies PostgreSQL schema migrations automatically on startup and registers `AddShedduellerWorker(...)` so demo jobs execute in the same process. Use the launcher to create demo data, then use the dashboard to inspect jobs, view schedules, and request cancellation.
 
 ## Launcher Scenarios
 
@@ -52,8 +52,9 @@ The sample applies PostgreSQL schema migrations automatically on startup.
 - `Permanent failure`: terminal failure without retries
 - `Delayed job`: waits 30 seconds before becoming claimable
 - `Concurrency batch`: sets a shared limit of 1 and queues several long-running jobs
+- `Idempotent reprice`: queues a 10-second reprice job with generated idempotency behind a group limit of 1; click twice quickly to see the same queued job reused
 - `Recurring demo`: creates or updates a recurring schedule that fires each minute
-- `Cancelable delayed job`: creates a queued delayed job that can be canceled from the launcher
+- `Cancelable delayed job`: creates a queued delayed job that can be canceled from the dashboard job detail page
 
 ## Configuration
 

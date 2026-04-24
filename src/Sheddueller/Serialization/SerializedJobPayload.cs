@@ -8,6 +8,8 @@ public sealed record SerializedJobPayload
     /// <summary>
     /// Initializes a new instance of the <see cref="SerializedJobPayload"/> class.
     /// </summary>
+    /// <param name="contentType">The serializer-owned content type.</param>
+    /// <param name="data">The serializer-owned payload bytes.</param>
     public SerializedJobPayload(string contentType, byte[] data)
     {
         this.ContentType = contentType;

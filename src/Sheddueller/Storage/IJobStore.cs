@@ -13,6 +13,13 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Atomically enqueues new jobs and assigns their enqueue sequences.
+    /// </summary>
+    ValueTask<IReadOnlyList<EnqueueJobResult>> EnqueueManyAsync(
+        IReadOnlyList<EnqueueJobRequest> requests,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Claims the next globally eligible job, if one is available.
     /// </summary>
     ValueTask<ClaimJobResult> TryClaimNextAsync(
@@ -55,10 +62,31 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Cancels a queued job.
+    /// Requests cancellation for a job.
     /// </summary>
-    ValueTask<bool> CancelAsync(
+    ValueTask<JobCancellationResult> CancelAsync(
         CancelJobRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the cooperative cancellation request timestamp for a currently claimed job.
+    /// </summary>
+    ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
+        JobCancellationStatusRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks a claimed job as canceled after the handler observes cooperative cancellation.
+    /// </summary>
+    ValueTask<bool> MarkCancellationObservedAsync(
+        ObserveJobCancellationRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records scheduler worker node liveness.
+    /// </summary>
+    ValueTask RecordWorkerNodeHeartbeatAsync(
+        WorkerNodeHeartbeatRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>

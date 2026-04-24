@@ -1,0 +1,107 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  publish:
+    name: Build and publish packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Validate tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z-]*(\.[0-9A-Za-z][0-9A-Za-z-]*)*)?$'
+
+          if [[ "${GITHUB_REF_TYPE}" != "tag" || ! "${tag}" =~ ${version_pattern} ]]; then
+            echo "::error::Release tags must look like v0.0.1 or v0.0.1-preview1."
+            exit 1
+          fi
+
+          echo "version=${tag#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore
+        run: dotnet restore Sheddueller.slnx
+
+      - name: Verify format
+        run: dotnet format Sheddueller.slnx --verify-no-changes --verbosity minimal
+
+      - name: Build
+        run: dotnet build Sheddueller.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --solution Sheddueller.slnx --configuration Release --no-build
+
+      - name: Pack
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf artifacts/packages
+          mkdir -p artifacts/packages
+
+          projects=(
+            "src/Sheddueller/Sheddueller.csproj"
+            "src/Sheddueller.Worker/Sheddueller.Worker.csproj"
+            "src/Sheddueller.Postgres/Sheddueller.Postgres.csproj"
+            "src/Sheddueller.Testing/Sheddueller.Testing.csproj"
+            "src/Sheddueller.Dashboard/Sheddueller.Dashboard.csproj"
+          )
+
+          for project in "${projects[@]}"; do
+            dotnet pack "${project}" \
+              --configuration Release \
+              --no-build \
+              --output artifacts/packages \
+              -p:Version="${{ steps.version.outputs.version }}" \
+              -p:PackageVersion="${{ steps.version.outputs.version }}" \
+              -p:ContinuousIntegrationBuild=true
+          done
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for package in artifacts/packages/*.nupkg; do
+            dotnet nuget push "${package}" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+      - name: Upload package artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+          if-no-files-found: ignore

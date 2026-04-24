@@ -10,6 +10,7 @@ internal sealed record PostgresClaimedJob(
     RetryBackoffKind? RetryBackoffKind,
     TimeSpan? RetryBaseDelay,
     TimeSpan? RetryMaxDelay,
+    string? IdempotencyKey,
     IReadOnlyList<string> GroupKeys);
 
 internal sealed record PostgresRetryPolicy(
@@ -28,8 +29,11 @@ internal sealed record PostgresScheduleDefinition(
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
+    JobInvocationTargetKind InvocationTargetKind,
+    IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings,
     SerializedJobPayload SerializedArguments,
     IReadOnlyList<string> ConcurrencyGroupKeys,
+    IReadOnlyList<JobTag> Tags,
     RetryPolicy? RetryPolicy,
     DateTimeOffset? NextFireAtUtc)
 {
@@ -40,8 +44,23 @@ internal sealed record PostgresScheduleDefinition(
         && string.Equals(this.ServiceType, request.ServiceType, StringComparison.Ordinal)
         && string.Equals(this.MethodName, request.MethodName, StringComparison.Ordinal)
         && this.MethodParameterTypes.SequenceEqual(request.MethodParameterTypes, StringComparer.Ordinal)
+        && this.InvocationTargetKind == request.InvocationTargetKind
+        && ParameterBindingsEqual(this.MethodParameterBindings, request.MethodParameterBindings)
         && string.Equals(this.SerializedArguments.ContentType, request.SerializedArguments.ContentType, StringComparison.Ordinal)
         && this.SerializedArguments.Data.SequenceEqual(request.SerializedArguments.Data)
         && this.ConcurrencyGroupKeys.SequenceEqual(request.ConcurrencyGroupKeys, StringComparer.Ordinal)
+        && this.Tags.SequenceEqual(request.Tags ?? [])
         && this.RetryPolicy == request.RetryPolicy;
+
+    private static bool ParameterBindingsEqual(
+        IReadOnlyList<JobMethodParameterBinding>? left,
+        IReadOnlyList<JobMethodParameterBinding>? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return left.SequenceEqual(right);
+    }
 }

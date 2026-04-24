@@ -2,16 +2,16 @@ namespace Sheddueller.Postgres.Internal;
 
 using System.Globalization;
 
-using Microsoft.Extensions.Hosting;
-
 using Npgsql;
 
-internal sealed class PostgresStartupValidator(ShedduellerPostgresOptions options) : IHostedService
+using Sheddueller.Runtime;
+
+internal sealed class PostgresStartupValidator(ShedduellerPostgresOptions options) : IShedduellerStartupValidator
 {
     private readonly ShedduellerPostgresOptions _options = options;
     private readonly PostgresNames _names = new(options.SchemaName);
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public async ValueTask ValidateAsync(CancellationToken cancellationToken)
     {
         PostgresOptionsValidator.Validate(this._options);
 
@@ -29,9 +29,6 @@ internal sealed class PostgresStartupValidator(ShedduellerPostgresOptions option
               $"PostgreSQL schema '{this._options.SchemaName}' version {version?.ToString(CultureInfo.InvariantCulture) ?? "<missing>"} does not match provider version {PostgresNames.ExpectedSchemaVersion}.");
         }
     }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-      => Task.CompletedTask;
 
     private async ValueTask<bool> SchemaExistsAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {

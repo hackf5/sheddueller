@@ -1,7 +1,12 @@
 namespace Sheddueller.Enqueueing;
 
+using Sheddueller.Storage;
+
 internal sealed record ParsedJob(
+  Type ServiceType,
   string MethodName,
   IReadOnlyList<string> MethodParameterTypeNames,
   IReadOnlyList<object?> SerializableArguments,
-  IReadOnlyList<Type> SerializableParameterTypes);
+  IReadOnlyList<Type> SerializableParameterTypes,
+  JobInvocationTargetKind InvocationTargetKind,
+  IReadOnlyList<JobMethodParameterBinding> MethodParameterBindings);

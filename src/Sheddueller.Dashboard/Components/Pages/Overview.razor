@@ -1,17 +1,13 @@
 @page "/"
-@implements IDisposable
-@inject IDashboardJobReader Reader
+@inherits DashboardPageComponent
+@inject IJobInspectionReader Reader
 @inject DashboardLiveUpdateStream LiveUpdates
 
 <div class="overview-page">
     <header class="overview-header">
         <div>
-            <h1>Health Triage</h1>
-            <p>Real-time job queue overview and anomaly detection.</p>
-        </div>
-        <div class="sd-live-status @GetLiveStatusClass()" aria-live="polite">
-            <span class="sd-live-status__dot" aria-hidden="true"></span>
-            <span>@GetLiveStatusText(DateTimeOffset.UtcNow)</span>
+            <h1>Overview</h1>
+            <p>Real-time cluster overview.</p>
         </div>
     </header>
 
@@ -37,17 +33,16 @@
     }
     else
     {
-        var nowUtc = DateTimeOffset.UtcNow;
-
         <section class="summary-grid" aria-label="State counts">
             @foreach (var state in Enum.GetValues<JobState>())
             {
                 var count = GetStateCount(_overview, state);
                 var isFailed = state == JobState.Failed && count > 0;
 
-                <a class="summary-card @(isFailed ? "summary-card--failed" : null)" href="jobs">
+                <a class="summary-card @(isFailed ? "summary-card--failed" : null)" href="@StateFilterHref(state)"
+                   aria-label="@StateFilterTitle(state)">
                     <span class="summary-card__label">@state</span>
-                    <span class="summary-card__value">@FormatCount(count)</span>
+                    <span class="summary-card__value">@DashboardFormat.Count(count)</span>
                 </a>
             }
         </section>
@@ -57,7 +52,7 @@
                 <section class="overview-panel">
                     <div class="overview-panel__header">
                         <h2>Running Jobs</h2>
-                        <a href="jobs">@FormatCount(_overview.RunningJobs.Count) active</a>
+                        <a href="@StateFilterHref(JobState.Claimed)">@DashboardFormat.Count(_overview.RunningJobs.Count) active</a>
                     </div>
 
                     @if (_overview.RunningJobs.Count == 0)
@@ -68,13 +63,20 @@
                     {
                         <div class="overview-table-wrap">
                             <table class="overview-table">
+                                <colgroup>
+                                    <col class="overview-table__col--job-id" />
+                                    <col class="overview-table__col--timestamp" />
+                                    <col class="overview-table__col--handler" />
+                                    <col class="overview-table__col--tags" />
+                                    <col class="overview-table__col--context" />
+                                </colgroup>
                                 <thead>
                                     <tr>
                                         <th>Job ID</th>
-                                        <th>State</th>
+                                        <th>Started</th>
                                         <th>Handler</th>
+                                        <th>Tags</th>
                                         <th>Progress</th>
-                                        <th class="text-right">Enqueued</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -82,15 +84,27 @@
                                     {
                                         <tr>
                                             <td>
-                                                <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                                <JobLink CssClass="job-id-link" JobId="job.JobId" />
                                             </td>
-                                            <td>@RenderStateBadge(job.State)</td>
                                             <td>
-                                                <span title="@FormatFullHandler(job)">@FormatHandler(job)</span>
+                                                <TimestampBlock BaseClass="timestamp-block" Value="job.ClaimedAtUtc"
+                                                                EmptyText="Not set" AllowFutureRelative="false" />
                                             </td>
-                                            <td class="muted">@FormatProgress(job.LatestProgress)</td>
                                             <td>
-                                                @RenderTimestampBlock(job.EnqueuedAtUtc, nowUtc, alignEnd: true)
+                                                <a class="overview-handler overview-filter-link"
+                                                   href="@HandlerFilterHref(job)"
+                                                   title="@DashboardFormat.FullHandler(job)"
+                                                   aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
+                                            </td>
+                                            <td>
+                                                <ChipList ClassPrefix="overview-chip" Values="DashboardFormat.Tags(job.Tags)"
+                                                          Title="@DashboardFormat.TagsTitle(job.Tags)"
+                                                          HrefFactory="TagFilterHref"
+                                                          LinkAriaLabelPrefix="Filter jobs by tag" />
+                                            </td>
+                                            <td>
+                                                <span class="overview-context overview-context--progress"
+                                                      title="@DashboardFormat.ProgressText(job.LatestProgress)">@DashboardFormat.ProgressText(job.LatestProgress)</span>
                                             </td>
                                         </tr>
                                     }
@@ -103,7 +117,7 @@
                 <section class="overview-panel overview-panel--failed">
                     <div class="overview-panel__header">
                         <h2>Recently Failed</h2>
-                        <a class="attention-link" href="jobs">Attention Required</a>
+                        <a class="attention-link" href="@StateFilterHref(JobState.Failed)">Attention Required</a>
                     </div>
 
                     @if (_overview.RecentlyFailedJobs.Count == 0)
@@ -114,13 +128,20 @@
                     {
                         <div class="overview-table-wrap">
                             <table class="overview-table">
+                                <colgroup>
+                                    <col class="overview-table__col--job-id" />
+                                    <col class="overview-table__col--timestamp" />
+                                    <col class="overview-table__col--handler" />
+                                    <col class="overview-table__col--tags" />
+                                    <col class="overview-table__col--context" />
+                                </colgroup>
                                 <thead>
                                     <tr>
                                         <th>Job ID</th>
-                                        <th>State</th>
+                                        <th>Terminated</th>
                                         <th>Handler</th>
-                                        <th>Error Context</th>
-                                        <th class="text-right">Failed At</th>
+                                        <th>Tags</th>
+                                        <th>Error</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -128,17 +149,28 @@
                                     {
                                         <tr>
                                             <td>
-                                                <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
-                                            </td>
-                                            <td>@RenderStateBadge(job.State)</td>
-                                            <td>
-                                                <span title="@FormatFullHandler(job)">@FormatHandler(job)</span>
+                                                <JobLink CssClass="job-id-link" JobId="job.JobId" />
                                             </td>
                                             <td>
-                                                <span class="error-context" title="@FormatFailureContext(job)">@FormatFailureContext(job)</span>
+                                                <TimestampBlock BaseClass="timestamp-block"
+                                                                Value="DashboardFormat.TerminalTimestamp(job)"
+                                                                EmptyText="Not set" AllowFutureRelative="false" />
                                             </td>
                                             <td>
-                                                @RenderTimestampBlock(GetTerminalTimestamp(job), nowUtc, alignEnd: true)
+                                                <a class="overview-handler overview-filter-link"
+                                                   href="@HandlerFilterHref(job)"
+                                                   title="@DashboardFormat.FullHandler(job)"
+                                                   aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
+                                            </td>
+                                            <td>
+                                                <ChipList ClassPrefix="overview-chip" Values="DashboardFormat.Tags(job.Tags)"
+                                                          Title="@DashboardFormat.TagsTitle(job.Tags)"
+                                                          HrefFactory="TagFilterHref"
+                                                          LinkAriaLabelPrefix="Filter jobs by tag" />
+                                            </td>
+                                            <td>
+                                                <span class="overview-context overview-context--error"
+                                                      title="@DashboardFormat.FailureContext(job)">@DashboardFormat.FailureContext(job)</span>
                                             </td>
                                         </tr>
                                     }
@@ -166,13 +198,18 @@
                             {
                                 <li>
                                     <div class="compact-list__topline">
-                                        <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
-                                        <span class="attempt-pill">Attempt @FormatCount(job.AttemptCount)</span>
+                                        <JobLink CssClass="job-id-link" JobId="job.JobId" />
+                                        <span class="attempt-pill">Attempt @DashboardFormat.Count(job.AttemptCount)</span>
                                     </div>
-                                    <div class="muted" title="@FormatFullHandler(job)">@FormatHandler(job)</div>
+                                    <a class="muted overview-compact-handler overview-filter-link"
+                                       href="@HandlerFilterHref(job)"
+                                       title="@DashboardFormat.FullHandler(job)"
+                                       aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
                                     <div class="compact-list__footer">
-                                        <span class="error-context" title="@FormatFailureContext(job)">@FormatFailureContext(job)</span>
-                                        @RenderTimestampBlock(job.NotBeforeUtc, nowUtc, prefix: "Next:", alignEnd: true)
+                                        <span class="error-context"
+                                              title="@DashboardFormat.FailureContext(job)">@DashboardFormat.FailureContext(job)</span>
+                                        <TimestampBlock BaseClass="timestamp-block" Value="job.NotBeforeUtc" Prefix="Next:"
+                                                        AlignEnd="true" EmptyText="Not set" />
                                     </div>
                                 </li>
                             }
@@ -196,10 +233,14 @@
                             {
                                 <li>
                                     <div>
-                                        <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
-                                        <div class="muted" title="@FormatFullHandler(job)">@FormatHandler(job)</div>
+                                        <JobLink CssClass="job-id-link" JobId="job.JobId" />
+                                        <a class="muted overview-compact-handler overview-filter-link"
+                                           href="@HandlerFilterHref(job)"
+                                           title="@DashboardFormat.FullHandler(job)"
+                                           aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
                                     </div>
-                                    @RenderTimestampBlock(job.NotBeforeUtc, nowUtc, alignEnd: true)
+                                    <TimestampBlock BaseClass="timestamp-block" Value="job.NotBeforeUtc" AlignEnd="true"
+                                                    EmptyText="Not set" />
                                 </li>
                             }
                         </ul>
@@ -209,7 +250,7 @@
                 <section class="overview-panel">
                     <div class="overview-panel__header">
                         <h2>Queued (Next Up)</h2>
-                        <a href="jobs">@FormatCount(_overview.QueuedJobs.Count) queued</a>
+                        <a href="@StateFilterHref(JobState.Queued)">@DashboardFormat.Count(_overview.QueuedJobs.Count) queued</a>
                     </div>
 
                     @if (_overview.QueuedJobs.Count == 0)
@@ -224,9 +265,12 @@
                                 <li>
                                     <div class="queue-list__job">
                                         <span aria-hidden="true"></span>
-                                        <a class="job-id-link" href="@CreateJobHref(job)">@FormatJobId(job.JobId)</a>
+                                        <JobLink CssClass="job-id-link" JobId="job.JobId" />
                                     </div>
-                                    <span class="muted" title="@FormatFullHandler(job)">@FormatHandler(job)</span>
+                                    <a class="muted overview-compact-handler overview-filter-link"
+                                       href="@HandlerFilterHref(job)"
+                                       title="@DashboardFormat.FullHandler(job)"
+                                       aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
                                 </li>
                             }
                         </ul>
@@ -234,750 +278,574 @@
                 </section>
             </div>
         </section>
-    }
-</div>
-
-<style>
-    .overview-page {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sd-gutter);
-    }
-
-    .overview-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-    }
-
-    .overview-header p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .summary-grid {
-        display: grid;
-        gap: 16px;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-
-    .summary-card {
-        display: flex;
-        min-height: 98px;
-        flex-direction: column;
-        justify-content: center;
-        gap: 8px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface);
-        padding: 16px;
-        text-decoration: none;
-    }
-
-    .summary-card:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .summary-card--failed {
-        border-color: var(--sd-error-container);
-        border-left: 4px solid var(--sd-error);
-    }
-
-    .summary-card__label {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-    }
-
-    .summary-card__value {
-        color: var(--sd-on-surface);
-        font-family: "Space Grotesk", Inter, Arial, sans-serif;
-        font-size: 24px;
-        font-weight: 600;
-        line-height: 32px;
-    }
-
-    .summary-card--failed .summary-card__value {
-        color: var(--sd-error);
-    }
-
-    .priority-grid {
-        display: grid;
-        gap: var(--sd-gutter);
-        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
-        margin-top: 8px;
-    }
-
-    .priority-grid__primary,
-    .priority-grid__secondary {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sd-gutter);
-        min-width: 0;
-    }
-
-    .overview-panel {
-        position: relative;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface);
-    }
-
-    .overview-panel--failed::before {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: 4px;
-        background: var(--sd-error);
-        content: "";
-    }
-
-    .overview-panel__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        min-height: 50px;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        background: var(--sd-surface-low);
-        padding: 12px 16px;
-    }
-
-    .overview-panel--failed .overview-panel__header {
-        padding-left: 20px;
-    }
-
-    .overview-panel__header a {
-        color: var(--sd-on-surface-variant);
-        font-size: 12px;
-        line-height: 16px;
-        text-decoration: none;
-        white-space: nowrap;
-    }
-
-    .overview-panel__header a:hover {
-        color: var(--sd-on-surface);
-        text-decoration: underline;
-    }
-
-    .overview-panel__header .attention-link {
-        color: var(--sd-error);
-        font-weight: 500;
-    }
-
-    .overview-table-wrap {
-        overflow-x: auto;
-    }
-
-    .overview-table {
-        min-width: 760px;
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .overview-table tbody tr {
-        height: 40px;
-        transition: background-color 150ms ease;
-    }
-
-    .overview-table tbody tr:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .text-right {
-        text-align: right;
-    }
-
-    .overview-table .text-right {
-        text-align: right;
-    }
-
-    .job-id-link {
-        color: var(--sd-on-surface);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 12px;
-        line-height: 16px;
-        text-decoration: none;
-        white-space: nowrap;
-    }
-
-    .job-id-link:hover {
-        text-decoration: underline;
-    }
-
-    .muted {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .error-context {
-        display: inline-block;
-        max-width: 220px;
-        overflow: hidden;
-        color: var(--sd-error);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 11px;
-        line-height: 16px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .state-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border-radius: 999px;
-        padding: 2px 8px;
-        font-size: 11px;
-        font-weight: 500;
-        line-height: 16px;
-        white-space: nowrap;
-    }
-
-    .state-badge::before {
-        width: 6px;
-        height: 6px;
-        flex: 0 0 auto;
-        border-radius: 999px;
-        background: currentColor;
-        content: "";
-    }
-
-    .state-badge--queued {
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface-variant);
-    }
-
-    .state-badge--claimed {
-        background: var(--sd-secondary-container);
-        color: var(--sd-on-secondary-container);
-    }
-
-    .state-badge--completed {
-        background: var(--sd-success-container);
-        color: var(--sd-success);
-    }
-
-    .state-badge--failed {
-        background: var(--sd-error-container);
-        color: var(--sd-on-error-container);
-    }
-
-    .state-badge--canceled {
-        background: var(--sd-warning-container);
-        color: var(--sd-warning);
-    }
-
-    .timestamp-block {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .timestamp-block--end {
-        align-items: flex-end;
-        text-align: right;
-    }
-
-    .timestamp-block__relative {
-        color: var(--sd-on-surface);
-        font-size: 12px;
-        line-height: 16px;
-        white-space: nowrap;
-    }
-
-    .timestamp-block__absolute {
-        color: var(--sd-on-surface-variant);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 10px;
-        line-height: 12px;
-        white-space: nowrap;
-    }
-
-    .overview-empty {
-        color: var(--sd-on-surface-variant);
-        padding: 16px;
-        font-size: 12px;
-        line-height: 16px;
-    }
-
-    .overview-message {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        padding: 16px;
-    }
-
-    .overview-message .material-symbols-outlined {
-        color: var(--sd-on-surface-variant);
-    }
-
-    .overview-message h2 {
-        font-size: 18px;
-        line-height: 24px;
-    }
-
-    .overview-message p {
-        margin-top: 4px;
-        color: var(--sd-on-surface-variant);
-    }
-
-    .overview-message--error {
-        border-color: var(--sd-error-container);
-    }
-
-    .overview-message--error .material-symbols-outlined,
-    .overview-message--error h2 {
-        color: var(--sd-error);
-    }
-
-    .compact-list,
-    .queue-list {
-        display: flex;
-        flex-direction: column;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-    }
-
-    .compact-list li,
-    .queue-list li {
-        border-bottom: 1px solid var(--sd-surface-variant);
-        padding: 12px 16px;
-        transition: background-color 150ms ease;
-    }
-
-    .compact-list li:last-child,
-    .queue-list li:last-child {
-        border-bottom: 0;
-    }
-
-    .compact-list li:hover,
-    .queue-list li:hover {
-        background: var(--sd-surface-low);
-    }
-
-    .compact-list__topline,
-    .compact-list__footer,
-    .compact-list--simple li,
-    .queue-list li,
-    .queue-list__job {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-    }
-
-    .compact-list__topline {
-        margin-bottom: 4px;
-    }
-
-    .compact-list__footer {
-        align-items: flex-end;
-        margin-top: 8px;
-    }
-
-    .attempt-pill {
-        border-radius: 2px;
-        background: var(--sd-surface-variant);
-        color: var(--sd-on-surface);
-        padding: 2px 6px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        line-height: 12px;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-
-    .queue-list__job {
-        justify-content: flex-start;
-        min-width: 0;
-    }
-
-    .queue-list__job > span {
-        width: 6px;
-        height: 6px;
-        flex: 0 0 auto;
-        border-radius: 999px;
-        background: var(--sd-outline);
-    }
-
-    @@media (max-width: 1100px) {
-        .summary-grid,
-        .priority-grid {
-            grid-template-columns: 1fr;
         }
-    }
-</style>
+    </div>
+
+    <style>
+        .overview-page {
+            display: flex;
+            flex-direction: column;
+            gap: var(--sd-gutter);
+        }
+
+        .overview-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--sd-outline-variant);
+        }
+
+        .overview-header p {
+            margin-top: 4px;
+            color: var(--sd-on-surface-variant);
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .summary-grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .summary-card {
+            display: flex;
+            min-height: 98px;
+            flex-direction: column;
+            justify-content: center;
+            gap: 8px;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: var(--sd-radius);
+            background: var(--sd-surface);
+            padding: 16px;
+            text-decoration: none;
+        }
+
+        .summary-card:hover {
+            background: var(--sd-surface-low);
+        }
+
+        .summary-card--failed {
+            border-color: var(--sd-error-container);
+            border-left: 4px solid var(--sd-error);
+        }
+
+        .summary-card__label {
+            color: var(--sd-on-surface-variant);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+        }
+
+        .summary-card__value {
+            color: var(--sd-on-surface);
+            font-family: "Space Grotesk", Inter, Arial, sans-serif;
+            font-size: 24px;
+            font-weight: 600;
+            line-height: 32px;
+        }
+
+        .summary-card--failed .summary-card__value {
+            color: var(--sd-error);
+        }
+
+        .priority-grid {
+            display: grid;
+            gap: var(--sd-gutter);
+            grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+            margin-top: 8px;
+        }
+
+        .priority-grid__primary,
+        .priority-grid__secondary {
+            display: flex;
+            flex-direction: column;
+            gap: var(--sd-gutter);
+            min-width: 0;
+        }
+
+        .overview-panel {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: var(--sd-radius);
+            background: var(--sd-surface);
+        }
+
+        .overview-panel--failed::before {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 4px;
+            background: var(--sd-error);
+            content: "";
+        }
+
+        .overview-panel__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 50px;
+            border-bottom: 1px solid var(--sd-outline-variant);
+            background: var(--sd-surface-low);
+            padding: 12px 16px;
+        }
+
+        .overview-panel--failed .overview-panel__header {
+            padding-left: 20px;
+        }
+
+        .overview-panel__header a {
+            color: var(--sd-on-surface-variant);
+            font-size: 12px;
+            line-height: 16px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .overview-panel__header a:hover {
+            color: var(--sd-on-surface);
+            text-decoration: underline;
+        }
+
+        .overview-panel__header .attention-link {
+            color: var(--sd-error);
+            font-weight: 500;
+        }
+
+        .overview-table-wrap {
+            overflow-x: auto;
+        }
+
+        .overview-table {
+            min-width: 1040px;
+            table-layout: fixed;
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .overview-table__col--job-id {
+            width: 88px;
+        }
+
+        .overview-table__col--timestamp {
+            width: 160px;
+        }
+
+        .overview-table__col--handler {
+            width: 260px;
+        }
+
+        .overview-table__col--tags {
+            width: 220px;
+        }
+
+        .overview-table__col--context {
+            width: auto;
+        }
+
+        .overview-table tbody tr {
+            height: 40px;
+            transition: background-color 150ms ease;
+        }
+
+        .overview-table tbody tr:hover {
+            background: var(--sd-surface-low);
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .overview-table .text-right {
+            text-align: right;
+        }
+
+        .job-id-link {
+            color: var(--sd-primary);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 16px;
+            text-decoration-color: var(--sd-outline-variant);
+            text-underline-offset: 2px;
+            white-space: nowrap;
+        }
+
+        .job-id-link:hover {
+            text-decoration-color: var(--sd-primary);
+        }
+
+        .overview-table .job-id-link,
+        .overview-handler,
+        .overview-context {
+            display: block;
+            width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .overview-table .job-id-link,
+        .overview-handler,
+        .overview-chip,
+        .overview-context {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .overview-handler,
+        .overview-context--progress {
+            color: var(--sd-on-surface-variant);
+        }
+
+        .overview-filter-link {
+            text-decoration: none;
+        }
+
+        .overview-filter-link:hover {
+            color: var(--sd-primary);
+            text-decoration: underline;
+            text-decoration-color: var(--sd-primary);
+            text-underline-offset: 2px;
+        }
+
+        .overview-compact-handler {
+            display: block;
+            overflow: hidden;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 11px;
+            line-height: 16px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .overview-context--error {
+            color: var(--sd-error);
+        }
+
+        .overview-chip-list {
+            display: flex;
+            width: 100%;
+            min-width: 0;
+            align-items: center;
+            gap: 4px;
+            overflow: hidden;
+        }
+
+        .overview-chip {
+            display: inline-block;
+            max-width: 112px;
+            overflow: hidden;
+            border: 1px solid var(--sd-outline-variant);
+            border-radius: 2px;
+            background: var(--sd-surface-low);
+            color: var(--sd-on-surface-variant);
+            font-size: 10px;
+            line-height: 14px;
+            padding: 1px 6px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        a.overview-chip {
+            text-decoration: none;
+        }
+
+        a.overview-chip:hover {
+            border-color: var(--sd-primary);
+            color: var(--sd-primary);
+        }
+
+        .overview-chip-empty {
+            color: var(--sd-on-surface-variant);
+            font-size: 11px;
+            line-height: 16px;
+        }
+
+        .muted {
+            color: var(--sd-on-surface-variant);
+        }
+
+        .error-context {
+            display: inline-block;
+            max-width: 220px;
+            overflow: hidden;
+            color: var(--sd-error);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 11px;
+            line-height: 16px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .state-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 16px;
+            white-space: nowrap;
+        }
+
+        .state-badge::before {
+            width: 6px;
+            height: 6px;
+            flex: 0 0 auto;
+            border-radius: 999px;
+            background: currentColor;
+            content: "";
+        }
+
+        .state-badge--queued {
+            background: var(--sd-surface-variant);
+            color: var(--sd-on-surface-variant);
+        }
+
+        .state-badge--claimed {
+            background: var(--sd-secondary-container);
+            color: var(--sd-on-secondary-container);
+        }
+
+        .state-badge--completed {
+            background: var(--sd-success-container);
+            color: var(--sd-success);
+        }
+
+        .state-badge--failed {
+            background: var(--sd-error-container);
+            color: var(--sd-on-error-container);
+        }
+
+        .state-badge--canceled {
+            background: var(--sd-warning-container);
+            color: var(--sd-warning);
+        }
+
+        .timestamp-block {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .timestamp-block--end {
+            align-items: flex-end;
+            text-align: right;
+        }
+
+        .timestamp-block__relative {
+            color: var(--sd-on-surface);
+            font-size: 12px;
+            line-height: 16px;
+            white-space: nowrap;
+        }
+
+        .timestamp-block__absolute {
+            color: var(--sd-on-surface-variant);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 10px;
+            line-height: 12px;
+            white-space: nowrap;
+        }
+
+        .overview-empty {
+            color: var(--sd-on-surface-variant);
+            padding: 16px;
+            font-size: 12px;
+            line-height: 16px;
+        }
+
+        .overview-message {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px;
+        }
+
+        .overview-message .material-symbols-outlined {
+            color: var(--sd-on-surface-variant);
+        }
+
+        .overview-message h2 {
+            font-size: 18px;
+            line-height: 24px;
+        }
+
+        .overview-message p {
+            margin-top: 4px;
+            color: var(--sd-on-surface-variant);
+        }
+
+        .overview-message--error {
+            border-color: var(--sd-error-container);
+        }
+
+        .overview-message--error .material-symbols-outlined,
+        .overview-message--error h2 {
+            color: var(--sd-error);
+        }
+
+        .compact-list,
+        .queue-list {
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .compact-list li,
+        .queue-list li {
+            border-bottom: 1px solid var(--sd-surface-variant);
+            padding: 12px 16px;
+            transition: background-color 150ms ease;
+        }
+
+        .compact-list li:last-child,
+        .queue-list li:last-child {
+            border-bottom: 0;
+        }
+
+        .compact-list li:hover,
+        .queue-list li:hover {
+            background: var(--sd-surface-low);
+        }
+
+        .compact-list__topline,
+        .compact-list__footer,
+        .compact-list--simple li,
+        .queue-list li,
+        .queue-list__job {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .compact-list__topline {
+            margin-bottom: 4px;
+        }
+
+        .compact-list__footer {
+            align-items: flex-end;
+            margin-top: 8px;
+        }
+
+        .attempt-pill {
+            border-radius: 2px;
+            background: var(--sd-surface-variant);
+            color: var(--sd-on-surface);
+            padding: 2px 6px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            line-height: 12px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .queue-list__job {
+            justify-content: flex-start;
+            min-width: 0;
+        }
+
+        .queue-list__job>span {
+            width: 6px;
+            height: 6px;
+            flex: 0 0 auto;
+            border-radius: 999px;
+            background: var(--sd-outline);
+        }
+
+        @@media (max-width: 1100px) {
+
+            .summary-grid,
+            .priority-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 
 @code {
-    private static readonly TimeSpan LiveRefreshThrottle = TimeSpan.FromSeconds(1);
-
-    private readonly object _liveRefreshGate = new();
-    private DashboardJobOverview? _overview;
+    private JobInspectionOverview? _overview;
     private string? _loadError;
-    private string? _liveRefreshError;
-    private DateTimeOffset? _lastUpdatedUtc;
-    private bool _disposed;
-    private bool _isRefreshing;
-    private bool _refreshRequested;
-    private bool _refreshLoopRunning;
 
     protected override async Task OnInitializedAsync()
     {
+        this.InitializeLiveRefresh(
+          this.RefreshOverviewAsync,
+          showRefreshing: true,
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._overview is null ? null : nowUtc));
         LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
-        await this.LoadOverviewAsync(isInitialLoad: true).ConfigureAwait(false);
+        await this.LoadOverviewAsync();
     }
 
-    public void Dispose()
+    private protected override ValueTask DisposePageAsync()
     {
         LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
-
-        lock (this._liveRefreshGate)
-        {
-            this._disposed = true;
-        }
-    }
-
-    private ValueTask OnJobEventPublishedAsync(
-        DashboardJobEvent jobEvent,
-        CancellationToken cancellationToken)
-    {
-        _ = jobEvent;
-        _ = cancellationToken;
-
-        this.QueueLiveRefresh();
         return ValueTask.CompletedTask;
     }
 
-    private void QueueLiveRefresh()
+    private async ValueTask OnJobEventPublishedAsync(
+        JobEvent jobEvent,
+        CancellationToken cancellationToken)
     {
-        var startLoop = false;
+        _ = cancellationToken;
 
-        lock (this._liveRefreshGate)
-        {
-            if (this._disposed)
-            {
-                return;
-            }
-
-            this._refreshRequested = true;
-            if (!this._refreshLoopRunning)
-            {
-                this._refreshLoopRunning = true;
-                startLoop = true;
-            }
-        }
-
-        if (startLoop)
-        {
-            _ = this.RunLiveRefreshLoopAsync();
-        }
+        await this.ApplyPageStateAsync(() => this.LiveRefresh.MarkLiveActivity(jobEvent.OccurredAtUtc));
+        this.LiveRefresh.QueueRefresh();
     }
 
-    private async Task RunLiveRefreshLoopAsync()
+    private async Task LoadOverviewAsync()
     {
-        var completedCleanly = false;
-
         try
         {
-            while (true)
-            {
-                await Task.Delay(LiveRefreshThrottle).ConfigureAwait(false);
-
-                lock (this._liveRefreshGate)
-                {
-                    if (this._disposed)
-                    {
-                        completedCleanly = true;
-                        return;
-                    }
-
-                    if (!this._refreshRequested)
-                    {
-                        this._refreshLoopRunning = false;
-                        completedCleanly = true;
-                        return;
-                    }
-
-                    this._refreshRequested = false;
-                }
-
-                await this.LoadOverviewAsync(isInitialLoad: false).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            lock (this._liveRefreshGate)
-            {
-                if (!completedCleanly && !this._disposed)
-                {
-                    this._refreshLoopRunning = false;
-                }
-            }
-        }
-    }
-
-    private async Task LoadOverviewAsync(bool isInitialLoad)
-    {
-        if (!isInitialLoad)
-        {
-            await this.ApplyLiveRefreshStartedAsync().ConfigureAwait(false);
-        }
-
-        try
-        {
-            var overview = await Reader.GetOverviewAsync().ConfigureAwait(false);
-            await this.ApplyLoadedOverviewAsync(overview, isInitialLoad).ConfigureAwait(false);
+            var overview = await Reader.GetOverviewAsync();
+            this._overview = overview;
+            this._loadError = null;
+            this.LiveRefresh.MarkUpdated();
+            this.NotifyShellRefreshChanged();
+            await this.InvokeAsync(this.StateHasChanged);
         }
         catch (Exception exception)
         {
-            await this.ApplyLoadErrorAsync(exception.Message, isInitialLoad).ConfigureAwait(false);
+            this._loadError = exception.Message;
         }
     }
 
-    private async Task ApplyLiveRefreshStartedAsync()
-      => await this.InvokeIfNotDisposedAsync(() =>
-      {
-          this._isRefreshing = true;
-          this._liveRefreshError = null;
-          this.StateHasChanged();
-      }).ConfigureAwait(false);
-
-    private async Task ApplyLoadedOverviewAsync(
-        DashboardJobOverview overview,
-        bool isInitialLoad)
+    private async Task RefreshOverviewAsync(CancellationToken cancellationToken)
     {
-        if (isInitialLoad)
+        var overview = await Reader.GetOverviewAsync(cancellationToken);
+
+        await this.ApplyPageStateAsync(() =>
         {
             this._overview = overview;
             this._loadError = null;
-            this._liveRefreshError = null;
-            this._lastUpdatedUtc = DateTimeOffset.UtcNow;
-            this._isRefreshing = false;
-            return;
-        }
-
-        await this.InvokeIfNotDisposedAsync(() =>
-        {
-            this._overview = overview;
-            this._loadError = null;
-            this._liveRefreshError = null;
-            this._lastUpdatedUtc = DateTimeOffset.UtcNow;
-            this._isRefreshing = false;
-            this.StateHasChanged();
-        }).ConfigureAwait(false);
+        });
     }
 
-    private async Task ApplyLoadErrorAsync(
-        string message,
-        bool isInitialLoad)
-    {
-        if (isInitialLoad)
-        {
-            this._loadError = message;
-            this._isRefreshing = false;
-            return;
-        }
-
-        await this.InvokeIfNotDisposedAsync(() =>
-        {
-            this._liveRefreshError = message;
-            this._isRefreshing = false;
-            this.StateHasChanged();
-        }).ConfigureAwait(false);
-    }
-
-    private async Task InvokeIfNotDisposedAsync(Action action)
-    {
-        if (this.IsDisposed())
-        {
-            return;
-        }
-
-        await this.InvokeAsync(() =>
-        {
-            if (!this.IsDisposed())
-            {
-                action();
-            }
-        }).ConfigureAwait(false);
-    }
-
-    private bool IsDisposed()
-    {
-        lock (this._liveRefreshGate)
-        {
-            return this._disposed;
-        }
-    }
-
-    private static int GetStateCount(DashboardJobOverview overview, JobState state)
+    private static int GetStateCount(JobInspectionOverview overview, JobState state)
       => overview.StateCounts.TryGetValue(state, out var count) ? count : 0;
 
-    private static string CreateJobHref(DashboardJobSummary job)
-      => string.Create(CultureInfo.InvariantCulture, $"jobs/{job.JobId:D}");
+    private static string StateFilterHref(JobState state)
+      => DashboardJobFilterQuery.StateHref(state);
 
-    private static string FormatCount(int count)
-      => count.ToString("N0", CultureInfo.InvariantCulture);
+    private static string StateFilterTitle(JobState state)
+      => string.Concat("Filter jobs by state ", state);
 
-    private static string FormatJobId(Guid jobId)
-      => jobId.ToString("D");
+    private static string HandlerFilterHref(JobInspectionSummary job)
+      => DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job));
 
-    private static string FormatFullHandler(DashboardJobSummary job)
-      => string.Concat(job.ServiceType, ".", job.MethodName);
+    private static string HandlerFilterTitle(JobInspectionSummary job)
+      => string.Concat("Filter jobs by handler ", DashboardFormat.ShortHandler(job));
 
-    private static string FormatHandler(DashboardJobSummary job)
-      => string.Concat(GetShortTypeName(job.ServiceType), ".", job.MethodName);
-
-    private static string GetShortTypeName(string typeName)
-    {
-        var separatorIndex = typeName.LastIndexOf('.');
-        return separatorIndex < 0 || separatorIndex == typeName.Length - 1
-          ? typeName
-          : typeName[(separatorIndex + 1)..];
-    }
-
-    private static string FormatProgress(DashboardProgressSnapshot? progress)
-      => progress is null
-        ? "No progress reported"
-        : progress.Percent is null
-          ? progress.Message ?? "Progress reported"
-          : string.Create(CultureInfo.InvariantCulture, $"{progress.Percent:0.#}% {progress.Message}").Trim();
-
-    private static string FormatFailureContext(DashboardJobSummary job)
-      => FirstNonEmpty(
-        job.LatestProgress?.Message,
-        job.QueuePosition?.Reason,
-        "Unavailable");
-
-    private static string FirstNonEmpty(params string?[] values)
-      => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
-
-    private static DateTimeOffset? GetTerminalTimestamp(DashboardJobSummary job)
-      => job.FailedAtUtc ?? job.CompletedAtUtc ?? job.CanceledAtUtc;
-
-    private static RenderFragment RenderStateBadge(JobState state)
-      => builder =>
-      {
-          builder.OpenElement(0, "span");
-          builder.AddAttribute(1, "class", string.Concat("state-badge ", GetStateBadgeClass(state)));
-          builder.AddContent(2, state.ToString());
-          builder.CloseElement();
-      };
-
-    private static string GetStateBadgeClass(JobState state)
-      => state switch
-      {
-          JobState.Queued => "state-badge--queued",
-          JobState.Claimed => "state-badge--claimed",
-          JobState.Completed => "state-badge--completed",
-          JobState.Failed => "state-badge--failed",
-          JobState.Canceled => "state-badge--canceled",
-          _ => "state-badge--queued",
-      };
-
-    private static RenderFragment RenderTimestampBlock(
-        DateTimeOffset? value,
-        DateTimeOffset nowUtc,
-        string? prefix = null,
-        bool alignEnd = false)
-      => builder =>
-      {
-          builder.OpenElement(0, "div");
-          builder.AddAttribute(1, "class", alignEnd ? "timestamp-block timestamp-block--end" : "timestamp-block");
-
-          builder.OpenElement(2, "span");
-          builder.AddAttribute(3, "class", "timestamp-block__relative");
-          builder.AddContent(4, FormatRelative(value, nowUtc, prefix));
-          builder.CloseElement();
-
-          builder.OpenElement(5, "span");
-          builder.AddAttribute(6, "class", "timestamp-block__absolute");
-          builder.AddContent(7, FormatUtc(value));
-          builder.CloseElement();
-
-          builder.CloseElement();
-      };
-
-    private static string FormatRelative(DateTimeOffset? value, DateTimeOffset nowUtc, string? prefix)
-    {
-        if (value is null)
-        {
-            return string.IsNullOrWhiteSpace(prefix) ? "Not set" : string.Concat(prefix, " not set");
-        }
-
-        var targetUtc = value.Value.ToUniversalTime();
-        var delta = targetUtc - nowUtc.ToUniversalTime();
-        var future = delta > TimeSpan.Zero;
-        var duration = future ? delta : -delta;
-        var text = FormatDuration(duration);
-        var relative = future
-          ? string.Concat("in ", text)
-          : string.Concat(text, " ago");
-
-        return string.IsNullOrWhiteSpace(prefix)
-          ? relative
-          : string.Concat(prefix, " ", relative);
-    }
-
-    private static string FormatDuration(TimeSpan duration)
-    {
-        if (duration < TimeSpan.FromMinutes(1))
-        {
-            return "<1m";
-        }
-
-        if (duration < TimeSpan.FromHours(1))
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalMinutes):0}m");
-        }
-
-        if (duration < TimeSpan.FromDays(1))
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalHours):0}h");
-        }
-
-        return string.Create(CultureInfo.InvariantCulture, $"{Math.Floor(duration.TotalDays):0}d");
-    }
-
-    private static string FormatUtc(DateTimeOffset? value)
-      => value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
-
-    private string GetLiveStatusClass()
-    {
-        if (this._liveRefreshError is not null)
-        {
-            return "sd-live-status--error";
-        }
-
-        return this._isRefreshing ? "sd-live-status--refreshing" : string.Empty;
-    }
-
-    private string GetLiveStatusText(DateTimeOffset nowUtc)
-    {
-        if (this._isRefreshing)
-        {
-            return "Refreshing...";
-        }
-
-        if (this._liveRefreshError is not null)
-        {
-            return "Refresh failed";
-        }
-
-        return this._lastUpdatedUtc is null
-          ? "Waiting for data"
-          : string.Concat("Updated ", FormatRelative(this._lastUpdatedUtc, nowUtc, prefix: null));
-    }
+    private static string TagFilterHref(string tag)
+      => DashboardJobFilterQuery.TagHref(tag);
 }

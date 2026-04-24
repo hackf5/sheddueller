@@ -10,14 +10,14 @@
       "args": [],
       "cwd": "${workspaceFolder}/samples/Sheddueller.SampleHost",
       "stopAtEntry": false,
-      "serverReadyAction": {
-        "action": "openExternally",
-        "pattern": "\\bNow listening on:\\s+(https?://\\S+)",
-        "uriFormat": "%s"
-      },
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5000"
+        "ASPNETCORE_HTTP_PORTS": "5000",
+        "ASPNETCORE_CAPTURESTARTUPERRORS": "true"
+      },
+      "console": "internalConsole",
+      "logging": {
+        "moduleLoad": false
       }
     }
   ]

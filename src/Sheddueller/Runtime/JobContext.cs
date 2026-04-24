@@ -2,12 +2,12 @@ namespace Sheddueller.Runtime;
 
 using System.Diagnostics.CodeAnalysis;
 
-using Sheddueller.Dashboard;
+using Sheddueller.Storage;
 
 internal sealed class JobContext(
     Guid jobId,
     int attemptNumber,
-    IDashboardEventSink eventSink,
+    IJobEventSink eventSink,
     CancellationToken cancellationToken) : IJobContext
 {
     public Guid JobId { get; } = jobId;
@@ -26,7 +26,7 @@ internal sealed class JobContext(
         ValidateFields(fields);
 
         await this.AppendBestEffortAsync(
-          new AppendDashboardJobEventRequest(this.JobId, DashboardJobEventKind.Log, this.AttemptNumber, level, message, Fields: fields),
+          new AppendJobEventRequest(this.JobId, JobEventKind.Log, this.AttemptNumber, level, message, Fields: fields),
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -42,9 +42,9 @@ internal sealed class JobContext(
         }
 
         await this.AppendBestEffortAsync(
-          new AppendDashboardJobEventRequest(
+          new AppendJobEventRequest(
             this.JobId,
-            DashboardJobEventKind.Progress,
+            JobEventKind.Progress,
             this.AttemptNumber,
             Message: message,
             ProgressPercent: percent),
@@ -54,7 +54,7 @@ internal sealed class JobContext(
 
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Job-context telemetry is best-effort by v4 design.")]
     private async ValueTask AppendBestEffortAsync(
-        AppendDashboardJobEventRequest request,
+        AppendJobEventRequest request,
         CancellationToken cancellationToken)
     {
         try

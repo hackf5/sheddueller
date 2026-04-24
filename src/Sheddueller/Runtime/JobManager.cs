@@ -6,6 +6,6 @@ internal sealed class JobManager(
     IJobStore store,
     TimeProvider timeProvider) : IJobManager
 {
-    public ValueTask<bool> CancelAsync(Guid jobId, CancellationToken cancellationToken = default)
+    public ValueTask<JobCancellationResult> CancelAsync(Guid jobId, CancellationToken cancellationToken = default)
       => store.CancelAsync(new CancelJobRequest(jobId, timeProvider.GetUtcNow()), cancellationToken);
 }

@@ -4,7 +4,6 @@ using System.Data;
 
 using Npgsql;
 
-using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class TryClaimNextJobOperation
@@ -59,6 +58,8 @@ internal static class TryClaimNextJobOperation
                   service_type,
                   method_name,
                   method_parameter_types,
+                  invocation_target_kind,
+                  method_parameter_bindings,
                   serialized_arguments_content_type,
                   serialized_arguments,
                   attempt_count,
@@ -84,11 +85,11 @@ internal static class TryClaimNextJobOperation
 
             var claimed = PostgresReaders.ReadClaimedJob(reader, groupKeys);
             await reader.DisposeAsync().ConfigureAwait(false);
-            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(claimed.JobId, DashboardJobEventKind.AttemptStarted, claimed.AttemptCount, Message: "Attempt started"),
+              new AppendJobEventRequest(claimed.JobId, JobEventKind.AttemptStarted, claimed.AttemptCount, Message: "Attempt started"),
               cancellationToken)
               .ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

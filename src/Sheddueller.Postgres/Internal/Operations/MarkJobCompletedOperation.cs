@@ -1,6 +1,5 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
-using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class MarkJobCompletedOperation
@@ -53,18 +52,18 @@ internal static class MarkJobCompletedOperation
 
         if (updated == 1)
         {
-            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.AttemptCompleted, job.AttemptCount, Message: "Attempt completed"),
+              new AppendJobEventRequest(job.JobId, JobEventKind.AttemptCompleted, job.AttemptCount, Message: "Attempt completed"),
               cancellationToken)
               .ConfigureAwait(false);
-            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.Lifecycle, job.AttemptCount, Message: "Completed"),
+              new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Completed"),
               cancellationToken)
               .ConfigureAwait(false);
             await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

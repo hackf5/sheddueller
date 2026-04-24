@@ -3,10 +3,13 @@
 namespace Microsoft.Extensions.DependencyInjection;
 
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 
-using Sheddueller.Dashboard;
-using Sheddueller.DependencyInjection;
+using Sheddueller;
+using Sheddueller.Inspection.ConcurrencyGroups;
+using Sheddueller.Inspection.Jobs;
+using Sheddueller.Inspection.Metrics;
+using Sheddueller.Inspection.Nodes;
+using Sheddueller.Inspection.Schedules;
 using Sheddueller.Postgres;
 using Sheddueller.Postgres.Internal;
 using Sheddueller.Runtime;
@@ -20,6 +23,13 @@ public static class ShedduellerPostgresBuilderExtensions
     /// <summary>
     /// Uses the PostgreSQL job store provider.
     /// </summary>
+    /// <param name="builder">The Sheddueller builder being configured.</param>
+    /// <param name="configure">The PostgreSQL provider options callback.</param>
+    /// <returns>The same builder for chained configuration.</returns>
+    /// <remarks>
+    /// The configured <see cref="ShedduellerPostgresOptions.DataSource"/> is caller-owned. Apply provider
+    /// migrations explicitly with <see cref="IPostgresMigrator"/> before starting workers against a new schema.
+    /// </remarks>
     public static ShedduellerBuilder UsePostgres(
         this ShedduellerBuilder builder,
         Action<ShedduellerPostgresOptions> configure)
@@ -34,38 +44,18 @@ public static class ShedduellerPostgresBuilderExtensions
         builder.Services.Replace(ServiceDescriptor.Singleton(options));
         builder.Services.Replace(ServiceDescriptor.Singleton<PostgresJobStore, PostgresJobStore>());
         builder.Services.Replace(ServiceDescriptor.Singleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardJobReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
-        builder.Services.Replace(ServiceDescriptor.Singleton<IDashboardEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IJobInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IJobEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IJobEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IScheduleInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IConcurrencyGroupInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<INodeInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IMetricsInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         builder.Services.Replace(ServiceDescriptor.Singleton<IPostgresMigrator, PostgresMigrator>());
         builder.Services.Replace(ServiceDescriptor.Singleton<IShedduellerWakeSignal, PostgresWakeSignal>());
-        InsertStartupValidatorBeforeWorker(builder.Services);
-        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PostgresDashboardEventListener>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerStartupValidator, PostgresStartupValidator>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerJobEventListener, PostgresJobEventListener>());
 
         return builder;
-    }
-
-    private static void InsertStartupValidatorBeforeWorker(IServiceCollection services)
-    {
-        if (services.Any(descriptor => descriptor.ServiceType == typeof(IHostedService)
-          && descriptor.ImplementationType == typeof(PostgresStartupValidator)))
-        {
-            return;
-        }
-
-        var descriptor = ServiceDescriptor.Singleton<IHostedService, PostgresStartupValidator>();
-        var workerIndex = services
-          .Select((serviceDescriptor, index) => (serviceDescriptor, index))
-          .FirstOrDefault(item => item.serviceDescriptor.ServiceType == typeof(IHostedService)
-            && item.serviceDescriptor.ImplementationType == typeof(ShedduellerWorker))
-          .index;
-
-        if (workerIndex > 0)
-        {
-            services.Insert(workerIndex, descriptor);
-            return;
-        }
-
-        services.Add(descriptor);
     }
 }

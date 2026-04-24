@@ -1,10 +1,11 @@
 using Npgsql;
 
 using Sheddueller;
-using Sheddueller.Dashboard;
+using Sheddueller.Inspection.Jobs;
 using Sheddueller.Postgres;
 using Sheddueller.SampleHost;
 using Sheddueller.SampleHost.DemoJobs;
+using Sheddueller.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,7 +18,7 @@ builder.Services.AddSingleton(dataSource);
 builder.Services.AddSingleton<DemoJobState>();
 builder.Services.AddTransient<DemoJobService>();
 
-builder.Services.AddSheddueller(sheddueller => sheddueller
+builder.Services.AddShedduellerWorker(sheddueller => sheddueller
   .UsePostgres(options =>
   {
       options.DataSource = dataSource;
@@ -40,14 +41,10 @@ await app.Services.GetRequiredService<IPostgresMigrator>().ApplyAsync();
 
 app.UseAntiforgery();
 
-app.MapGet("/", async (
-    HttpContext httpContext,
-    IDashboardJobReader reader,
-    IRecurringScheduleManager scheduleManager,
-    CancellationToken cancellationToken) =>
+app.MapGet("/", (HttpContext httpContext) =>
 {
     var statusMessage = httpContext.Request.Query["message"].ToString();
-    var html = await LauncherPageRenderer.RenderAsync(statusMessage, reader, scheduleManager, cancellationToken).ConfigureAwait(false);
+    var html = LauncherPageRenderer.Render(statusMessage);
     return Results.Content(html, "text/html; charset=utf-8");
 });
 
@@ -118,6 +115,40 @@ app.MapPost("/launch/blocking-batch", async (
     return RedirectWithMessage($"Queued {jobIds.Count} concurrency-demo jobs in group '{GroupKey}' with limit 1.");
 });
 
+app.MapPost("/launch/idempotent", async (
+    IConcurrencyGroupManager concurrencyGroupManager,
+    IJobEnqueuer enqueuer,
+    IJobInspectionReader inspectionReader,
+    CancellationToken cancellationToken) =>
+{
+    const string GroupKey = "demo:idempotent-reprice";
+    const string WorkLabel = "reprice-listing-3";
+
+    await concurrencyGroupManager.SetLimitAsync(GroupKey, 1, cancellationToken).ConfigureAwait(false);
+
+    if (!await HasNonTerminalJobsInGroupAsync(inspectionReader, GroupKey, cancellationToken).ConfigureAwait(false))
+    {
+        _ = await enqueuer.EnqueueAsync<DemoJobService>(
+          (service, ct) => service.RunIdempotentDemoAsync("idempotent-demo-slot-holder", Job.Context, ct),
+          new JobSubmission(
+            Priority: 50,
+            ConcurrencyGroupKeys: [GroupKey],
+            Tags: [new JobTag("demo", "idempotent-slot-holder")]),
+          cancellationToken).ConfigureAwait(false);
+    }
+
+    var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
+      (service, ct) => service.RunIdempotentDemoAsync(WorkLabel, Job.Context, ct),
+      new JobSubmission(
+        Priority: 25,
+        ConcurrencyGroupKeys: [GroupKey],
+        Tags: [new JobTag("demo", "idempotent"), new JobTag("listing", "3")],
+        IdempotencyKind: JobIdempotencyKind.MethodAndArguments),
+      cancellationToken).ConfigureAwait(false);
+
+    return RedirectWithMessage($"Queued idempotent reprice job {jobId:D}. Click again quickly; the queued job id should be reused.");
+});
+
 app.MapPost("/launch/recurring", async (IRecurringScheduleManager scheduleManager, CancellationToken cancellationToken) =>
 {
     var result = await scheduleManager.CreateOrUpdateAsync<DemoJobService>(
@@ -139,24 +170,24 @@ app.MapPost("/launch/cancelable", async (IJobEnqueuer enqueuer, CancellationToke
     return RedirectWithMessage($"Queued cancelable delayed job {jobId:D} for {notBeforeUtc:O}.");
 });
 
-app.MapPost("/launch/cancel", async (HttpContext httpContext, IJobManager jobManager, CancellationToken cancellationToken) =>
-{
-    var form = await httpContext.Request.ReadFormAsync(cancellationToken).ConfigureAwait(false);
-    var value = form["jobId"].ToString();
-    if (!Guid.TryParse(value, out var jobId))
-    {
-        return RedirectWithMessage($"'{value}' is not a valid job id.");
-    }
-
-    var canceled = await jobManager.CancelAsync(jobId, cancellationToken).ConfigureAwait(false);
-    return RedirectWithMessage(canceled
-      ? $"Canceled queued job {jobId:D}."
-      : $"Job {jobId:D} was not queued, so it could not be canceled.");
-});
-
 ((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
 
 await app.RunAsync();
 
 static IResult RedirectWithMessage(string message)
   => Results.Redirect($"/?message={Uri.EscapeDataString(message)}");
+
+static async ValueTask<bool> HasNonTerminalJobsInGroupAsync(
+    IJobInspectionReader inspectionReader,
+    string groupKey,
+    CancellationToken cancellationToken)
+{
+    var page = await inspectionReader.SearchJobsAsync(
+      new JobInspectionQuery(
+        States: [JobState.Queued, JobState.Claimed],
+        ConcurrencyGroupContains: groupKey,
+        PageSize: 100),
+      cancellationToken).ConfigureAwait(false);
+
+    return page.Jobs.Any(job => job.ConcurrencyGroupKeys.Contains(groupKey, StringComparer.Ordinal));
+}

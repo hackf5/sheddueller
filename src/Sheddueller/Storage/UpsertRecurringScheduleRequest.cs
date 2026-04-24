@@ -16,4 +16,7 @@ public sealed record UpsertRecurringScheduleRequest(
     IReadOnlyList<string> ConcurrencyGroupKeys,
     RetryPolicy? RetryPolicy,
     RecurringOverlapMode OverlapMode,
-    DateTimeOffset UpsertedAtUtc);
+    DateTimeOffset UpsertedAtUtc,
+    IReadOnlyList<JobTag>? Tags = null,
+    JobInvocationTargetKind InvocationTargetKind = JobInvocationTargetKind.Instance,
+    IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings = null);

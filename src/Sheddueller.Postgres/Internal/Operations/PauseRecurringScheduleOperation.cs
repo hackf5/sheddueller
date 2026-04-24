@@ -8,8 +8,10 @@ internal static class PauseRecurringScheduleOperation
         CancellationToken cancellationToken)
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var updated = await PostgresOperationContext.ExecuteCountAsync(
           connection,
+          transaction,
           $"""
           update {context.Names.RecurringSchedules}
           set is_paused = true,
@@ -21,6 +23,7 @@ internal static class PauseRecurringScheduleOperation
           cancellationToken)
           .ConfigureAwait(false);
 
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return updated == 1;
     }
 }

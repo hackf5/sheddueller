@@ -1,160 +1,1758 @@
 @page "/jobs/{JobId:guid}"
-@implements IDisposable
-@inject IDashboardJobReader Reader
+@inherits DashboardPageComponent
+@inject IJobInspectionReader Reader
+@inject IJobManager JobManager
 @inject DashboardLiveUpdateStream LiveUpdates
 
-<h2>Job Detail</h2>
+<div class="job-detail-page">
+    <header class="job-detail-toolbar">
+        <div class="job-detail-toolbar__primary">
+            <a class="job-detail-back-link" href="jobs">
+                <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+                <span>Jobs</span>
+            </a>
+            <span class="job-detail-toolbar__title">Job Detail</span>
+        </div>
 
-@if (_detail is null)
-{
-    <p>Job was not found.</p>
-}
-else
-{
-    <section>
-        <h3>Metadata</h3>
-        <dl>
-            <dt>Job id</dt>
-            <dd>@_detail.Summary.JobId</dd>
-            <dt>State</dt>
-            <dd>@_detail.Summary.State</dd>
-            <dt>Handler</dt>
-            <dd>@_detail.Summary.ServiceType.@_detail.Summary.MethodName</dd>
-            <dt>Priority</dt>
-            <dd>@_detail.Summary.Priority</dd>
-            <dt>Enqueue sequence</dt>
-            <dd>@_detail.Summary.EnqueueSequence</dd>
-            <dt>Queue position</dt>
-            <dd>@FormatQueuePosition(_detail.Summary.QueuePosition)</dd>
-            <dt>Attempts</dt>
-            <dd>@_detail.Summary.AttemptCount / @_detail.Summary.MaxAttempts</dd>
-            <dt>Enqueued</dt>
-            <dd>@_detail.Summary.EnqueuedAtUtc</dd>
-            <dt>Not before</dt>
-            <dd>@_detail.Summary.NotBeforeUtc</dd>
-            <dt>Claimed</dt>
-            <dd>@_detail.ClaimedAtUtc by @_detail.ClaimedByNodeId</dd>
-            <dt>Lease expires</dt>
-            <dd>@_detail.LeaseExpiresAtUtc</dd>
-            <dt>Source schedule</dt>
-            <dd>@_detail.Summary.SourceScheduleKey</dd>
-            <dt>Scheduled fire</dt>
-            <dd>@_detail.ScheduledFireAtUtc</dd>
-        </dl>
-    </section>
+        <div class="job-detail-actions" title="@CancelButtonTitle">
+            <button class="@CancelButtonClass" type="button" title="@CancelButtonTitle"
+                    aria-label="@CancelButtonAriaLabel" @onclick="CancelJobAsync" disabled="@IsCancelButtonDisabled">
+                <span class="material-symbols-outlined" aria-hidden="true">@CancelButtonIcon</span>
+                <span>@CancelButtonText</span>
+            </button>
+        </div>
+    </header>
 
-    <section>
-        <h3>Tags</h3>
-        @if (_detail.Summary.Tags.Count == 0)
-        {
-            <p>No tags.</p>
-        }
-        else
-        {
-            <ul>
-                @foreach (var tag in _detail.Summary.Tags)
-                {
-                    <li>@tag.Name = @tag.Value</li>
-                }
-            </ul>
-        }
-    </section>
+    @if (_actionMessage is not null)
+    {
+        <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
+            <span>@_actionMessage</span>
+        </DashboardInlineAlert>
+    }
 
-    <section>
-        <h3>Latest Progress</h3>
-        @if (_detail.Summary.LatestProgress is null)
-        {
-            <p>No progress reported.</p>
-        }
-        else
-        {
-            <p>@_detail.Summary.LatestProgress.Percent% @_detail.Summary.LatestProgress.Message</p>
-        }
-    </section>
+    @if (_error is not null)
+    {
+        <section class="job-detail-message job-detail-message--error" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <div>
+                <h1>Job detail failed to load</h1>
+                <p>@_error</p>
+            </div>
+        </section>
+    }
+    else if (_isLoading && _detail is null)
+    {
+        <section class="job-detail-message" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <div>
+                <h1>Loading job detail</h1>
+                <p>Reading scheduler job record and durable events.</p>
+            </div>
+        </section>
+    }
+    else if (_detail is null)
+    {
+        <section class="job-detail-not-found-canvas" aria-live="polite">
+            <div class="job-detail-not-found-card">
+                <div class="job-detail-not-found-card__icon" aria-hidden="true">
+                    <span class="material-symbols-outlined">search_off</span>
+                </div>
 
-    <section>
-        <h3>Events</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Seq</th>
-                    <th>Time</th>
-                    <th>Kind</th>
-                    <th>Attempt</th>
-                    <th>Level</th>
-                    <th>Message</th>
-                    <th>Progress</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var jobEvent in _events)
-                {
-                    <tr>
-                        <td>@jobEvent.EventSequence</td>
-                        <td>@jobEvent.OccurredAtUtc</td>
-                        <td>@jobEvent.Kind</td>
-                        <td>@jobEvent.AttemptNumber</td>
-                        <td>@jobEvent.LogLevel</td>
-                        <td>@jobEvent.Message</td>
-                        <td>@jobEvent.ProgressPercent</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </section>
-}
+                <h1>Job Not Found</h1>
+                <p>
+                    The requested execution record could not be located. No job found with ID:
+                    <span class="job-detail-not-found-card__id">@DashboardFormat.JobId(JobId)</span>
+                </p>
+
+                <a class="job-detail-not-found-card__action" href="jobs">
+                    <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+                    <span>Return to Jobs</span>
+                </a>
+            </div>
+        </section>
+    }
+    else
+    {
+        var job = _detail.Summary;
+        var lifecycleEvents = GetLifecycleEvents();
+        var logEvents = GetLogEvents();
+
+        @if (LiveRefresh.RefreshError is not null)
+        {
+            <DashboardInlineAlert CssClass="job-detail-inline-alert job-detail-inline-alert--error" Icon="warning">
+                <span>Refresh failed: @LiveRefresh.RefreshError</span>
+            </DashboardInlineAlert>
+        }
+
+        <section class="job-detail-hero">
+            <div class="job-detail-hero__main">
+                <div class="job-detail-identity">
+                    <div class="job-detail-title-row">
+                        <h1>@DashboardFormat.JobId(job.JobId)</h1>
+                        <StateBadge BaseClass="job-detail-state" DotClass="job-detail-state__dot" State="job.State"
+                                    Href="@StateFilterHref(job.State)" Title="@StateFilterTitle(job.State)"
+                                    AriaLabel="@StateFilterTitle(job.State)" />
+                    </div>
+                    <p>
+                        Handler:
+                            <a class="job-detail-handler job-detail-filter-link"
+                               href="@HandlerFilterHref(job)"
+                               title="@DashboardFormat.FullHandler(job)"
+                               aria-label="@HandlerFilterTitle(job)">@DashboardFormat.FullHandler(job)</a>
+                    </p>
+                </div>
+            </div>
+
+            <div class="job-detail-summary-grid">
+                <div class="job-detail-summary-block">
+                    <span class="job-detail-label">Progress</span>
+                    <div class="job-detail-progress-line">
+                        <div class="job-detail-progress-track" aria-hidden="true">
+                            <span class="job-detail-progress-bar" style="@DashboardFormat.ProgressWidthStyle(job.LatestProgress)"></span>
+                        </div>
+                        <span class="job-detail-progress-percent">@DashboardFormat.ProgressPercent(job.LatestProgress)</span>
+                    </div>
+                    <span class="job-detail-muted">@DashboardFormat.ProgressText(job.LatestProgress)</span>
+                </div>
+
+                <div class="job-detail-summary-block job-detail-summary-block--ruled">
+                    <span class="job-detail-label">Timestamps</span>
+                    <div class="job-detail-timestamp-pair">
+                        <div>
+                            <span>Started:</span>
+                            <TimestampBlock BaseClass="job-detail-inline-timestamp" Value="GetStartedAt(_detail)"
+                                            AllowFutureRelative="false" />
+                        </div>
+                        <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(GetStartedAt(_detail))</span>
+                    </div>
+                </div>
+
+                <div class="job-detail-summary-block job-detail-summary-block--ruled">
+                    <span class="job-detail-label">Disposition</span>
+                    <span class="job-detail-disposition @GetDispositionClass(job)">@DashboardFormat.Disposition(job)</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="job-detail-content-grid">
+            <section class="job-detail-panel job-detail-metadata-panel">
+                <h2>Metadata</h2>
+
+                <div class="job-detail-metadata-list">
+                    <div class="job-detail-metadata-item">
+                        <span>Priority</span>
+                        <strong>@job.Priority.ToString(CultureInfo.InvariantCulture)</strong>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Attempts</span>
+                        <strong class="@(job.AttemptCount > 1 ? "job-detail-text-warning" : null)">@DashboardFormat.Attempts(job)</strong>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Enqueue Seq</span>
+                        <strong>@job.EnqueueSequence.ToString(CultureInfo.InvariantCulture)</strong>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Queue Position</span>
+                        <strong title="@DashboardFormat.QueuePosition(job.QueuePosition)">@DashboardFormat.QueuePosition(job.QueuePosition)</strong>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Source Schedule Key</span>
+                        <strong title="@DashboardFormat.Nullable(job.SourceScheduleKey)">@DashboardFormat.Nullable(job.SourceScheduleKey)</strong>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Claimed Node ID</span>
+                        <strong title="@DashboardFormat.Nullable(_detail.ClaimedByNodeId)">@DashboardFormat.Nullable(_detail.ClaimedByNodeId)</strong>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Lease Expiration</span>
+                        <div class="job-detail-stacked-value">
+                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="_detail.LeaseExpiresAtUtc" />
+                        </div>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Enqueued</span>
+                        <div class="job-detail-stacked-value">
+                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="job.EnqueuedAtUtc"
+                                            AllowFutureRelative="false" />
+                        </div>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Not Before</span>
+                        <div class="job-detail-stacked-value">
+                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="job.NotBeforeUtc" />
+                        </div>
+                    </div>
+                    <div class="job-detail-metadata-item">
+                        <span>Scheduled Fire</span>
+                        <div class="job-detail-stacked-value">
+                            <TimestampBlock BaseClass="job-detail-value-timestamp" Value="_detail.ScheduledFireAtUtc"
+                                            AllowFutureRelative="false" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="job-detail-chip-section">
+                    <span class="job-detail-label">Tags</span>
+                    <ChipList ClassPrefix="job-detail-chip" Values="DashboardFormat.Tags(job.Tags)"
+                              Title="@DashboardFormat.TagsTitle(job.Tags)" HrefFactory="TagFilterHref"
+                              LinkAriaLabelPrefix="Filter jobs by tag" />
+                </div>
+
+                <div class="job-detail-chip-section">
+                    <span class="job-detail-label">Groups</span>
+                    <ChipList ClassPrefix="job-detail-chip" Values="job.ConcurrencyGroupKeys"
+                              Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
+                              HrefFactory="GroupFilterHref"
+                              LinkAriaLabelPrefix="Filter jobs by group" />
+                </div>
+            </section>
+
+            <div class="job-detail-operations">
+                <section class="job-detail-panel">
+                    <h2>Lifecycle Timeline</h2>
+
+                    @if (lifecycleEvents.Count == 0)
+                    {
+                        <p class="job-detail-empty">No lifecycle events have been recorded.</p>
+                    }
+                    else
+                    {
+                        <div class="job-detail-timeline">
+                            @foreach (var jobEvent in lifecycleEvents)
+                            {
+                                <article class="@DashboardFormat.TimelineItemClass(jobEvent)" @key="jobEvent.EventId">
+                                    <span class="job-detail-timeline__dot" aria-hidden="true"></span>
+                                    <div class="job-detail-timeline__content">
+                                        <p>@DashboardFormat.TimelineTitle(jobEvent)</p>
+                                        @if (DashboardFormat.ShouldRenderTimelineMessage(jobEvent))
+                                        {
+                                            <span>@jobEvent.Message</span>
+                                        }
+                                    </div>
+                                    <div class="job-detail-timeline__time">
+                                        <TimestampBlock BaseClass="job-detail-event-timestamp" Value="jobEvent.OccurredAtUtc"
+                                                        AllowFutureRelative="false" />
+                                    </div>
+                                </article>
+                            }
+                        </div>
+                    }
+                </section>
+
+                <section class="job-detail-panel job-detail-log-panel">
+                    <div class="job-detail-log-header">
+                        <div>
+                            <h2>Log Stream</h2>
+                        </div>
+
+                        <div class="job-detail-log-actions">
+                            <label class="job-detail-switch">
+                                <input type="checkbox" checked="@_showProgressLogs" @onchange="ToggleProgressLogs" />
+                                <span aria-hidden="true"></span>
+                                <strong>Show Progress</strong>
+                            </label>
+                            <button class="job-detail-button job-detail-button--secondary job-detail-button--compact" type="button" @onclick="ToggleLogsPaused">
+                                <span class="material-symbols-outlined" aria-hidden="true">@(_logsPaused ? "play_arrow" : "pause")</span>
+                                <span>@(_logsPaused ? "Resume" : "Pause")</span>
+                            </button>
+                            <div class="job-detail-stream-status @(_logsPaused ? "job-detail-stream-status--paused" : null)">
+                                <span aria-hidden="true"></span>
+                                <strong>@(_logsPaused ? "PAUSED" : "LIVE")</strong>
+                            </div>
+                            <button class="job-detail-icon-button" type="button" disabled aria-label="Download logs" title="Download logs">
+                                <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="job-detail-log-table-wrap">
+                        <table class="job-detail-log-table">
+                            <thead>
+                                <tr>
+                                    <th>Att</th>
+                                    <th>Level</th>
+                                    <th>Time</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (logEvents.Count == 0)
+                                {
+                                    <tr>
+                                        <td class="job-detail-empty-row" colspan="4">@GetLogEmptyMessage()</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var jobEvent in logEvents)
+                                    {
+                                        <tr class="@GetLogRowClass(jobEvent, logEvents)" @key="jobEvent.EventId">
+                                            <td>@jobEvent.AttemptNumber.ToString(CultureInfo.InvariantCulture)</td>
+                                            <td>
+                                                <span class="@DashboardFormat.LogLevelClass(jobEvent)">@DashboardFormat.LogLevel(jobEvent)</span>
+                                            </td>
+                                            <td>
+                                                <div class="job-detail-log-time">
+                                                    <TimestampBlock BaseClass="job-detail-log-timestamp" Value="jobEvent.OccurredAtUtc"
+                                                                    AllowFutureRelative="false" />
+                                                    <span>@DashboardFormat.UtcClock(jobEvent.OccurredAtUtc, includeMilliseconds: true)</span>
+                                                </div>
+                                            </td>
+                                            <td>@DashboardFormat.LogMessage(jobEvent)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .job-detail-page {
+        display: flex;
+        max-width: 1400px;
+        margin: 0 auto;
+        flex-direction: column;
+        gap: var(--sd-page-margin);
+    }
+
+    .job-detail-toolbar,
+    .job-detail-toolbar__primary,
+    .job-detail-hero__main,
+    .job-detail-title-row,
+    .job-detail-actions,
+    .job-detail-progress-line,
+    .job-detail-log-header,
+    .job-detail-log-header>div,
+    .job-detail-log-actions,
+    .job-detail-back-link,
+    .job-detail-stream-status {
+        display: flex;
+        align-items: center;
+    }
+
+    .job-detail-toolbar {
+        justify-content: space-between;
+        gap: var(--sd-gutter);
+    }
+
+    .job-detail-toolbar__primary {
+        gap: 16px;
+        min-width: 0;
+    }
+
+    .job-detail-toolbar__title {
+        color: var(--sd-primary);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 16px;
+        text-transform: uppercase;
+    }
+
+    .job-detail-back-link {
+        gap: 6px;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 16px;
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    .job-detail-back-link:hover {
+        color: var(--sd-primary);
+    }
+
+    .job-detail-message,
+    .job-detail-inline-alert {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        padding: 16px;
+    }
+
+    .job-detail-message .material-symbols-outlined,
+    .job-detail-inline-alert .material-symbols-outlined {
+        color: var(--sd-primary);
+    }
+
+    .job-detail-message p,
+    .job-detail-inline-alert,
+    .job-detail-muted,
+    .job-detail-empty,
+    .job-detail-empty-row {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .job-detail-message--error,
+    .job-detail-inline-alert--error {
+        border-color: var(--sd-error);
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    .job-detail-message--error .material-symbols-outlined,
+    .job-detail-inline-alert--error .material-symbols-outlined {
+        color: var(--sd-error);
+    }
+
+    .job-detail-inline-alert--warning {
+        border-color: var(--sd-warning);
+        background: var(--sd-warning-container);
+        color: var(--sd-warning);
+    }
+
+    .job-detail-inline-alert--warning .material-symbols-outlined {
+        color: var(--sd-warning);
+    }
+
+    .job-detail-inline-alert--success {
+        border-color: var(--sd-success);
+        background: var(--sd-success-container);
+        color: var(--sd-success);
+    }
+
+    .job-detail-inline-alert--success .material-symbols-outlined {
+        color: var(--sd-success);
+    }
+
+    .job-detail-not-found-canvas {
+        display: flex;
+        min-height: min(640px, calc(100vh - 160px));
+        align-items: center;
+        justify-content: center;
+        padding: 48px 16px;
+    }
+
+    .job-detail-not-found-card {
+        display: flex;
+        width: 100%;
+        max-width: 448px;
+        align-items: center;
+        flex-direction: column;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        padding: 32px;
+        text-align: center;
+    }
+
+    .job-detail-not-found-card__icon {
+        display: inline-flex;
+        width: 64px;
+        height: 64px;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 24px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 999px;
+        background: var(--sd-surface-variant);
+        color: var(--sd-primary);
+    }
+
+    .job-detail-not-found-card__icon .material-symbols-outlined {
+        font-size: 32px;
+    }
+
+    .job-detail-not-found-card h1 {
+        color: var(--sd-on-surface);
+        font-size: 24px;
+        line-height: 32px;
+    }
+
+    .job-detail-not-found-card p {
+        max-width: 360px;
+        margin-top: 8px;
+        color: var(--sd-on-surface-variant);
+        font-size: 14px;
+        line-height: 20px;
+    }
+
+    .job-detail-not-found-card__id {
+        display: inline-block;
+        max-width: 100%;
+        overflow: hidden;
+        margin-top: 8px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-high);
+        color: var(--sd-primary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 13px;
+        line-height: 18px;
+        padding: 2px 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .job-detail-not-found-card__action {
+        display: inline-flex;
+        min-height: 36px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 32px;
+        border: 1px solid var(--sd-primary);
+        border-radius: 2px;
+        background: var(--sd-primary);
+        color: var(--sd-on-primary);
+        padding: 8px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-decoration: none;
+        text-transform: uppercase;
+    }
+
+    .job-detail-not-found-card__action:hover {
+        background: var(--sd-surface-lowest);
+        color: var(--sd-primary);
+    }
+
+    .job-detail-not-found-card__action .material-symbols-outlined {
+        font-size: 16px;
+    }
+
+    .job-detail-hero,
+    .job-detail-panel {
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+    }
+
+    .job-detail-hero {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px;
+    }
+
+    .job-detail-hero__main {
+        justify-content: space-between;
+        gap: 16px;
+    }
+
+    .job-detail-identity {
+        min-width: 0;
+    }
+
+    .job-detail-title-row {
+        min-width: 0;
+        gap: 12px;
+    }
+
+    .job-detail-title-row h1 {
+        overflow: hidden;
+        color: var(--sd-primary);
+        font-size: 24px;
+        line-height: 32px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .job-detail-identity p {
+        margin-top: 4px;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .job-detail-handler,
+    .job-detail-mono,
+    .job-detail-metadata-item strong,
+    .job-detail-chip,
+    .job-detail-progress-percent,
+    .job-detail-log-table,
+    .job-detail-timeline__time span {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .job-detail-handler {
+        display: inline-block;
+        max-width: min(760px, 80vw);
+        overflow: hidden;
+        border-radius: 2px;
+        background: var(--sd-surface-container);
+        color: var(--sd-primary);
+        padding: 1px 5px;
+        text-decoration: none;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+        white-space: nowrap;
+    }
+
+    .job-detail-filter-link:hover {
+        color: var(--sd-primary);
+        text-decoration: underline;
+        text-decoration-color: var(--sd-primary);
+        text-underline-offset: 2px;
+    }
+
+    .job-detail-actions {
+        flex: 0 0 auto;
+        gap: 12px;
+    }
+
+    .job-detail-page button.job-detail-button,
+    .job-detail-page button.job-detail-icon-button {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 2px;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 16px;
+        transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+    }
+
+    .job-detail-page button.job-detail-button--secondary,
+    .job-detail-page button.job-detail-icon-button {
+        border: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface);
+    }
+
+    .job-detail-page button.job-detail-button--danger {
+        border: 1px solid var(--sd-error);
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    .job-detail-page button.job-detail-button--compact {
+        min-height: 30px;
+        padding: 5px 9px;
+    }
+
+    .job-detail-page button.job-detail-icon-button {
+        width: 30px;
+        min-height: 30px;
+        padding: 0;
+    }
+
+    .job-detail-page button.job-detail-button:hover:not(:disabled),
+    .job-detail-page button.job-detail-icon-button:hover:not(:disabled) {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    .job-detail-page button.job-detail-button--danger:hover:not(:disabled) {
+        border-color: var(--sd-error);
+        color: var(--sd-error);
+    }
+
+    .job-detail-page button:disabled {
+        cursor: default;
+        opacity: 0.6;
+    }
+
+    .job-detail-actions .job-detail-cancel-action:disabled {
+        pointer-events: none;
+    }
+
+    .job-detail-state,
+    .job-detail-disposition {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 999px;
+        padding: 3px 9px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-decoration: none;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    a.job-detail-state:hover {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    .job-detail-state__dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--sd-outline);
+    }
+
+    .job-detail-state--queued {
+        background: var(--sd-surface);
+        color: var(--sd-on-surface-variant);
+    }
+
+    .job-detail-state--claimed {
+        border-color: var(--sd-secondary-container);
+        background: var(--sd-secondary-container);
+        color: var(--sd-on-secondary-container);
+    }
+
+    .job-detail-state--claimed .job-detail-state__dot {
+        background: var(--sd-primary);
+    }
+
+    .job-detail-state--completed {
+        background: var(--sd-surface-variant);
+        color: var(--sd-on-surface);
+    }
+
+    .job-detail-state--failed {
+        border-color: var(--sd-error-container);
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    .job-detail-state--failed .job-detail-state__dot {
+        background: var(--sd-error);
+    }
+
+    .job-detail-state--canceled {
+        background: var(--sd-surface-high);
+        color: var(--sd-outline);
+    }
+
+    .job-detail-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        border-top: 1px solid var(--sd-outline-variant);
+        padding-top: 16px;
+    }
+
+    .job-detail-summary-block {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .job-detail-summary-block--ruled {
+        border-left: 1px solid var(--sd-outline-variant);
+        padding-left: 16px;
+    }
+
+    .job-detail-label,
+    .job-detail-metadata-item>span,
+    .job-detail-log-table th {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .job-detail-progress-line {
+        gap: 12px;
+    }
+
+    .job-detail-progress-track {
+        width: 100%;
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--sd-surface-variant);
+    }
+
+    .job-detail-progress-bar {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--sd-primary);
+    }
+
+    .job-detail-progress-percent {
+        min-width: 44px;
+        color: var(--sd-primary);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 18px;
+        text-align: right;
+    }
+
+    .job-detail-timestamp-pair {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .job-detail-timestamp-pair>div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .job-detail-timestamp-pair strong,
+    .job-detail-disposition {
+        color: var(--sd-primary);
+    }
+
+    .job-detail-inline-timestamp__absolute {
+        display: none;
+    }
+
+    .job-detail-inline-timestamp__relative {
+        color: var(--sd-primary);
+        font-weight: 700;
+    }
+
+    .job-detail-disposition {
+        width: fit-content;
+        border-radius: 2px;
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+        text-transform: none;
+    }
+
+    .job-detail-disposition--error {
+        color: var(--sd-error);
+    }
+
+    .job-detail-content-grid {
+        display: grid;
+        grid-template-columns: minmax(260px, 1fr) minmax(0, 3fr);
+        gap: var(--sd-gutter);
+    }
+
+    .job-detail-panel {
+        min-width: 0;
+        padding: 16px;
+    }
+
+    .job-detail-panel h2 {
+        border-bottom: 1px solid var(--sd-outline-variant);
+        color: var(--sd-primary);
+        padding-bottom: 12px;
+    }
+
+    .job-detail-metadata-panel {
+        align-self: start;
+    }
+
+    .job-detail-metadata-list,
+    .job-detail-operations,
+    .job-detail-chip-section {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .job-detail-metadata-list {
+        gap: 12px;
+        margin-top: 16px;
+    }
+
+    .job-detail-metadata-item {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .job-detail-metadata-item strong {
+        overflow: hidden;
+        color: var(--sd-on-surface);
+        font-size: 13px;
+        line-height: 18px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .job-detail-stacked-value {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .job-detail-value-timestamp {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .job-detail-value-timestamp__relative {
+        color: var(--sd-on-surface);
+        font-weight: 700;
+    }
+
+    .job-detail-value-timestamp__absolute {
+        color: var(--sd-on-surface-variant);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .job-detail-text-warning {
+        color: var(--sd-warning) !important;
+    }
+
+    .job-detail-chip-section {
+        gap: 8px;
+        margin-top: 18px;
+        border-top: 1px solid var(--sd-outline-variant);
+        padding-top: 14px;
+    }
+
+    .job-detail-chip-list {
+        display: flex;
+        min-width: 0;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .job-detail-chip {
+        max-width: 100%;
+        overflow: hidden;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-low);
+        color: var(--sd-on-surface-variant);
+        font-size: 10px;
+        line-height: 14px;
+        padding: 2px 7px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    a.job-detail-chip {
+        text-decoration: none;
+    }
+
+    a.job-detail-chip:hover {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    .job-detail-chip-empty {
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .job-detail-operations {
+        gap: var(--sd-page-margin);
+    }
+
+    .job-detail-empty {
+        padding-top: 16px;
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .job-detail-timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        margin: 16px 0 0 8px;
+        border-left: 1px solid var(--sd-outline-variant);
+        padding-left: 16px;
+    }
+
+    .job-detail-timeline-item {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+    }
+
+    .job-detail-timeline__dot {
+        position: absolute;
+        top: 5px;
+        left: -22px;
+        width: 11px;
+        height: 11px;
+        border: 2px solid var(--sd-surface-lowest);
+        border-radius: 999px;
+        background: var(--sd-outline-variant);
+    }
+
+    .job-detail-timeline-item--active .job-detail-timeline__dot,
+    .job-detail-stream-status span {
+        background: var(--sd-primary);
+    }
+
+    .job-detail-timeline-item--failed .job-detail-timeline__dot {
+        background: var(--sd-error);
+    }
+
+    .job-detail-timeline-item--completed .job-detail-timeline__dot {
+        background: var(--sd-success);
+    }
+
+    .job-detail-timeline__content {
+        min-width: 0;
+    }
+
+    .job-detail-timeline__content p {
+        color: var(--sd-on-surface);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 16px;
+    }
+
+    .job-detail-timeline-item--active .job-detail-timeline__content p {
+        color: var(--sd-primary);
+    }
+
+    .job-detail-timeline-item--failed .job-detail-timeline__content p,
+    .job-detail-timeline-item--failed .job-detail-timeline__content span {
+        color: var(--sd-error);
+    }
+
+    .job-detail-timeline__content span {
+        display: inline-block;
+        margin-top: 3px;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .job-detail-timeline-item--failed .job-detail-timeline__content span {
+        border-radius: 2px;
+        background: var(--sd-error-container);
+        padding: 2px 5px;
+    }
+
+    .job-detail-timeline__time {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        color: var(--sd-on-surface-variant);
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .job-detail-timeline__time strong {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 16px;
+    }
+
+    .job-detail-timeline__time span {
+        font-size: 10px;
+        line-height: 14px;
+    }
+
+    .job-detail-event-timestamp {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .job-detail-event-timestamp__relative {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 16px;
+    }
+
+    .job-detail-event-timestamp__absolute {
+        font-size: 10px;
+        line-height: 14px;
+    }
+
+    .job-detail-log-panel {
+        overflow: hidden;
+        padding: 0;
+    }
+
+    .job-detail-log-header {
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface-lowest);
+        padding: 16px;
+    }
+
+    .job-detail-log-header>div:first-child {
+        gap: 14px;
+    }
+
+    .job-detail-log-header h2 {
+        border-bottom: 0;
+        padding-bottom: 0;
+    }
+
+    .job-detail-stream-status {
+        min-height: 30px;
+        gap: 7px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface);
+        padding: 5px 9px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .job-detail-stream-status span {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+    }
+
+    .job-detail-stream-status--paused span {
+        background: var(--sd-outline);
+    }
+
+    .job-detail-stream-status--paused {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .job-detail-log-actions {
+        gap: 8px;
+    }
+
+    .job-detail-switch {
+        display: inline-flex;
+        min-height: 30px;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface-variant);
+        cursor: pointer;
+        padding: 5px 9px;
+        user-select: none;
+    }
+
+    .job-detail-switch input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    .job-detail-switch span {
+        position: relative;
+        display: inline-flex;
+        width: 28px;
+        height: 16px;
+        flex: 0 0 auto;
+        align-items: center;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 999px;
+        background: var(--sd-surface-variant);
+    }
+
+    .job-detail-switch span::before {
+        width: 10px;
+        height: 10px;
+        margin-left: 2px;
+        border-radius: 999px;
+        background: var(--sd-outline);
+        content: "";
+        transition: margin-left 150ms ease, background-color 150ms ease;
+    }
+
+    .job-detail-switch input:checked+span {
+        border-color: var(--sd-primary);
+        background: var(--sd-secondary-container);
+    }
+
+    .job-detail-switch input:checked+span::before {
+        margin-left: 14px;
+        background: var(--sd-primary);
+    }
+
+    .job-detail-switch input:focus-visible+span {
+        outline: 2px solid var(--sd-primary);
+        outline-offset: 2px;
+    }
+
+    .job-detail-switch strong {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .job-detail-log-table-wrap {
+        overflow-x: auto;
+        background: var(--sd-surface-container);
+        padding: 12px 16px 16px;
+    }
+
+    .job-detail-log-table {
+        min-width: 760px;
+        table-layout: fixed;
+    }
+
+    .job-detail-log-table th,
+    .job-detail-log-table td {
+        border-bottom: 1px solid var(--sd-outline-variant);
+        padding: 6px 8px;
+        text-align: left;
+        vertical-align: middle;
+    }
+
+    .job-detail-log-table th:nth-child(1),
+    .job-detail-log-table td:nth-child(1) {
+        width: 56px;
+    }
+
+    .job-detail-log-table th:nth-child(2),
+    .job-detail-log-table td:nth-child(2) {
+        width: 96px;
+    }
+
+    .job-detail-log-table th:nth-child(3),
+    .job-detail-log-table td:nth-child(3) {
+        width: 148px;
+    }
+
+    .job-detail-log-table td {
+        color: var(--sd-on-surface);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .job-detail-log-table tbody tr:hover {
+        background: var(--sd-surface-high);
+    }
+
+    .job-detail-log-row--current td:last-child {
+        border-left: 2px solid var(--sd-primary);
+        color: var(--sd-on-surface);
+        font-weight: 700;
+    }
+
+    .job-detail-log-time {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        color: var(--sd-on-surface-variant);
+    }
+
+    .job-detail-log-time span:last-child {
+        font-size: 10px;
+        opacity: 0.75;
+    }
+
+    .job-detail-log-timestamp__relative {
+        display: block;
+    }
+
+    .job-detail-log-timestamp__absolute {
+        display: none;
+    }
+
+    .job-detail-log-level--trace,
+    .job-detail-log-level--debug {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .job-detail-log-level--information,
+    .job-detail-log-level--progress {
+        color: var(--sd-primary);
+    }
+
+    .job-detail-log-level--warning {
+        color: var(--sd-warning);
+    }
+
+    .job-detail-log-level--error,
+    .job-detail-log-level--critical {
+        color: var(--sd-error);
+    }
+
+    .job-detail-empty-row {
+        height: 96px;
+        text-align: center;
+    }
+
+    @@media (max-width: 1100px) {
+        .job-detail-hero__main,
+        .job-detail-toolbar,
+        .job-detail-log-header {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .job-detail-actions,
+        .job-detail-log-actions {
+            flex-wrap: wrap;
+        }
+
+        .job-detail-summary-grid,
+        .job-detail-content-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .job-detail-summary-block--ruled {
+            border-left: 0;
+            border-top: 1px solid var(--sd-outline-variant);
+            padding-top: 16px;
+            padding-left: 0;
+        }
+    }
+
+    @@media (max-width: 720px) {
+        .job-detail-title-row {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .job-detail-title-row h1 {
+            max-width: 100%;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .job-detail-actions,
+        .job-detail-page button.job-detail-button {
+            width: 100%;
+        }
+
+        .job-detail-timeline-item {
+            grid-template-columns: 1fr;
+            gap: 6px;
+        }
+
+        .job-detail-timeline__time {
+            text-align: left;
+        }
+    }
+</style>
 
 @code {
+    private const int EventPageSize = 500;
+
+    private readonly List<JobEvent> _events = [];
+    private JobInspectionDetail? _detail;
+    private Guid? _loadedJobId;
+    private string? _error;
+    private string? _actionMessage;
+    private JobDetailActionAlertKind _actionAlertKind;
+    private bool _isLoading;
+    private bool _isCancelRunning;
+    private bool _logsPaused;
+    private bool _showProgressLogs;
+
     [Parameter]
     public Guid JobId { get; set; }
 
-    private DashboardJobDetail? _detail;
-    private IReadOnlyList<DashboardJobEvent> _events = [];
+    private string ActionAlertClass
+      => this._actionAlertKind switch
+      {
+          JobDetailActionAlertKind.Success => "job-detail-inline-alert job-detail-inline-alert--success",
+          JobDetailActionAlertKind.Warning => "job-detail-inline-alert job-detail-inline-alert--warning",
+          _ => "job-detail-inline-alert job-detail-inline-alert--error",
+      };
 
-    protected override async Task OnInitializedAsync()
+    private string ActionAlertIcon
+      => this._actionAlertKind switch
+      {
+          JobDetailActionAlertKind.Success => "check_circle",
+          JobDetailActionAlertKind.Warning => "warning",
+          _ => "error",
+      };
+
+    private bool IsCancelButtonDisabled
+      => this._isCancelRunning || !this.CanCancelCurrentJob();
+
+    private string CancelButtonClass
+      => this.CanCancelCurrentJob()
+        ? "job-detail-button job-detail-button--danger job-detail-cancel-action"
+        : "job-detail-button job-detail-button--secondary job-detail-cancel-action";
+
+    private string CancelButtonIcon
+      => this._isCancelRunning
+        ? "progress_activity"
+        : this._detail?.Summary is { State: JobState.Claimed, CancellationRequestedAtUtc: not null }
+          ? "pending"
+          : "cancel";
+
+    private string CancelButtonText
+      => this._isCancelRunning
+        ? "Canceling"
+        : this._detail?.Summary is { State: JobState.Claimed, CancellationRequestedAtUtc: not null }
+          ? "Cancellation Requested"
+          : "Cancel Job";
+
+    private string CancelButtonTitle
+      => this.GetCancelButtonTitle();
+
+    private string CancelButtonAriaLabel
+      => string.Create(CultureInfo.InvariantCulture, $"{this.CancelButtonText}: {this.CancelButtonTitle}");
+
+    protected override void OnInitialized()
     {
+        this.InitializeLiveRefresh(
+          this.RefreshDetailAsync,
+          showRefreshing: true,
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._detail is null ? null : nowUtc));
         LiveUpdates.JobEventPublished += this.OnJobEventPublishedAsync;
-        await LoadAsync().ConfigureAwait(false);
     }
 
-    public void Dispose()
-      => LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
-
-    private async ValueTask OnJobEventPublishedAsync(
-        DashboardJobEvent jobEvent,
-        CancellationToken cancellationToken)
+    protected override async Task OnParametersSetAsync()
     {
-        if (jobEvent.JobId != JobId)
+        if (this._loadedJobId == this.JobId)
         {
             return;
         }
 
-        await LoadAsync().ConfigureAwait(false);
-        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+        this._loadedJobId = this.JobId;
+        this._detail = null;
+        this._events.Clear();
+        this._error = null;
+        this.ClearActionAlert();
+        this._isCancelRunning = false;
+        this.LiveRefresh.ClearError();
+        this._logsPaused = false;
+        this._showProgressLogs = false;
+
+        await this.LoadAsync();
+    }
+
+    private protected override ValueTask DisposePageAsync()
+    {
+        LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
+        return ValueTask.CompletedTask;
+    }
+
+    private void ToggleLogsPaused()
+      => this._logsPaused = !this._logsPaused;
+
+    private void ToggleProgressLogs(ChangeEventArgs eventArgs)
+      => this._showProgressLogs = eventArgs.Value is true;
+
+    private async Task CancelJobAsync()
+    {
+        if (this._isCancelRunning || !this.CanCancelCurrentJob())
+        {
+            return;
+        }
+
+        this._isCancelRunning = true;
+        this.ClearActionAlert();
+
+        try
+        {
+            var result = await JobManager.CancelAsync(this.JobId);
+
+            this.SetCancelActionResult(result);
+            await this.LiveRefresh.RefreshNowAsync();
+        }
+        catch (Exception exception)
+        {
+            this.SetActionError(string.Create(CultureInfo.InvariantCulture, $"Cancel failed: {exception.Message}"));
+        }
+        finally
+        {
+            this._isCancelRunning = false;
+        }
+    }
+
+    private async ValueTask OnJobEventPublishedAsync(
+        JobEvent jobEvent,
+        CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+
+        if (jobEvent.JobId != this.JobId || this._logsPaused)
+        {
+            return;
+        }
+
+        await this.ApplyPageStateAsync(() =>
+        {
+            this.AppendOrReplaceEvent(jobEvent);
+            this.ApplyLiveEventToDetail(jobEvent);
+            this.LiveRefresh.MarkLiveActivity(jobEvent.OccurredAtUtc);
+        });
+        this.LiveRefresh.QueueRefresh();
     }
 
     private async Task LoadAsync()
     {
-        _detail = await Reader.GetJobAsync(JobId).ConfigureAwait(false);
-        if (_detail is null)
+        await this.ApplyPageStateAsync(() =>
         {
-            _events = [];
+            if (this._detail is null)
+            {
+                this._isLoading = true;
+            }
+
+            this._error = null;
+            this.LiveRefresh.ClearError();
+        });
+
+        try
+        {
+            var (detail, events) = await this.ReadDetailAsync(CancellationToken.None);
+
+            await this.ApplyPageStateAsync(() =>
+            {
+                this.ApplyLoadedDetail(detail, events);
+                this._isLoading = false;
+                this.LiveRefresh.MarkUpdated();
+            });
+        }
+        catch (Exception exception)
+        {
+            await this.ApplyPageStateAsync(() =>
+            {
+                this._error = exception.Message;
+                this._isLoading = false;
+            });
+        }
+    }
+
+    private async Task RefreshDetailAsync(CancellationToken cancellationToken)
+    {
+        var (detail, events) = await this.ReadDetailAsync(cancellationToken);
+
+        await this.ApplyPageStateAsync(() => this.ApplyLoadedDetail(detail, events));
+    }
+
+    private async Task<(JobInspectionDetail? Detail, IReadOnlyList<JobEvent> Events)> ReadDetailAsync(CancellationToken cancellationToken)
+    {
+        var detail = await Reader.GetJobAsync(this.JobId, cancellationToken);
+        var events = new List<JobEvent>();
+        if (detail is not null)
+        {
+            await foreach (var jobEvent in Reader.ReadEventsAsync(
+                this.JobId,
+                new JobEventReadOptions(Limit: EventPageSize),
+                cancellationToken)
+              )
+            {
+                events.Add(jobEvent);
+            }
+        }
+
+        return (detail, events);
+    }
+
+    private void ApplyLoadedDetail(
+        JobInspectionDetail? detail,
+        IReadOnlyList<JobEvent> events)
+    {
+        this._detail = detail;
+        this._events.Clear();
+        this._events.AddRange(events.OrderBy(static jobEvent => jobEvent.EventSequence));
+    }
+
+    private void AppendOrReplaceEvent(JobEvent jobEvent)
+    {
+        var index = this._events.FindIndex(candidate =>
+          candidate.EventId == jobEvent.EventId || candidate.EventSequence == jobEvent.EventSequence);
+
+        if (index >= 0)
+        {
+            this._events[index] = jobEvent;
+        }
+        else
+        {
+            this._events.Add(jobEvent);
+        }
+
+        this._events.Sort(static (left, right) => left.EventSequence.CompareTo(right.EventSequence));
+    }
+
+    private void ApplyLiveEventToDetail(JobEvent jobEvent)
+    {
+        if (this._detail is null)
+        {
             return;
         }
 
-        var events = new List<DashboardJobEvent>();
-        await foreach (var jobEvent in Reader.ReadEventsAsync(JobId))
+        if (jobEvent.Kind == JobEventKind.Progress)
         {
-            events.Add(jobEvent);
+            this._detail = this._detail with
+            {
+                Summary = this._detail.Summary with
+                {
+                    LatestProgress = new JobProgressSnapshot(
+                      jobEvent.ProgressPercent,
+                      jobEvent.Message,
+                      jobEvent.OccurredAtUtc),
+                },
+            };
+            return;
         }
 
-        _events = events;
+        if (jobEvent.Kind == JobEventKind.CancelRequested)
+        {
+            this._detail = this._detail with
+            {
+                Summary = this._detail.Summary with
+                {
+                    CancellationRequestedAtUtc = jobEvent.OccurredAtUtc,
+                },
+            };
+        }
     }
 
-    private static string FormatQueuePosition(DashboardQueuePosition? position)
-      => position is null
-        ? string.Empty
-        : position.Position is null
-          ? $"{position.Kind}: {position.Reason}"
-          : $"{position.Kind}: {position.Position}";
+    private bool CanCancelCurrentJob()
+      => this._detail?.Summary is { } job
+        && (job.State == JobState.Queued
+          || (job.State == JobState.Claimed && job.CancellationRequestedAtUtc is null));
+
+    private string GetCancelButtonTitle()
+    {
+        if (this._isCancelRunning)
+        {
+            return "Cancel request is in progress.";
+        }
+
+        if (this._isLoading && this._detail is null)
+        {
+            return "Job detail is loading before cancellation can be evaluated.";
+        }
+
+        if (this._error is not null)
+        {
+            return "Job detail failed to load, so cancellation state cannot be evaluated.";
+        }
+
+        if (this._detail is null)
+        {
+            return "No job was found with this ID.";
+        }
+
+        var job = this._detail.Summary;
+        return job.State switch
+        {
+            JobState.Queued => "Cancel this queued job before it is claimed.",
+            JobState.Claimed when job.CancellationRequestedAtUtc is { } requestedAtUtc
+              => string.Create(
+                CultureInfo.InvariantCulture,
+                $"Cancellation was already requested at {DashboardFormat.Utc(requestedAtUtc)}; the worker will observe it on heartbeat."),
+            JobState.Claimed => "Request cooperative cancellation for this running job.",
+            JobState.Completed => FormatTerminalCancelReason("completed", job.CompletedAtUtc),
+            JobState.Failed => FormatTerminalCancelReason("failed", job.FailedAtUtc),
+            JobState.Canceled => job.CanceledAtUtc is null
+              ? "This job is already canceled."
+              : string.Create(CultureInfo.InvariantCulture, $"This job was canceled at {DashboardFormat.Utc(job.CanceledAtUtc)} and cannot be canceled again."),
+            _ => "This job cannot be canceled in its current state.",
+        };
+    }
+
+    private void SetCancelActionResult(JobCancellationResult result)
+    {
+        var jobId = DashboardFormat.JobId(this.JobId);
+        switch (result)
+        {
+            case JobCancellationResult.Canceled:
+                this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Job {jobId} canceled."));
+                break;
+            case JobCancellationResult.CancellationRequested:
+                this.SetActionSuccess(string.Create(CultureInfo.InvariantCulture, $"Cancellation requested for job {jobId}."));
+                break;
+            case JobCancellationResult.AlreadyFinished:
+                this.SetActionWarning(string.Create(CultureInfo.InvariantCulture, $"Job {jobId} already finished."));
+                break;
+            case JobCancellationResult.NotFound:
+                this.SetActionWarning(string.Create(CultureInfo.InvariantCulture, $"Job {jobId} was not found."));
+                break;
+            default:
+                this.SetActionWarning(string.Create(CultureInfo.InvariantCulture, $"Cancel returned {result} for job {jobId}."));
+                break;
+        }
+    }
+
+    private void SetActionSuccess(string message)
+    {
+        this._actionAlertKind = JobDetailActionAlertKind.Success;
+        this._actionMessage = message;
+    }
+
+    private void SetActionWarning(string message)
+    {
+        this._actionAlertKind = JobDetailActionAlertKind.Warning;
+        this._actionMessage = message;
+    }
+
+    private void SetActionError(string message)
+    {
+        this._actionAlertKind = JobDetailActionAlertKind.Error;
+        this._actionMessage = message;
+    }
+
+    private void ClearActionAlert()
+      => this._actionMessage = null;
+
+    private IReadOnlyList<JobEvent> GetLifecycleEvents()
+      => [.. this._events.Where(DashboardFormat.IsLifecycleEvent)];
+
+    private IReadOnlyList<JobEvent> GetLogEvents()
+      => [.. this._events
+        .Where(DashboardFormat.IsLogEvent)
+        .Where(jobEvent => this._showProgressLogs || jobEvent.Kind != JobEventKind.Progress)];
+
+    private string GetLogEmptyMessage()
+      => this._showProgressLogs
+        ? "No log or progress events have been recorded."
+        : "No log events have been recorded. Progress events are hidden.";
+
+    private static DateTimeOffset GetStartedAt(JobInspectionDetail detail)
+      => detail.ClaimedAtUtc ?? detail.Summary.EnqueuedAtUtc;
+
+    private static string FormatTerminalCancelReason(
+        string terminalState,
+        DateTimeOffset? timestamp)
+      => timestamp is null
+        ? string.Create(CultureInfo.InvariantCulture, $"This job {terminalState} and cannot be canceled.")
+        : string.Create(CultureInfo.InvariantCulture, $"This job {terminalState} at {DashboardFormat.Utc(timestamp)} and cannot be canceled.");
+
+    private static string GetDispositionClass(JobInspectionSummary job)
+      => job.State == JobState.Failed ? "job-detail-disposition--error" : string.Empty;
+
+    private static string GetLogRowClass(
+        JobEvent jobEvent,
+        IReadOnlyList<JobEvent> logEvents)
+      => logEvents.Count > 0
+        && logEvents[^1].EventSequence == jobEvent.EventSequence
+        && jobEvent.Kind == JobEventKind.Progress
+          ? "job-detail-log-row--current"
+          : string.Empty;
+
+    private static string StateFilterHref(JobState state)
+      => DashboardJobFilterQuery.StateHref(state);
+
+    private static string StateFilterTitle(JobState state)
+      => string.Concat("Filter jobs by state ", state);
+
+    private static string HandlerFilterHref(JobInspectionSummary job)
+      => DashboardJobFilterQuery.HandlerHref(DashboardFormat.ShortHandler(job));
+
+    private static string HandlerFilterTitle(JobInspectionSummary job)
+      => string.Concat("Filter jobs by handler ", DashboardFormat.ShortHandler(job));
+
+    private static string TagFilterHref(string tag)
+      => DashboardJobFilterQuery.TagHref(tag);
+
+    private static string GroupFilterHref(string group)
+      => DashboardJobFilterQuery.GroupHref(group);
+
+    private enum JobDetailActionAlertKind
+    {
+        Success,
+        Warning,
+        Error,
+    }
 }

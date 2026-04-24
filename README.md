@@ -1,26 +1,186 @@
 # Sheddueller
 
-A task scheduling library for .NET.
+**_Sheddueller_** - a .NET 10 task scheduler for applications that need durable background jobs, delayed work, recurring schedules, retries, dynamic concurrency groups, and a small operational dashboard.
 
-![Sheddueller hero](docs/assets/hero.png)
+**Sheddueller** - someone who duels with sheds. Think _The Big Lebowski_, but with a PC instead of a White Russian, sword-fighting a small and meaner version of _Howl's Moving Castle_.
 
-## Layout
+![Sheddueller hero](assets/hero.png)
 
-- `src/Sheddueller`: core library package
-- `samples/Sheddueller.SampleHost`: local sample host for dashboard and job-launcher development
-- `docs/roadmap.md`: implementation roadmap and shared glossary
-- `docs/v1-spec.md`: v1 implementation specification
-- `docs/v2-spec.md`: v2 implementation specification
-- `docs/v3-spec.md`: v3 PostgreSQL backend specification
-- `docs/v4-spec.md`: v4 dashboard specification
-- `docs/v5-spec.md`: v5 trusted operations console specification
-- `test/Sheddueller.Tests`: unit tests
+## Motivation
 
-## Commands
+I like [Hangfire](https://www.hangfire.io/). I've used it in a lot of projects. It sits in that pragmatic small-team space between rolling your own background services and cloudslop enterprise hell.
+
+If what you need is fire-and-forget jobs, delayed jobs, retries, and a useful dashboard, Hangfire is a solid option. I've got a long way with it. The thing I needed for my current project, though, was **concurrency groups**.
+
+A concurrency group is exactly what it sounds like: a group with a maximum number of concurrent jobs. You assign a job to one or more concurrency groups, and that job can only be claimed by a worker when there is a free slot in every group to which it belongs.
+
+In my case, I am ingesting vacation rental data from various sources. Lots of these sources are rate limited, so you can't just enqueue hundreds of data refreshes against them and hope for the best. They will ban you, throttle you, or send a nasty email (if they are French). It's a primitive industry.
+
+By putting all ingestion jobs for a specific API into a single concurrency group, I can ensure that no matter how many workers are running in the cluster, the number of concurrent fetches against that API is bounded by a number I've specified.
+
+[Laravel Horizon](https://laravel.com/docs/13.x/horizon) has a similar concept, expressed through queues, and it is very useful in practice.
+
+Obviously the `Ghost in a Bottle` has changed things. What would normally be a multi-month nightmare project that I simply couldn't justify becomes a short hack. So Sheddueller also includes a few other things I find annoying when working with background jobs, like not being able to search for jobs easily in the dashboard, and not being able to add diagnostic logging directly to the job view. Sometimes you just want the logs next to the thing that failed. Revolutionary stuff.
+
+This package has not yet been stress tested or battle hardened, so use with caution. I would advise against using it in important production systems until it has been put through its paces.
+
+## Packages
+
+| Package                 | Use it for                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------------- |
+| `Sheddueller`           | Core enqueueing, schedule management, runtime options, and abstractions.                     |
+| `Sheddueller.Postgres`  | PostgreSQL-backed storage, wake signals, inspection readers, and schema migrations.          |
+| `Sheddueller.Worker`    | Hosted worker execution loop for nodes that should claim and run jobs.                       |
+| `Sheddueller.Dashboard` | Embedded ASP.NET Core dashboard for jobs, schedules, nodes, metrics, and concurrency groups. |
+| `Sheddueller.Testing`   | Test fakes and capture helpers.                                                              |
+
+## Install
 
 ```bash
-dotnet restore
-dotnet build Sheddueller.slnx -c Debug
-dotnet test --solution Sheddueller.slnx -c Debug
-dotnet pack src/Sheddueller/Sheddueller.csproj -c Release
+dotnet add package Sheddueller
+dotnet add package Sheddueller.Postgres
+dotnet add package Sheddueller.Worker
 ```
+
+For a web dashboard:
+
+```bash
+dotnet add package Sheddueller.Dashboard
+```
+
+For tests:
+
+```bash
+dotnet add package Sheddueller.Testing
+```
+
+## Configure
+
+Register `AddSheddueller(...)` in processes that only submit work or manage schedules. Register `AddShedduellerWorker(...)` in processes that should also execute jobs.
+
+```csharp
+using Npgsql;
+using Sheddueller;
+using Sheddueller.Postgres;
+
+var dataSource = NpgsqlDataSource.Create(
+    builder.Configuration.GetConnectionString("Sheddueller")
+        ?? throw new InvalidOperationException("Missing Sheddueller connection string."));
+
+builder.Services.AddSingleton(dataSource);
+builder.Services.AddTransient<EmailJobs>();
+
+builder.Services.AddShedduellerWorker(sheddueller => sheddueller
+    .UsePostgres(postgres =>
+    {
+        postgres.DataSource = dataSource;
+        postgres.SchemaName = "sheddueller";
+    })
+    .ConfigureOptions(options =>
+    {
+        options.NodeId = Environment.MachineName;
+        options.MaxConcurrentExecutionsPerNode = 8;
+        options.DefaultRetryPolicy = new RetryPolicy(
+            MaxAttempts: 3,
+            BackoffKind: RetryBackoffKind.Exponential,
+            BaseDelay: TimeSpan.FromSeconds(5),
+            MaxDelay: TimeSpan.FromMinutes(1));
+    }));
+```
+
+Schema migrations are explicit:
+
+```csharp
+await app.Services.GetRequiredService<IPostgresMigrator>().ApplyAsync();
+```
+
+Run migrations during deployment or before starting workers against a new schema. Normal startup validates the configured provider; it does not silently create the schema.
+
+## Enqueue Jobs
+
+Job methods return `Task` or `ValueTask` and receive the scheduler-owned `CancellationToken`. Use `Job.Context` when a handler needs durable logs, progress events, the job id, or the attempt number.
+
+```csharp
+public sealed class EmailJobs
+{
+    public async Task SendWelcomeAsync(
+        Guid userId,
+        IJobContext job,
+        CancellationToken cancellationToken)
+    {
+        await job.LogAsync(JobLogLevel.Information, "Sending welcome email.", cancellationToken: cancellationToken);
+        await SendEmailAsync(userId, cancellationToken);
+        await job.ReportProgressAsync(100, "Welcome email sent.", cancellationToken);
+    }
+}
+
+var jobId = await enqueuer.EnqueueAsync<EmailJobs>(
+    (jobs, ct) => jobs.SendWelcomeAsync(userId, Job.Context, ct),
+    new JobSubmission(
+        Priority: 10,
+        ConcurrencyGroupKeys: ["email"],
+        RetryPolicy: new RetryPolicy(3, RetryBackoffKind.Exponential, TimeSpan.FromSeconds(5)),
+        Tags: [new JobTag("email", "send-welcome")]),
+    cancellationToken);
+```
+
+Use `NotBeforeUtc` for delayed jobs. Use `JobIdempotencyKind.MethodAndArguments` to reuse an existing queued job with the same target method and serialized arguments.
+
+## Recurring Schedules
+
+Recurring schedules are keyed definitions. Calling `CreateOrUpdateAsync` at startup is the intended reconciliation model.
+
+```csharp
+await schedules.CreateOrUpdateAsync<EmailJobs>(
+    "email:daily-digest",
+    "0 2 * * *",
+    (jobs, ct) => jobs.SendDailyDigestAsync(Job.Context, ct),
+    new RecurringScheduleOptions(
+        Priority: 5,
+        ConcurrencyGroupKeys: ["email"],
+        OverlapMode: RecurringOverlapMode.Skip),
+    cancellationToken);
+```
+
+Cron expressions use the standard five-field format and are evaluated in UTC.
+
+## Dashboard
+
+```csharp
+builder.Services.AddShedduellerDashboard(options =>
+{
+    options.EventRetention = TimeSpan.FromDays(14);
+});
+
+app.UseAntiforgery();
+((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+```
+
+The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process.
+
+## Testing
+
+`Sheddueller.Testing` replaces enqueueing and schedule management with capture-friendly fakes.
+
+```csharp
+services.AddShedduellerTesting();
+
+var capture = provider.GetRequiredService<CapturingJobEnqueuer>().Capture();
+await subject.DoSomethingThatEnqueuesAsync();
+
+var matches = await capture.Fake.MatchAsync<EmailJobs>(
+    (jobs, ct) => jobs.SendWelcomeAsync(userId, Job.Context, ct));
+```
+
+The same package includes `FakeJobEnqueuer`, `FakeRecurringScheduleManager`, and async-context-aware capture services for dependency-injected tests.
+
+## Sample
+
+From the repository root:
+
+```bash
+docker compose up -d postgres
+dotnet run --project samples/Sheddueller.SampleHost
+```
+
+Open `http://localhost:5000/` for the launcher and `http://localhost:5000/sheddueller` for the dashboard.

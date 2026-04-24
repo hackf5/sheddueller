@@ -26,7 +26,7 @@ public enum JobState
     Failed,
 
     /// <summary>
-    /// The job was canceled before it was claimed.
+    /// The job was canceled before it was claimed or after cooperative cancellation was observed.
     /// </summary>
     Canceled,
 }

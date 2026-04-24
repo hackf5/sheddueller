@@ -1,5 +1,7 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
+using System.Globalization;
+
 using Npgsql;
 
 using Sheddueller.Storage;
@@ -39,7 +41,8 @@ internal static class PostgresClaimedJobs
               job.max_attempts,
               job.retry_backoff_kind,
               job.retry_base_delay_ms,
-              job.retry_max_delay_ms
+              job.retry_max_delay_ms,
+              job.idempotency_key
           from {context.Names.Jobs} job
           where job.job_id = @job_id
             and job.state = 'Claimed'
@@ -87,7 +90,8 @@ internal static class PostgresClaimedJobs
               job.max_attempts,
               job.retry_backoff_kind,
               job.retry_base_delay_ms,
-              job.retry_max_delay_ms
+              job.retry_max_delay_ms,
+              job.idempotency_key
           from {context.Names.Jobs} job
           where job.state = 'Claimed'
             and job.lease_expires_at_utc <= transaction_timestamp()
@@ -114,7 +118,7 @@ internal static class PostgresClaimedJobs
         return jobs;
     }
 
-    public static async ValueTask ApplyFailedAttemptAsync(
+    public static async ValueTask<string> ApplyFailedAttemptAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -123,6 +127,13 @@ internal static class PostgresClaimedJobs
         CancellationToken cancellationToken)
     {
         var retriesRemain = job.AttemptCount < job.MaxAttempts;
+        if (retriesRemain
+            && await TryMarkSupersededByQueuedDuplicateAsync(context, connection, transaction, job, failure, cancellationToken)
+                .ConfigureAwait(false) is { } supersededMessage)
+        {
+            return supersededMessage;
+        }
+
         var notBeforeExpression = retriesRemain ? "transaction_timestamp() + @retry_delay" : "null";
         await PostgresOperationContext.ExecuteCountAsync(
           connection,
@@ -157,5 +168,106 @@ internal static class PostgresClaimedJobs
           },
           cancellationToken)
           .ConfigureAwait(false);
+
+        return retriesRemain ? "Retry scheduled" : "Failed";
     }
+
+    public static async ValueTask<string?> TryMarkSupersededByQueuedDuplicateAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        PostgresClaimedJob job,
+        JobFailureInfo failure,
+        CancellationToken cancellationToken)
+    {
+        if (job.IdempotencyKey is null)
+        {
+            return null;
+        }
+
+        await LockIdempotencyKeyAsync(context, connection, transaction, job.IdempotencyKey, cancellationToken).ConfigureAwait(false);
+        var duplicateJobId = await ReadQueuedDuplicateJobIdAsync(context, connection, transaction, job, cancellationToken).ConfigureAwait(false);
+        if (duplicateJobId is null)
+        {
+            return null;
+        }
+
+        await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          update {context.Names.Jobs}
+          set state = 'Failed',
+              failed_at_utc = transaction_timestamp(),
+              failure_type_name = @failure_type_name,
+              failure_message = @failure_message,
+              failure_stack_trace = @failure_stack_trace,
+              not_before_utc = null,
+              claimed_by_node_id = null,
+              claimed_at_utc = null,
+              lease_token = null,
+              lease_expires_at_utc = null,
+              last_heartbeat_at_utc = null
+          where job_id = @job_id;
+          """,
+          command =>
+          {
+              command.Parameters.AddWithValue("job_id", job.JobId);
+              command.Parameters.AddWithValue("failure_type_name", failure.ExceptionType);
+              command.Parameters.AddWithValue("failure_message", failure.Message);
+              command.Parameters.AddWithValue("failure_stack_trace", PostgresOperationContext.ToDbValue(failure.StackTrace));
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        return CreateSupersededMessage(duplicateJobId.Value);
+    }
+
+    private static async ValueTask LockIdempotencyKeyAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+      => await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          "select pg_advisory_xact_lock(hashtextextended(@schema_name || '|' || @idempotency_key, 7870834));",
+          command =>
+          {
+              command.Parameters.AddWithValue("schema_name", context.Options.SchemaName);
+              command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+          },
+          cancellationToken)
+          .ConfigureAwait(false);
+
+    private static async ValueTask<Guid?> ReadQueuedDuplicateJobIdAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        PostgresClaimedJob job,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+          $"""
+          select job_id
+          from {context.Names.Jobs}
+          where idempotency_key = @idempotency_key
+            and state = 'Queued'
+            and job_id <> @job_id
+          order by enqueue_sequence asc
+          limit 1;
+          """;
+        command.Parameters.AddWithValue("idempotency_key", job.IdempotencyKey!);
+        command.Parameters.AddWithValue("job_id", job.JobId);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid duplicateJobId
+          ? duplicateJobId
+          : null;
+    }
+
+    private static string CreateSupersededMessage(Guid duplicateJobId)
+      => string.Create(CultureInfo.InvariantCulture, $"Failed; superseded by queued idempotent job {duplicateJobId:D}");
 }

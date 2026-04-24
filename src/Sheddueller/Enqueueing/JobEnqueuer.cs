@@ -1,8 +1,9 @@
 namespace Sheddueller.Enqueueing;
 
+using System.Linq.Expressions;
+
 using Microsoft.Extensions.Options;
 
-using Sheddueller.DependencyInjection;
 using Sheddueller.Runtime;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
@@ -14,33 +15,106 @@ internal sealed class JobEnqueuer(
   TimeProvider timeProvider,
   IShedduellerWakeSignal wakeSignal) : IJobEnqueuer
 {
-    public ValueTask<Guid> EnqueueAsync<TService>(
-      System.Linq.Expressions.Expression<Func<TService, CancellationToken, Task>> work,
+    public ValueTask<Guid> EnqueueAsync(
+      Expression<Func<CancellationToken, Task>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(work, submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
 
-    public ValueTask<Guid> EnqueueAsync<TService>(
-      System.Linq.Expressions.Expression<Func<TService, CancellationToken, ValueTask>> work,
+    public ValueTask<Guid> EnqueueAsync(
+      Expression<Func<CancellationToken, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
-      => this.EnqueueCoreAsync(work, submission, cancellationToken);
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
 
-    private async ValueTask<Guid> EnqueueCoreAsync<TService, TResult>(
-      System.Linq.Expressions.Expression<Func<TService, CancellationToken, TResult>> work,
-      JobSubmission? submission,
-      CancellationToken cancellationToken)
+    public ValueTask<Guid> EnqueueAsync<TService>(
+      Expression<Func<TService, CancellationToken, Task>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+
+    public ValueTask<Guid> EnqueueAsync<TService>(
+      Expression<Func<TService, CancellationToken, ValueTask>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.EnqueueCoreAsync(JobExpressionParser.Parse(work), submission, cancellationToken);
+
+    public async ValueTask<IReadOnlyList<Guid>> EnqueueManyAsync(
+      IReadOnlyList<JobEnqueueItem> jobs,
+      CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(work);
+        ArgumentNullException.ThrowIfNull(jobs);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        return await this.EnqueueParsedCoreAsync<TService>(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+        if (jobs.Count == 0)
+        {
+            return [];
+        }
+
+        var jobSnapshot = jobs.ToArray();
+        var requests = new EnqueueJobRequest[jobSnapshot.Length];
+        var enqueuedAtUtc = timeProvider.GetUtcNow();
+        for (var i = 0; i < jobSnapshot.Length; i++)
+        {
+            var job = jobSnapshot[i];
+            ArgumentNullException.ThrowIfNull(job, nameof(jobs));
+
+            requests[i] = await this.CreateRequestAsync(
+              JobExpressionParser.Parse(job.ServiceType, job.Work),
+              job.Submission,
+              enqueuedAtUtc,
+              cancellationToken)
+              .ConfigureAwait(false);
+        }
+
+        var results = await store.EnqueueManyAsync(requests, cancellationToken).ConfigureAwait(false);
+        if (results.Count != requests.Length)
+        {
+            throw new InvalidOperationException("The job store returned a result count that does not match the submitted batch size.");
+        }
+
+        if (results.Any(result => result.WasEnqueued))
+        {
+            wakeSignal.Notify();
+        }
+
+        var jobIds = new Guid[results.Count];
+        for (var i = 0; i < results.Count; i++)
+        {
+            jobIds[i] = results[i].JobId;
+        }
+
+        return jobIds;
     }
 
-    private async ValueTask<Guid> EnqueueParsedCoreAsync<TService>(
-      ParsedJob parsedTask,
+    private async ValueTask<Guid> EnqueueCoreAsync(
+      ParsedJob parsedJob,
       JobSubmission? submission,
       CancellationToken cancellationToken)
     {
+        var request = await this.CreateRequestAsync(
+          parsedJob,
+          submission,
+          timeProvider.GetUtcNow(),
+          cancellationToken)
+          .ConfigureAwait(false);
+        var result = await store.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.WasEnqueued)
+        {
+            wakeSignal.Notify();
+        }
+
+        return result.JobId;
+    }
+
+    private async ValueTask<EnqueueJobRequest> CreateRequestAsync(
+      ParsedJob parsedTask,
+      JobSubmission? submission,
+      DateTimeOffset enqueuedAtUtc,
+      CancellationToken cancellationToken)
+    {
+        SubmissionValidator.ValidateIdempotency(submission);
+
         var groups = SubmissionValidator.NormalizeConcurrencyGroupKeys(submission?.ConcurrencyGroupKeys);
         var tags = SubmissionValidator.NormalizeJobTags(submission?.Tags);
         var retryPolicy = submission?.RetryPolicy ?? options.Value.DefaultRetryPolicy;
@@ -48,17 +122,26 @@ internal sealed class JobEnqueuer(
         var serializedArguments = await serializer
           .SerializeAsync(parsedTask.SerializableArguments, parsedTask.SerializableParameterTypes, cancellationToken)
           .ConfigureAwait(false);
+        var serviceType = TypeNameFormatter.Format(parsedTask.ServiceType);
+        var idempotencyKey = submission?.IdempotencyKind switch
+        {
+            JobIdempotencyKind.MethodAndArguments => JobIdempotencyKeyGenerator.CreateMethodAndArgumentsKey(
+                parsedTask,
+                serviceType,
+                serializedArguments),
+            _ => null,
+        };
 
         var jobId = Guid.NewGuid();
         var request = new EnqueueJobRequest(
           jobId,
           submission?.Priority ?? 0,
-          TypeNameFormatter.Format(typeof(TService)),
+          serviceType,
           parsedTask.MethodName,
           parsedTask.MethodParameterTypeNames,
           serializedArguments,
           groups,
-          timeProvider.GetUtcNow(),
+          enqueuedAtUtc,
           submission?.NotBeforeUtc?.ToUniversalTime(),
           maxAttempts,
           retryBackoffKind,
@@ -66,11 +149,11 @@ internal sealed class JobEnqueuer(
           retryMaxDelay,
           SourceScheduleKey: null,
           ScheduledFireAtUtc: null,
-          Tags: tags);
+          Tags: tags,
+          InvocationTargetKind: parsedTask.InvocationTargetKind,
+          MethodParameterBindings: parsedTask.MethodParameterBindings,
+          IdempotencyKey: idempotencyKey);
 
-        var result = await store.EnqueueAsync(request, cancellationToken).ConfigureAwait(false);
-        wakeSignal.Notify();
-
-        return result.JobId;
+        return request;
     }
 }

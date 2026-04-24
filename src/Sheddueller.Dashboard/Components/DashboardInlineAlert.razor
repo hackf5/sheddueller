@@ -1,0 +1,18 @@
+<section class="@CssClass" aria-live="@AriaLive">
+    <span class="material-symbols-outlined" aria-hidden="true">@Icon</span>
+    @ChildContent
+</section>
+
+@code {
+    [Parameter]
+    public string CssClass { get; set; } = "sd-inline-alert";
+
+    [Parameter]
+    public string Icon { get; set; } = "info";
+
+    [Parameter]
+    public string AriaLive { get; set; } = "polite";
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

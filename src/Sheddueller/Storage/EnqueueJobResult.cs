@@ -5,4 +5,5 @@ namespace Sheddueller.Storage;
 /// </summary>
 public sealed record EnqueueJobResult(
     Guid JobId,
-    long EnqueueSequence);
+    long EnqueueSequence,
+    bool WasEnqueued = true);

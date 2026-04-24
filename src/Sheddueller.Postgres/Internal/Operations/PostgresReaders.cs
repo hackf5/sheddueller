@@ -14,17 +14,19 @@ internal static class PostgresReaders
         reader.GetString(3),
         reader.GetString(4),
         reader.GetFieldValue<string[]>(5),
-        PostgresConversion.ToPayload(reader.GetValue(6), reader.GetValue(7)),
+        PostgresConversion.ToPayload(reader.GetValue(8), reader.GetValue(9)),
         groupKeys,
-        reader.GetInt32(8),
-        reader.GetInt32(9),
-        reader.GetGuid(10),
-        PostgresConversion.ToDateTimeOffset(reader.GetValue(11)),
-        PostgresConversion.ToRetryBackoffKind(reader.GetValue(12)),
-        PostgresConversion.FromMilliseconds(reader.GetValue(13)),
-        PostgresConversion.FromMilliseconds(reader.GetValue(14)),
-        reader.IsDBNull(15) ? null : reader.GetString(15),
-        reader.IsDBNull(16) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(16)));
+        reader.GetInt32(10),
+        reader.GetInt32(11),
+        reader.GetGuid(12),
+        PostgresConversion.ToDateTimeOffset(reader.GetValue(13)),
+        PostgresConversion.ToRetryBackoffKind(reader.GetValue(14)),
+        PostgresConversion.FromMilliseconds(reader.GetValue(15)),
+        PostgresConversion.FromMilliseconds(reader.GetValue(16)),
+        reader.IsDBNull(17) ? null : reader.GetString(17),
+        reader.IsDBNull(18) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(18)),
+        PostgresConversion.ToInvocationTargetKind(reader.GetValue(6)),
+        PostgresConversion.ToParameterBindings(reader.GetValue(7)));
 
     public static PostgresClaimedJob ReadPostgresClaimedJob(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
       => new(
@@ -34,9 +36,13 @@ internal static class PostgresReaders
         PostgresConversion.ToRetryBackoffKind(reader.GetValue(3)),
         PostgresConversion.FromMilliseconds(reader.GetValue(4)),
         PostgresConversion.FromMilliseconds(reader.GetValue(5)),
+        reader.IsDBNull(6) ? null : reader.GetString(6),
         groupKeys);
 
-    public static PostgresScheduleDefinition ReadScheduleDefinition(NpgsqlDataReader reader, IReadOnlyList<string> groupKeys)
+    public static PostgresScheduleDefinition ReadScheduleDefinition(
+        NpgsqlDataReader reader,
+        IReadOnlyList<string> groupKeys,
+        IReadOnlyList<JobTag> tags)
       => new(
         reader.GetString(0),
         reader.GetString(1),
@@ -46,13 +52,16 @@ internal static class PostgresReaders
         reader.GetString(5),
         reader.GetString(6),
         reader.GetFieldValue<string[]>(7),
-        PostgresConversion.ToPayload(reader.GetValue(8), reader.GetValue(9)),
+        PostgresConversion.ToInvocationTargetKind(reader.GetValue(8)),
+        PostgresConversion.ToParameterBindings(reader.GetValue(9)),
+        PostgresConversion.ToPayload(reader.GetValue(10), reader.GetValue(11)),
         groupKeys,
+        tags,
         PostgresConversion.ToRetryPolicy(
-          reader.GetBoolean(10),
-          reader.GetInt32(11),
-          reader.GetValue(12),
-          reader.GetValue(13),
-          reader.GetValue(14)),
-        reader.IsDBNull(15) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(15)));
+          reader.GetBoolean(12),
+          reader.GetInt32(13),
+          reader.GetValue(14),
+          reader.GetValue(15),
+          reader.GetValue(16)),
+        reader.IsDBNull(17) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(17)));
 }

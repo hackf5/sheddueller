@@ -39,7 +39,11 @@ internal static class PostgresTestData
         RetryBackoffKind? retryBackoffKind = null,
         TimeSpan? retryBaseDelay = null,
         TimeSpan? retryMaxDelay = null,
-        IReadOnlyList<string>? groupKeys = null)
+        IReadOnlyList<string>? groupKeys = null,
+        IReadOnlyList<JobTag>? tags = null,
+        JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null,
+        string? idempotencyKey = null)
       => new(
         jobId,
         priority,
@@ -53,14 +57,20 @@ internal static class PostgresTestData
         maxAttempts,
         retryBackoffKind,
         retryBaseDelay,
-        retryMaxDelay);
+        retryMaxDelay,
+        Tags: tags,
+        InvocationTargetKind: invocationTargetKind,
+        MethodParameterBindings: methodParameterBindings,
+        IdempotencyKey: idempotencyKey);
 
     public static UpsertRecurringScheduleRequest CreateSchedule(
         string scheduleKey,
         int priority = 0,
         IReadOnlyList<string>? groupKeys = null,
         RetryPolicy? retryPolicy = null,
-        RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip)
+        RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip,
+        JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
       => new(
         scheduleKey,
         "* * * * *",
@@ -72,7 +82,9 @@ internal static class PostgresTestData
         groupKeys ?? [],
         retryPolicy,
         overlapMode,
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow,
+        InvocationTargetKind: invocationTargetKind,
+        MethodParameterBindings: methodParameterBindings);
 
     public static JobFailureInfo CreateFailure()
       => new("TestException", "failed", "stack");

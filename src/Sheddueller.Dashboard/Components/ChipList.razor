@@ -1,0 +1,55 @@
+<div class="@ListClass" title="@Title">
+    @if (Values.Count == 0)
+    {
+        <span class="@EmptyClass">@EmptyText</span>
+    }
+    else
+    {
+        @foreach (var value in Values)
+        {
+            @if (HrefFactory is null)
+            {
+                <span class="@ChipClass" @key="value" title="@value">@value</span>
+            }
+            else
+            {
+                <a class="@ChipClass" @key="value" href="@HrefFactory(value)" title="@value"
+                   aria-label="@GetLinkAriaLabel(value)">@value</a>
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<string> Values { get; set; } = [];
+
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string EmptyText { get; set; } = "-";
+
+    [Parameter]
+    public string ClassPrefix { get; set; } = "sd-chip";
+
+    [Parameter]
+    public Func<string, string>? HrefFactory { get; set; }
+
+    [Parameter]
+    public string? LinkAriaLabelPrefix { get; set; }
+
+    private string ListClass
+      => string.Concat(this.ClassPrefix, "-list");
+
+    private string ChipClass
+      => this.ClassPrefix;
+
+    private string EmptyClass
+      => string.Concat(this.ClassPrefix, "-empty");
+
+    private string? GetLinkAriaLabel(string value)
+      => string.IsNullOrWhiteSpace(this.LinkAriaLabelPrefix)
+        ? null
+        : string.Concat(this.LinkAriaLabelPrefix, " ", value);
+}

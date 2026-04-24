@@ -2,7 +2,8 @@ namespace Sheddueller.Postgres.Internal.Operations;
 
 using Npgsql;
 
-using Sheddueller.Dashboard;
+using NpgsqlTypes;
+
 using Sheddueller.Storage;
 
 internal static class PostgresSchedules
@@ -27,6 +28,8 @@ internal static class PostgresSchedules
               schedule.service_type,
               schedule.method_name,
               schedule.method_parameter_types,
+              schedule.invocation_target_kind,
+              schedule.method_parameter_bindings,
               schedule.serialized_arguments_content_type,
               schedule.serialized_arguments,
               schedule.retry_policy_configured,
@@ -46,7 +49,7 @@ internal static class PostgresSchedules
         {
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                schedule = PostgresReaders.ReadScheduleDefinition(reader, []);
+                schedule = PostgresReaders.ReadScheduleDefinition(reader, [], []);
             }
         }
 
@@ -57,7 +60,9 @@ internal static class PostgresSchedules
 
         var groupKeys = await ReadScheduleGroupKeysAsync(context, connection, transaction, schedule.ScheduleKey, cancellationToken)
           .ConfigureAwait(false);
-        return schedule with { ConcurrencyGroupKeys = groupKeys };
+        var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction, schedule.ScheduleKey, cancellationToken)
+          .ConfigureAwait(false);
+        return schedule with { ConcurrencyGroupKeys = groupKeys, Tags = tags };
     }
 
     public static async ValueTask InsertScheduleAsync(
@@ -82,6 +87,8 @@ internal static class PostgresSchedules
               service_type,
               method_name,
               method_parameter_types,
+              invocation_target_kind,
+              method_parameter_bindings,
               serialized_arguments_content_type,
               serialized_arguments,
               retry_policy_configured,
@@ -101,6 +108,8 @@ internal static class PostgresSchedules
               @service_type,
               @method_name,
               @method_parameter_types,
+              @invocation_target_kind,
+              @method_parameter_bindings,
               @serialized_arguments_content_type,
               @serialized_arguments,
               @retry_policy_configured,
@@ -116,6 +125,8 @@ internal static class PostgresSchedules
           cancellationToken)
           .ConfigureAwait(false);
         await ReplaceScheduleGroupsAsync(context, connection, transaction, request.ScheduleKey, request.ConcurrencyGroupKeys, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresScheduleTags.ReplaceScheduleTagsAsync(context, connection, transaction, request.ScheduleKey, request.Tags, cancellationToken)
           .ConfigureAwait(false);
     }
 
@@ -139,6 +150,8 @@ internal static class PostgresSchedules
               service_type = @service_type,
               method_name = @method_name,
               method_parameter_types = @method_parameter_types,
+              invocation_target_kind = @invocation_target_kind,
+              method_parameter_bindings = @method_parameter_bindings,
               serialized_arguments_content_type = @serialized_arguments_content_type,
               serialized_arguments = @serialized_arguments,
               retry_policy_configured = @retry_policy_configured,
@@ -161,6 +174,8 @@ internal static class PostgresSchedules
           cancellationToken)
           .ConfigureAwait(false);
         await ReplaceScheduleGroupsAsync(context, connection, transaction, request.ScheduleKey, request.ConcurrencyGroupKeys, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresScheduleTags.ReplaceScheduleTagsAsync(context, connection, transaction, request.ScheduleKey, request.Tags, cancellationToken)
           .ConfigureAwait(false);
     }
 
@@ -215,6 +230,15 @@ internal static class PostgresSchedules
               reader.IsDBNull(10) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(10))));
         }
 
+        await reader.DisposeAsync().ConfigureAwait(false);
+
+        for (var i = 0; i < schedules.Count; i++)
+        {
+            var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction: null, schedules[i].ScheduleKey, cancellationToken)
+              .ConfigureAwait(false);
+            schedules[i] = schedules[i] with { Tags = tags };
+        }
+
         return schedules;
     }
 
@@ -237,6 +261,8 @@ internal static class PostgresSchedules
               schedule.service_type,
               schedule.method_name,
               schedule.method_parameter_types,
+              schedule.invocation_target_kind,
+              schedule.method_parameter_bindings,
               schedule.serialized_arguments_content_type,
               schedule.serialized_arguments,
               schedule.retry_policy_configured,
@@ -257,7 +283,7 @@ internal static class PostgresSchedules
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                schedules.Add(PostgresReaders.ReadScheduleDefinition(reader, []));
+                schedules.Add(PostgresReaders.ReadScheduleDefinition(reader, [], []));
             }
         }
 
@@ -265,7 +291,9 @@ internal static class PostgresSchedules
         {
             var groupKeys = await ReadScheduleGroupKeysAsync(context, connection, transaction, schedules[i].ScheduleKey, cancellationToken)
               .ConfigureAwait(false);
-            schedules[i] = schedules[i] with { ConcurrencyGroupKeys = groupKeys };
+            var tags = await PostgresScheduleTags.ReadScheduleTagsAsync(context, connection, transaction, schedules[i].ScheduleKey, cancellationToken)
+              .ConfigureAwait(false);
+            schedules[i] = schedules[i] with { ConcurrencyGroupKeys = groupKeys, Tags = tags };
         }
 
         return schedules;
@@ -300,7 +328,8 @@ internal static class PostgresSchedules
         PostgresScheduleDefinition schedule,
         PostgresRetryPolicy retry,
         Guid jobId,
-        DateTimeOffset materializedAtUtc,
+        DateTimeOffset? scheduledFireAtUtc,
+        ScheduleOccurrenceKind occurrenceKind,
         CancellationToken cancellationToken)
     {
         await PostgresOperationContext.ExecuteCountAsync(
@@ -315,6 +344,8 @@ internal static class PostgresSchedules
               service_type,
               method_name,
               method_parameter_types,
+              invocation_target_kind,
+              method_parameter_bindings,
               serialized_arguments_content_type,
               serialized_arguments,
               attempt_count,
@@ -323,7 +354,8 @@ internal static class PostgresSchedules
               retry_base_delay_ms,
               retry_max_delay_ms,
               source_schedule_key,
-              scheduled_fire_at_utc)
+              scheduled_fire_at_utc,
+              schedule_occurrence_kind)
           values (
               @job_id,
               'Queued',
@@ -332,6 +364,8 @@ internal static class PostgresSchedules
               @service_type,
               @method_name,
               @method_parameter_types,
+              @invocation_target_kind,
+              @method_parameter_bindings,
               @serialized_arguments_content_type,
               @serialized_arguments,
               0,
@@ -340,7 +374,8 @@ internal static class PostgresSchedules
               @retry_base_delay_ms,
               @retry_max_delay_ms,
               @source_schedule_key,
-              @scheduled_fire_at_utc);
+              @scheduled_fire_at_utc,
+              @schedule_occurrence_kind);
           """,
           command =>
           {
@@ -349,6 +384,11 @@ internal static class PostgresSchedules
               command.Parameters.AddWithValue("service_type", schedule.ServiceType);
               command.Parameters.AddWithValue("method_name", schedule.MethodName);
               command.Parameters.AddWithValue("method_parameter_types", schedule.MethodParameterTypes.ToArray());
+              command.Parameters.AddWithValue("invocation_target_kind", PostgresConversion.ToText(schedule.InvocationTargetKind));
+              command.Parameters.AddWithValue(
+                "method_parameter_bindings",
+                NpgsqlDbType.Array | NpgsqlDbType.Text,
+                PostgresOperationContext.ToDbValue(schedule.MethodParameterBindings?.Select(PostgresConversion.ToText).ToArray()));
               command.Parameters.AddWithValue("serialized_arguments_content_type", schedule.SerializedArguments.ContentType);
               command.Parameters.AddWithValue("serialized_arguments", schedule.SerializedArguments.Data);
               command.Parameters.AddWithValue("max_attempts", retry.MaxAttempts);
@@ -356,17 +396,20 @@ internal static class PostgresSchedules
               command.Parameters.AddWithValue("retry_base_delay_ms", PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(retry.BaseDelay)));
               command.Parameters.AddWithValue("retry_max_delay_ms", PostgresOperationContext.ToDbValue(PostgresConversion.ToMilliseconds(retry.MaxDelay)));
               command.Parameters.AddWithValue("source_schedule_key", schedule.ScheduleKey);
-              command.Parameters.AddWithValue("scheduled_fire_at_utc", schedule.NextFireAtUtc ?? materializedAtUtc);
+              command.Parameters.AddWithValue("scheduled_fire_at_utc", PostgresOperationContext.ToDbValue(scheduledFireAtUtc));
+              command.Parameters.AddWithValue("schedule_occurrence_kind", PostgresConversion.ToText(occurrenceKind));
           },
           cancellationToken)
           .ConfigureAwait(false);
         await PostgresJobGroups.ReplaceJobGroupsAsync(context, connection, transaction, jobId, schedule.ConcurrencyGroupKeys, cancellationToken)
           .ConfigureAwait(false);
-        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+        await PostgresJobTags.ReplaceJobTagsAsync(context, connection, transaction, jobId, schedule.Tags, cancellationToken)
+          .ConfigureAwait(false);
+        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
           context,
           connection,
           transaction,
-          new AppendDashboardJobEventRequest(jobId, DashboardJobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
+          new AppendJobEventRequest(jobId, JobEventKind.Lifecycle, AttemptNumber: 0, Message: "Queued"),
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -440,6 +483,11 @@ internal static class PostgresSchedules
         command.Parameters.AddWithValue("service_type", request.ServiceType);
         command.Parameters.AddWithValue("method_name", request.MethodName);
         command.Parameters.AddWithValue("method_parameter_types", request.MethodParameterTypes.ToArray());
+        command.Parameters.AddWithValue("invocation_target_kind", PostgresConversion.ToText(request.InvocationTargetKind));
+        command.Parameters.AddWithValue(
+          "method_parameter_bindings",
+          NpgsqlDbType.Array | NpgsqlDbType.Text,
+          PostgresOperationContext.ToDbValue(request.MethodParameterBindings?.Select(PostgresConversion.ToText).ToArray()));
         command.Parameters.AddWithValue("serialized_arguments_content_type", request.SerializedArguments.ContentType);
         command.Parameters.AddWithValue("serialized_arguments", request.SerializedArguments.Data);
         command.Parameters.AddWithValue("retry_policy_configured", retry.IsConfigured);

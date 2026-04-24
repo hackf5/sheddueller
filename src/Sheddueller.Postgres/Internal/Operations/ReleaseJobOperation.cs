@@ -1,6 +1,5 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
-using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class ReleaseJobOperation
@@ -29,6 +28,39 @@ internal static class ReleaseJobOperation
         }
 
         await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
+        var supersededFailure = new JobFailureInfo(
+          "Sheddueller.IdempotencySuperseded",
+          "The job was superseded by a queued idempotent job.",
+          null);
+        var supersededMessage = await PostgresClaimedJobs.TryMarkSupersededByQueuedDuplicateAsync(
+          context,
+          connection,
+          transaction,
+          job,
+          supersededFailure,
+          cancellationToken)
+          .ConfigureAwait(false);
+        if (supersededMessage is not null)
+        {
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
+              context,
+              connection,
+              transaction,
+              new AppendJobEventRequest(job.JobId, JobEventKind.AttemptFailed, job.AttemptCount, Message: supersededFailure.Message),
+              cancellationToken)
+              .ConfigureAwait(false);
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
+              context,
+              connection,
+              transaction,
+              new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: supersededMessage),
+              cancellationToken)
+              .ConfigureAwait(false);
+            await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
         var updated = await PostgresOperationContext.ExecuteCountAsync(
           connection,
           transaction,
@@ -59,11 +91,11 @@ internal static class ReleaseJobOperation
 
         if (updated == 1)
         {
-            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.Lifecycle, job.AttemptCount, Message: "Released"),
+              new AppendJobEventRequest(job.JobId, JobEventKind.Lifecycle, job.AttemptCount, Message: "Released"),
               cancellationToken)
               .ConfigureAwait(false);
             await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

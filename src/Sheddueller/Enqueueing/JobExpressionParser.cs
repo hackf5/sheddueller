@@ -2,20 +2,48 @@ namespace Sheddueller.Enqueueing;
 
 using System.Linq.Expressions;
 
+using Sheddueller.Storage;
+
 internal static class JobExpressionParser
 {
+    public static ParsedJob Parse<TResult>(Expression<Func<CancellationToken, TResult>> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        return Parse(serviceType: null, work);
+    }
+
     public static ParsedJob Parse<TService, TResult>(Expression<Func<TService, CancellationToken, TResult>> work)
     {
-        var serviceParameter = work.Parameters[0];
-        var cancellationTokenParameter = work.Parameters[1];
+        ArgumentNullException.ThrowIfNull(work);
+
+        return Parse(typeof(TService), work);
+    }
+
+    public static ParsedJob Parse(Type? serviceType, LambdaExpression work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (serviceType is null && (work.Parameters.Count != 1 || work.Parameters[0].Type != typeof(CancellationToken)))
+        {
+            throw new ArgumentException("Submitted work must accept the scheduler cancellation token.", nameof(work));
+        }
+
+        if (serviceType is not null && (work.Parameters.Count != 2 || work.Parameters[1].Type != typeof(CancellationToken)))
+        {
+            throw new ArgumentException("Submitted work must accept a service instance and scheduler cancellation token.", nameof(work));
+        }
+
+        var serviceParameter = serviceType is null ? null : work.Parameters[0];
+        var cancellationTokenParameter = serviceType is null ? work.Parameters[0] : work.Parameters[1];
         var body = StripConvert(work.Body);
 
         if (body is not MethodCallExpression methodCall)
         {
-            throw new ArgumentException("Submitted work must be a single service instance method call.", nameof(work));
+            throw new ArgumentException("Submitted work must be a single job method call.", nameof(work));
         }
 
-        ValidateTargetMethod<TService>(methodCall, serviceParameter);
+        var (targetServiceType, invocationTargetKind) = ValidateTargetMethod(serviceType, methodCall, serviceParameter, nameof(work));
 
         var methodParameters = methodCall.Method.GetParameters();
         if (methodParameters.Length != methodCall.Arguments.Count)
@@ -25,6 +53,7 @@ internal static class JobExpressionParser
 
         var serializableArguments = new List<object?>();
         var serializableParameterTypes = new List<Type>();
+        var parameterBindings = new List<JobMethodParameterBinding>();
         var forwardedCancellationToken = false;
 
         for (var i = 0; i < methodParameters.Length; i++)
@@ -47,6 +76,7 @@ internal static class JobExpressionParser
                 }
 
                 forwardedCancellationToken = true;
+                parameterBindings.Add(new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken));
                 continue;
             }
 
@@ -59,6 +89,7 @@ internal static class JobExpressionParser
                       nameof(work));
                 }
 
+                parameterBindings.Add(new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext));
                 continue;
             }
 
@@ -67,7 +98,21 @@ internal static class JobExpressionParser
                 throw new ArgumentException("Job.Context can only be passed to IJobContext target method parameters.", nameof(work));
             }
 
-            if (ReferencesParameter(argument, serviceParameter)
+            if (TryGetJobResolveMarker(argument, out var resolvedServiceType))
+            {
+                parameterBindings.Add(
+                  new JobMethodParameterBinding(
+                    JobMethodParameterBindingKind.Service,
+                    TypeNameFormatter.Format(resolvedServiceType)));
+                continue;
+            }
+
+            if (ReferencesJobResolveMarker(argument))
+            {
+                throw new ArgumentException("Job.Resolve<TService>() can only be passed directly as a target method argument.", nameof(work));
+            }
+
+            if ((serviceParameter is not null && ReferencesParameter(argument, serviceParameter))
                 || ReferencesParameter(argument, cancellationTokenParameter))
             {
                 throw new ArgumentException("Only the target service instance and scheduler cancellation token may be runtime-bound.", nameof(work));
@@ -79,6 +124,7 @@ internal static class JobExpressionParser
 
             serializableArguments.Add(value);
             serializableParameterTypes.Add(parameter.ParameterType);
+            parameterBindings.Add(new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized));
         }
 
         if (!forwardedCancellationToken)
@@ -87,39 +133,81 @@ internal static class JobExpressionParser
         }
 
         return new ParsedJob(
+          targetServiceType,
           methodCall.Method.Name,
           [.. methodParameters.Select(parameter => TypeNameFormatter.Format(parameter.ParameterType))],
           serializableArguments,
-          serializableParameterTypes);
+          serializableParameterTypes,
+          invocationTargetKind,
+          parameterBindings);
     }
 
-    private static void ValidateTargetMethod<TService>(MethodCallExpression methodCall, ParameterExpression serviceParameter)
+    private static (Type ServiceType, JobInvocationTargetKind InvocationTargetKind) ValidateTargetMethod(
+        Type? serviceType,
+        MethodCallExpression methodCall,
+        ParameterExpression? serviceParameter,
+        string parameterName)
     {
-        if (methodCall.Method.IsStatic || methodCall.Object is null)
-        {
-            throw new ArgumentException("Submitted work must target an instance method on the submitted service type.");
-        }
-
-        if (!ReferencesParameter(methodCall.Object, serviceParameter))
-        {
-            throw new ArgumentException("Submitted work must call a method on the submitted service parameter.");
-        }
-
         if (methodCall.Method.IsGenericMethod || methodCall.Method.ContainsGenericParameters)
         {
-            throw new ArgumentException("Submitted work cannot target generic methods.");
-        }
-
-        if (!typeof(TService).IsAssignableTo(methodCall.Object.Type) && !methodCall.Object.Type.IsAssignableTo(typeof(TService)))
-        {
-            throw new ArgumentException("Submitted work must target the submitted service type.");
+            throw new ArgumentException("Submitted work cannot target generic methods.", parameterName);
         }
 
         if (methodCall.Method.ReturnType != typeof(Task) && methodCall.Method.ReturnType != typeof(ValueTask))
         {
-            throw new ArgumentException("Submitted work must target a method returning Task or ValueTask.");
+            throw new ArgumentException("Submitted work must target a method returning Task or ValueTask.", parameterName);
         }
+
+        if (methodCall.Method.IsStatic)
+        {
+            if (methodCall.Method.DeclaringType is null)
+            {
+                throw new ArgumentException("Submitted static work must have a declaring type.", parameterName);
+            }
+
+            if (serviceType is not null && !IsCompatibleServiceType(serviceType, methodCall.Method.DeclaringType))
+            {
+                throw new ArgumentException("Submitted static work must target the submitted service type.", parameterName);
+            }
+
+            return (methodCall.Method.DeclaringType, JobInvocationTargetKind.Static);
+        }
+
+        if (methodCall.Object is null)
+        {
+            throw new ArgumentException("Submitted work must target an instance method on the submitted service type.", parameterName);
+        }
+
+        if (TryGetJobResolveMarker(methodCall.Object, out var resolvedServiceType))
+        {
+            return (resolvedServiceType, JobInvocationTargetKind.Instance);
+        }
+
+        if (ReferencesJobResolveMarker(methodCall.Object))
+        {
+            throw new ArgumentException("Job.Resolve<TService>() can only be used directly as a job method target.", parameterName);
+        }
+
+        if (serviceType is null || serviceParameter is null)
+        {
+            throw new ArgumentException("Submitted instance work must target Job.Resolve<TService>().", parameterName);
+        }
+
+        if (!ReferencesParameter(methodCall.Object, serviceParameter))
+        {
+            throw new ArgumentException("Submitted work must call a method on the submitted service parameter.", parameterName);
+        }
+
+        if (!IsCompatibleServiceType(serviceType, methodCall.Object.Type))
+        {
+            throw new ArgumentException("Submitted work must target the submitted service type.", parameterName);
+        }
+
+        return (serviceType, JobInvocationTargetKind.Instance);
     }
+
+    private static bool IsCompatibleServiceType(Type serviceType, Type targetType)
+      => serviceType.IsAssignableTo(targetType) || targetType.IsAssignableTo(serviceType);
 
     private static object? EvaluateArgument(Expression argument)
     {
@@ -150,6 +238,21 @@ internal static class JobExpressionParser
     private static bool IsSameParameter(Expression expression, ParameterExpression parameter)
       => ReferenceEquals(StripConvert(expression), parameter);
 
+    private static bool TryGetJobResolveMarker(Expression expression, out Type serviceType)
+    {
+        var stripped = StripConvert(expression);
+        if (stripped is MethodCallExpression { Object: null } methodCall
+            && methodCall.Method.IsGenericMethod
+            && methodCall.Method.GetGenericMethodDefinition() == JobResolveMethodDefinition)
+        {
+            serviceType = methodCall.Method.GetGenericArguments()[0];
+            return true;
+        }
+
+        serviceType = null!;
+        return false;
+    }
+
     private static bool IsJobContextMarker(Expression expression)
     {
         var stripped = StripConvert(expression);
@@ -160,6 +263,14 @@ internal static class JobExpressionParser
     private static bool ReferencesJobContextMarker(Expression expression)
     {
         var visitor = new JobContextMarkerVisitor();
+        visitor.Visit(expression);
+
+        return visitor.Found;
+    }
+
+    private static bool ReferencesJobResolveMarker(Expression expression)
+    {
+        var visitor = new JobResolveMarkerVisitor();
         visitor.Visit(expression);
 
         return visitor.Found;
@@ -213,4 +324,23 @@ internal static class JobExpressionParser
             return base.VisitMember(node);
         }
     }
+
+    private sealed class JobResolveMarkerVisitor : ExpressionVisitor
+    {
+        public bool Found { get; private set; }
+
+        protected override Expression VisitMethodCall(MethodCallExpression node)
+        {
+            if (TryGetJobResolveMarker(node, out _))
+            {
+                this.Found = true;
+            }
+
+            return base.VisitMethodCall(node);
+        }
+    }
+
+    private static readonly System.Reflection.MethodInfo JobResolveMethodDefinition =
+      typeof(Job).GetMethods()
+        .Single(method => method.Name == nameof(Job.Resolve) && method.IsGenericMethodDefinition);
 }

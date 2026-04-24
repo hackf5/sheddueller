@@ -5,6 +5,9 @@ using Npgsql;
 /// <summary>
 /// PostgreSQL provider options.
 /// </summary>
+/// <remarks>
+/// A schema represents one logical Sheddueller cluster. Use a separate schema for isolated queues.
+/// </remarks>
 public sealed class ShedduellerPostgresOptions
 {
     /// <summary>

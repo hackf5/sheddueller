@@ -1,6 +1,5 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
-using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class MarkJobFailedOperation
@@ -29,24 +28,24 @@ internal static class MarkJobFailedOperation
         }
 
         await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
-        await PostgresClaimedJobs.ApplyFailedAttemptAsync(context, connection, transaction, job, request.Failure, cancellationToken)
+        var lifecycleMessage = await PostgresClaimedJobs.ApplyFailedAttemptAsync(context, connection, transaction, job, request.Failure, cancellationToken)
           .ConfigureAwait(false);
-        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
           context,
           connection,
           transaction,
-          new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.AttemptFailed, job.AttemptCount, Message: request.Failure.Message),
+          new AppendJobEventRequest(job.JobId, JobEventKind.AttemptFailed, job.AttemptCount, Message: request.Failure.Message),
           cancellationToken)
           .ConfigureAwait(false);
-        await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+        await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
           context,
           connection,
           transaction,
-          new AppendDashboardJobEventRequest(
+          new AppendJobEventRequest(
             job.JobId,
-            DashboardJobEventKind.Lifecycle,
+            JobEventKind.Lifecycle,
             job.AttemptCount,
-            Message: job.AttemptCount < job.MaxAttempts ? "Retry scheduled" : "Failed"),
+            Message: lifecycleMessage),
           cancellationToken)
           .ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

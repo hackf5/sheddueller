@@ -19,7 +19,7 @@
     "dotnet.inlayHints.enableInlayHintsForObjectCreationParameters": true,
     "csharp.debug.logging.moduleLoad": false,
     "csharp.debug.symbolOptions.searchMicrosoftSymbolServer": true,
-    "razor.format.enable": false,
+    "razor.format.enable": true,
     "terminal.integrated.persistentSessionReviveProcess": "never",
     "dotnet.typeMembers.propertyGenerationBehavior": "preferAutoProperties",
     "[csharp]": {
@@ -29,9 +29,12 @@
     "cSpell.caseSensitive": false,
     "cSpell.language": "en-US",
     "cSpell.words": [
+        "Antiforgery",
+        "Cronos",
         "Npgsql",
         "Sheddueller",
         "Shouldly",
-        "Upserted"
+        "Upserted",
+        "xunit"
     ],
 }

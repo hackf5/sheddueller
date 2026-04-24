@@ -9,6 +9,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Npgsql;
 
+using Sheddueller;
+using Sheddueller.Inspection.Jobs;
 using Sheddueller.Postgres;
 using Sheddueller.Storage;
 
@@ -88,6 +90,8 @@ internal sealed class PostgresTestContext(
               service_type,
               method_name,
               method_parameter_types,
+              invocation_target_kind,
+              method_parameter_bindings,
               serialized_arguments_content_type,
               serialized_arguments,
               attempt_count,
@@ -107,7 +111,10 @@ internal sealed class PostgresTestContext(
               failure_message,
               failure_stack_trace,
               source_schedule_key,
-              scheduled_fire_at_utc
+              scheduled_fire_at_utc,
+              cancellation_requested_at_utc,
+              cancellation_observed_at_utc,
+              idempotency_key
           from {this.Table("jobs")}
           where job_id = @job_id;
           """);
@@ -130,25 +137,30 @@ internal sealed class PostgresTestContext(
           reader.GetString(7),
           reader.GetFieldValue<string[]>(8),
           reader.GetString(9),
-          reader.GetFieldValue<byte[]>(10),
-          reader.GetInt32(11),
-          reader.GetInt32(12),
-          reader.IsDBNull(13) ? null : reader.GetString(13),
-          reader.IsDBNull(14) ? null : reader.GetInt64(14),
-          reader.IsDBNull(15) ? null : reader.GetInt64(15),
-          reader.IsDBNull(16) ? null : reader.GetString(16),
-          reader.IsDBNull(17) ? null : ToDateTimeOffset(reader.GetValue(17)),
-          reader.IsDBNull(18) ? null : reader.GetGuid(18),
+          reader.IsDBNull(10) ? null : reader.GetFieldValue<string[]>(10),
+          reader.GetString(11),
+          reader.GetFieldValue<byte[]>(12),
+          reader.GetInt32(13),
+          reader.GetInt32(14),
+          reader.IsDBNull(15) ? null : reader.GetString(15),
+          reader.IsDBNull(16) ? null : reader.GetInt64(16),
+          reader.IsDBNull(17) ? null : reader.GetInt64(17),
+          reader.IsDBNull(18) ? null : reader.GetString(18),
           reader.IsDBNull(19) ? null : ToDateTimeOffset(reader.GetValue(19)),
-          reader.IsDBNull(20) ? null : ToDateTimeOffset(reader.GetValue(20)),
+          reader.IsDBNull(20) ? null : reader.GetGuid(20),
           reader.IsDBNull(21) ? null : ToDateTimeOffset(reader.GetValue(21)),
           reader.IsDBNull(22) ? null : ToDateTimeOffset(reader.GetValue(22)),
           reader.IsDBNull(23) ? null : ToDateTimeOffset(reader.GetValue(23)),
-          reader.IsDBNull(24) ? null : reader.GetString(24),
-          reader.IsDBNull(25) ? null : reader.GetString(25),
+          reader.IsDBNull(24) ? null : ToDateTimeOffset(reader.GetValue(24)),
+          reader.IsDBNull(25) ? null : ToDateTimeOffset(reader.GetValue(25)),
           reader.IsDBNull(26) ? null : reader.GetString(26),
           reader.IsDBNull(27) ? null : reader.GetString(27),
-          reader.IsDBNull(28) ? null : ToDateTimeOffset(reader.GetValue(28)));
+          reader.IsDBNull(28) ? null : reader.GetString(28),
+          reader.IsDBNull(29) ? null : reader.GetString(29),
+          reader.IsDBNull(30) ? null : ToDateTimeOffset(reader.GetValue(30)),
+          reader.IsDBNull(31) ? null : ToDateTimeOffset(reader.GetValue(31)),
+          reader.IsDBNull(32) ? null : ToDateTimeOffset(reader.GetValue(32)),
+          reader.IsDBNull(33) ? null : reader.GetString(33));
     }
 
     public async ValueTask<PostgresScheduleRow> ReadScheduleAsync(string scheduleKey)
@@ -164,6 +176,8 @@ internal sealed class PostgresTestContext(
               service_type,
               method_name,
               method_parameter_types,
+              invocation_target_kind,
+              method_parameter_bindings,
               serialized_arguments_content_type,
               serialized_arguments,
               retry_policy_configured,
@@ -193,19 +207,79 @@ internal sealed class PostgresTestContext(
           reader.GetString(6),
           reader.GetFieldValue<string[]>(7),
           reader.GetString(8),
-          reader.GetFieldValue<byte[]>(9),
-          reader.GetBoolean(10),
-          reader.GetInt32(11),
-          reader.IsDBNull(12) ? null : reader.GetString(12),
-          reader.IsDBNull(13) ? null : reader.GetInt64(13),
-          reader.IsDBNull(14) ? null : reader.GetInt64(14),
-          reader.IsDBNull(15) ? null : ToDateTimeOffset(reader.GetValue(15)));
+          reader.IsDBNull(9) ? null : reader.GetFieldValue<string[]>(9),
+          reader.GetString(10),
+          reader.GetFieldValue<byte[]>(11),
+          reader.GetBoolean(12),
+          reader.GetInt32(13),
+          reader.IsDBNull(14) ? null : reader.GetString(14),
+          reader.IsDBNull(15) ? null : reader.GetInt64(15),
+          reader.IsDBNull(16) ? null : reader.GetInt64(16),
+          reader.IsDBNull(17) ? null : ToDateTimeOffset(reader.GetValue(17)));
     }
 
     public async ValueTask<IReadOnlyList<string>> ReadJobGroupKeysAsync(Guid jobId)
       => await this.ReadStringListAsync(
         $"select group_key from {this.Table("job_concurrency_groups")} where job_id = @id order by group_key asc;",
         command => command.Parameters.AddWithValue("id", jobId));
+
+    public async ValueTask<IReadOnlyList<JobTag>> ReadJobTagsAsync(Guid jobId)
+    {
+        await using var command = this.DataSource.CreateCommand(
+          $"""
+          select name, value
+          from {this.Table("job_tags")}
+          where job_id = @id
+          order by name asc, value asc;
+          """);
+        command.Parameters.AddWithValue("id", jobId);
+
+        var tags = new List<JobTag>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            tags.Add(new JobTag(reader.GetString(0), reader.GetString(1)));
+        }
+
+        return tags;
+    }
+
+    public async ValueTask<int> CountJobEventsAsync(Guid jobId)
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select count(*) from {this.Table("job_events")} where job_id = @job_id;",
+          command => command.Parameters.AddWithValue("job_id", jobId));
+        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+    }
+
+    public async ValueTask<IReadOnlyList<JobEvent>> ReadJobEventsAsync(Guid jobId)
+    {
+        var inspectionReader = this.Store as IJobInspectionReader
+          ?? throw new InvalidOperationException("Postgres store must provide job inspection.");
+        var events = new List<JobEvent>();
+        await foreach (var jobEvent in inspectionReader.ReadEventsAsync(jobId))
+        {
+            events.Add(jobEvent);
+        }
+
+        return events;
+    }
+
+    public async ValueTask<int> CountJobsAsync()
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select count(*) from {this.Table("jobs")};",
+          _ => { });
+        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+    }
+
+    public async ValueTask<int> CountQueuedJobsWithIdempotencyKeyAsync(string idempotencyKey)
+    {
+        var result = await this.ExecuteScalarAsync(
+          $"select count(*) from {this.Table("jobs")} where state = 'Queued' and idempotency_key = @idempotency_key;",
+          command => command.Parameters.AddWithValue("idempotency_key", idempotencyKey));
+        return Convert.ToInt32(result, CultureInfo.InvariantCulture);
+    }
 
     public async ValueTask<IReadOnlyList<string>> ReadScheduleGroupKeysAsync(string scheduleKey)
       => await this.ReadStringListAsync(
@@ -313,6 +387,8 @@ internal sealed record PostgresJobRow(
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
+    string InvocationTargetKind,
+    IReadOnlyList<string>? MethodParameterBindings,
     string SerializedArgumentsContentType,
     byte[] SerializedArguments,
     int AttemptCount,
@@ -332,7 +408,10 @@ internal sealed record PostgresJobRow(
     string? FailureMessage,
     string? FailureStackTrace,
     string? SourceScheduleKey,
-    DateTimeOffset? ScheduledFireAtUtc);
+    DateTimeOffset? ScheduledFireAtUtc,
+    DateTimeOffset? CancellationRequestedAtUtc,
+    DateTimeOffset? CancellationObservedAtUtc,
+    string? IdempotencyKey);
 
 internal sealed record PostgresScheduleRow(
     string ScheduleKey,
@@ -343,6 +422,8 @@ internal sealed record PostgresScheduleRow(
     string ServiceType,
     string MethodName,
     IReadOnlyList<string> MethodParameterTypes,
+    string InvocationTargetKind,
+    IReadOnlyList<string>? MethodParameterBindings,
     string SerializedArgumentsContentType,
     byte[] SerializedArguments,
     bool RetryPolicyConfigured,

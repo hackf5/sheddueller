@@ -21,6 +21,9 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps the dashboard UI and live update hub under the supplied path using an application branch.
     /// </summary>
+    /// <param name="app">The application builder to map the dashboard branch on.</param>
+    /// <param name="path">The absolute route path for the dashboard root.</param>
+    /// <returns>The same application builder for chained middleware registration.</returns>
     public static IApplicationBuilder MapShedduellerDashboard(
         this IApplicationBuilder app,
         string path = "/sheddueller")
@@ -71,6 +74,9 @@ public static class ShedduellerDashboardEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps the dashboard UI and live update hub under the supplied path.
     /// </summary>
+    /// <param name="endpoints">The endpoint route builder to map the dashboard endpoints on.</param>
+    /// <param name="path">The absolute route path for the dashboard root.</param>
+    /// <returns>The mapped endpoint group for further conventions.</returns>
     public static IEndpointConventionBuilder MapShedduellerDashboard(
         this IEndpointRouteBuilder endpoints,
         string path = "/sheddueller")

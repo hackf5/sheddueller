@@ -1,0 +1,21 @@
+<section class="@CssClass" aria-live="polite">
+    <span class="material-symbols-outlined" aria-hidden="true">@Icon</span>
+    <div>
+        <h1>@Title</h1>
+        <p>@Message</p>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public string CssClass { get; set; } = "sd-message";
+
+    [Parameter]
+    public string Icon { get; set; } = "info";
+
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Message { get; set; } = string.Empty;
+}

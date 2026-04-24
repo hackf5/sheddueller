@@ -21,4 +21,9 @@ public sealed record EnqueueJobRequest(
     TimeSpan? RetryMaxDelay = null,
     string? SourceScheduleKey = null,
     DateTimeOffset? ScheduledFireAtUtc = null,
-    IReadOnlyList<JobTag>? Tags = null);
+    IReadOnlyList<JobTag>? Tags = null,
+    Guid? RetryCloneSourceJobId = null,
+    ScheduleOccurrenceKind? ScheduleOccurrenceKind = null,
+    JobInvocationTargetKind InvocationTargetKind = JobInvocationTargetKind.Instance,
+    IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings = null,
+    string? IdempotencyKey = null);

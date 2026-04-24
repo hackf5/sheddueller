@@ -2,16 +2,19 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.202" />
-    <PackageVersion Include="Microsoft.AspNetCore.App.Internal.Assets" Version="10.0.6" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.6" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="[10.0.102, 11.0.0)" />
+    <PackageVersion Include="Microsoft.AspNetCore.App.Internal.Assets" Version="[10.0.0, 11.0.0)" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="[10.0.0, 11.0.0)" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.0, 11.0.0)" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="[10.0.0, 11.0.0)" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="[10.0.0, 11.0.0)" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.5.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.6.2" />
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.2.1" />
     <PackageVersion Include="Cronos" Version="0.12.0" />
-    <PackageVersion Include="Npgsql" Version="10.0.2" />
+    <PackageVersion Include="Npgsql" Version="[10.0.0, 11.0.0)" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.11.0" />
     <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />

@@ -1,0 +1,102 @@
+@implements IAsyncDisposable
+
+<div class="@CssClass">
+    <span class="@RelativeClass">@DashboardFormat.Relative(Value, CurrentNowUtc, Prefix, EmptyText, AllowFutureRelative)</span>
+    <span class="@AbsoluteClass">@DashboardFormat.Utc(Value)</span>
+</div>
+
+@code {
+    private static readonly TimeSpan DefaultUpdateInterval = TimeSpan.FromSeconds(15);
+
+    private readonly CancellationTokenSource _timerCancellation = new();
+    private PeriodicTimer? _timer;
+    private Task? _timerTask;
+    private DateTimeOffset _nowUtc = DateTimeOffset.UtcNow;
+    private bool _disposed;
+
+    [Parameter]
+    public DateTimeOffset? Value { get; set; }
+
+    [Parameter]
+    public DateTimeOffset? NowUtc { get; set; }
+
+    [Parameter]
+    public string? Prefix { get; set; }
+
+    [Parameter]
+    public bool AllowFutureRelative { get; set; } = true;
+
+    [Parameter]
+    public bool AlignEnd { get; set; }
+
+    [Parameter]
+    public string EmptyText { get; set; } = "-";
+
+    [Parameter]
+    public string BaseClass { get; set; } = "sd-timestamp";
+
+    [Parameter]
+    public TimeSpan UpdateInterval { get; set; } = DefaultUpdateInterval;
+
+    private DateTimeOffset CurrentNowUtc
+      => this.NowUtc ?? this._nowUtc;
+
+    private string CssClass
+      => this.AlignEnd
+        ? string.Concat(this.BaseClass, " ", this.BaseClass, "--end")
+        : this.BaseClass;
+
+    private string RelativeClass
+      => string.Concat(this.BaseClass, "__relative");
+
+    private string AbsoluteClass
+      => string.Concat(this.BaseClass, "__absolute");
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && this.NowUtc is null)
+        {
+            this._timer = new PeriodicTimer(this.UpdateInterval);
+            this._timerTask = this.RunTimerAsync(this._timer, this._timerCancellation.Token);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        this._disposed = true;
+        await this._timerCancellation.CancelAsync();
+        this._timer?.Dispose();
+
+        if (this._timerTask is not null)
+        {
+            await this._timerTask;
+        }
+
+        this._timerCancellation.Dispose();
+    }
+
+    private async Task RunTimerAsync(
+        PeriodicTimer timer,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await this.InvokeAsync(() =>
+                {
+                    if (!this._disposed)
+                    {
+                        this._nowUtc = DateTimeOffset.UtcNow;
+                        this.StateHasChanged();
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+}

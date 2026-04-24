@@ -6,24 +6,21 @@ using Npgsql;
 
 using Sheddueller.Runtime;
 
-internal sealed class PostgresWakeSignal : IShedduellerWakeSignal, IDisposable
+internal sealed class PostgresWakeSignal(ShedduellerPostgresOptions options) : IShedduellerWakeSignal, IDisposable
 {
-    private readonly ShedduellerPostgresOptions _options;
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _disposeTokenSource = new();
+    private readonly Lock _listenerLock = new();
+    private readonly ShedduellerPostgresOptions _options = options;
+    private bool _listenerStarted;
     private int _signaled;
-
-    public PostgresWakeSignal(ShedduellerPostgresOptions options)
-    {
-        this._options = options;
-        _ = Task.Run(this.ListenAsync);
-    }
 
     public void Notify()
       => this.Signal();
 
     public async ValueTask WaitAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
+        this.EnsureListening();
         if (await this._signal.WaitAsync(timeout, cancellationToken).ConfigureAwait(false))
         {
             Volatile.Write(ref this._signaled, 0);
@@ -35,6 +32,20 @@ internal sealed class PostgresWakeSignal : IShedduellerWakeSignal, IDisposable
         this._disposeTokenSource.Cancel();
         this._signal.Dispose();
         this._disposeTokenSource.Dispose();
+    }
+
+    private void EnsureListening()
+    {
+        lock (this._listenerLock)
+        {
+            if (this._listenerStarted)
+            {
+                return;
+            }
+
+            this._listenerStarted = true;
+            _ = Task.Run(this.ListenAsync);
+        }
     }
 
     private async Task ListenAsync()

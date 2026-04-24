@@ -22,4 +22,6 @@ public sealed record ClaimedJob(
     TimeSpan? RetryBaseDelay,
     TimeSpan? RetryMaxDelay,
     string? SourceScheduleKey,
-    DateTimeOffset? ScheduledFireAtUtc);
+    DateTimeOffset? ScheduledFireAtUtc,
+    JobInvocationTargetKind InvocationTargetKind = JobInvocationTargetKind.Instance,
+    IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings = null);

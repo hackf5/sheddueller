@@ -1,13 +1,13 @@
 namespace Sheddueller.Dashboard.Internal;
 
-using Sheddueller.Dashboard;
+using Sheddueller.Storage;
 
 internal sealed class DashboardLiveUpdateStream
 {
-    public event Func<DashboardJobEvent, CancellationToken, ValueTask>? JobEventPublished;
+    public event Func<JobEvent, CancellationToken, ValueTask>? JobEventPublished;
 
-    public async ValueTask PublishAsync(
-        DashboardJobEvent jobEvent,
+    public async ValueTask NotifyAsync(
+        JobEvent jobEvent,
         CancellationToken cancellationToken)
     {
         var handlers = this.JobEventPublished;
@@ -16,7 +16,7 @@ internal sealed class DashboardLiveUpdateStream
             return;
         }
 
-        foreach (var handler in handlers.GetInvocationList().Cast<Func<DashboardJobEvent, CancellationToken, ValueTask>>())
+        foreach (var handler in handlers.GetInvocationList().Cast<Func<JobEvent, CancellationToken, ValueTask>>())
         {
             await handler(jobEvent, cancellationToken).ConfigureAwait(false);
         }

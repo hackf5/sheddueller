@@ -65,6 +65,19 @@ public sealed class DemoJobService(DemoJobState state)
         }
     }
 
+    public async Task RunIdempotentDemoAsync(string label, IJobContext jobContext, CancellationToken cancellationToken)
+    {
+        await jobContext.LogAsync(JobLogLevel.Information, $"{label} started its 10-second idempotency demo run.", cancellationToken: cancellationToken)
+          .ConfigureAwait(false);
+
+        for (var step = 1; step <= 10; step++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            var percent = step * 10;
+            await jobContext.ReportProgressAsync(percent, $"{label} idempotent run {step}/10", cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task RunRecurringAsync(IJobContext jobContext, CancellationToken cancellationToken)
     {
         var message = string.Create(

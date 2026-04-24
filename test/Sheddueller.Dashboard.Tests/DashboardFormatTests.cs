@@ -1,0 +1,176 @@
+namespace Sheddueller.Dashboard.Tests;
+
+using System.Globalization;
+
+using Sheddueller.Dashboard.Internal;
+using Sheddueller.Inspection.Jobs;
+using Sheddueller.Inspection.Metrics;
+using Sheddueller.Storage;
+
+using Shouldly;
+
+public sealed class DashboardFormatTests
+{
+    [Fact]
+    public void Handler_DisplayFormats_UsesFullAndShortNames()
+    {
+        var job = CreateJob(serviceType: "Sheddueller.Dashboard.Tests.Workers.RollupWorker", methodName: "RunAsync");
+
+        DashboardFormat.FullHandler(job).ShouldBe("Sheddueller.Dashboard.Tests.Workers.RollupWorker.RunAsync");
+        DashboardFormat.ShortHandler(job).ShouldBe("RollupWorker.RunAsync");
+    }
+
+    [Fact]
+    public void Progress_PercentOutsideRange_ClampsDisplayValues()
+    {
+        var progress = new JobProgressSnapshot(125, "indexed records", DateTimeOffset.Parse("2026-04-20T12:08:00Z", CultureInfo.InvariantCulture));
+
+        DashboardFormat.ProgressPercent(progress).ShouldBe("100%");
+        DashboardFormat.ProgressText(progress).ShouldBe("100% indexed records");
+        DashboardFormat.ProgressWidthStyle(progress).ShouldBe("width: 100%");
+    }
+
+    [Fact]
+    public void Relative_PastAndFutureValues_FormatsCompactUtcDurations()
+    {
+        var now = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
+
+        DashboardFormat.Relative(now.AddMinutes(-42), now).ShouldBe("42m ago");
+        DashboardFormat.Relative(now.AddHours(3), now).ShouldBe("in 3h");
+        DashboardFormat.Utc(now).ShouldBe("2026-04-20 12:00:00 UTC");
+    }
+
+    [Fact]
+    public void Relative_FutureValueWhenFutureDisabled_RendersJustNow()
+    {
+        var now = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
+
+        DashboardFormat.Relative(now.AddSeconds(30), now, allowFuture: false).ShouldBe("just now");
+    }
+
+    [Fact]
+    public void LiveStatusText_LastUpdatedAfterDashboardClock_DoesNotRenderFutureUpdate()
+    {
+        var now = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
+
+        DashboardFormat.LiveStatusText(
+          isRefreshing: false,
+          refreshError: null,
+          lastUpdatedUtc: now.AddSeconds(10),
+          now)
+          .ShouldBe("Updated just now");
+    }
+
+    [Fact]
+    public void TagsAndGroups_EmptyAndPopulatedValues_FormatsTitlesForChips()
+    {
+        var tags = new[] { new JobTag("tenant", "acme"), new JobTag("schedule", "daily_rollup") };
+
+        DashboardFormat.Tags(tags).ShouldBe(["tenant:acme", "schedule:daily_rollup"]);
+        DashboardFormat.TagsTitle(tags).ShouldBe("tenant:acme, schedule:daily_rollup");
+        DashboardFormat.TagsTitle([]).ShouldBe("No tags");
+        DashboardFormat.GroupKeysTitle(["tenant-acme", "daily-rollup"]).ShouldBe("tenant-acme, daily-rollup");
+    }
+
+    [Fact]
+    public void JobEvent_LogAndTimelineEvents_FormatsOperationalText()
+    {
+        var failed = new JobEvent(
+          Guid.NewGuid(),
+          Guid.NewGuid(),
+          EventSequence: 4,
+          JobEventKind.AttemptFailed,
+          DateTimeOffset.Parse("2026-04-20T12:04:00Z", CultureInfo.InvariantCulture),
+          AttemptNumber: 2,
+          Message: "Timeout");
+        var progress = failed with
+        {
+            Kind = JobEventKind.Progress,
+            LogLevel = null,
+            Message = "chunk 7",
+            ProgressPercent = 70,
+        };
+        var cancelRequested = failed with
+        {
+            Kind = JobEventKind.CancelRequested,
+            Message = "Cancellation requested",
+        };
+
+        DashboardFormat.TimelineTitle(failed).ShouldBe("Attempt 2 Failed");
+        DashboardFormat.ShouldRenderTimelineMessage(failed).ShouldBeTrue();
+        DashboardFormat.IsLifecycleEvent(cancelRequested).ShouldBeTrue();
+        DashboardFormat.TimelineTitle(cancelRequested).ShouldBe("Cancellation Requested");
+        DashboardFormat.LogLevel(progress).ShouldBe("PROGRESS");
+        DashboardFormat.LogMessage(progress).ShouldBe("70% chunk 7");
+    }
+
+    [Fact]
+    public void MetricsFormat_RatesDurationsAndActivity_FormatsOperationalValues()
+    {
+        var inactiveWindow = CreateMetricsWindow();
+        var activeWindow = inactiveWindow with
+        {
+            SuccessRatePerMinute = 842.25,
+            P95ExecutionDuration = TimeSpan.FromMilliseconds(1200),
+            SaturatedConcurrencyGroupCount = 2,
+        };
+
+        DashboardMetricsFormat.HasNoActivity(inactiveWindow).ShouldBeTrue();
+        DashboardMetricsFormat.HasNoActivity(activeWindow).ShouldBeFalse();
+        DashboardMetricsFormat.WindowLabel(TimeSpan.FromMinutes(5)).ShouldBe("5m");
+        DashboardMetricsFormat.Rate(0.04).ShouldBe("<0.1/min");
+        DashboardMetricsFormat.Rate(activeWindow.SuccessRatePerMinute).ShouldBe("842.3/min");
+        DashboardMetricsFormat.Duration(activeWindow.P95ExecutionDuration).ShouldBe("1.2 s");
+        DashboardMetricsFormat.DurationBarWidthStyle(TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(1200)).ShouldBe("width: 10%");
+        DashboardMetricsFormat.AttentionValueClass(activeWindow.SaturatedConcurrencyGroupCount).ShouldBe("metrics-value--attention");
+        DashboardMetricsFormat.SaturatedGroupTitle(activeWindow).ShouldBe("2 saturated groups");
+    }
+
+    private static JobInspectionSummary CreateJob(
+        string serviceType = "Sheddueller.Dashboard.Tests.Worker",
+        string methodName = "Run")
+      => new(
+        Guid.Parse("8c32d457-9e7a-42bb-8947-0c8fa54743be"),
+        JobState.Claimed,
+        serviceType,
+        methodName,
+        Priority: 10,
+        EnqueueSequence: 1,
+        DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture),
+        NotBeforeUtc: null,
+        AttemptCount: 2,
+        MaxAttempts: 5,
+        Tags: [],
+        ConcurrencyGroupKeys: [],
+        SourceScheduleKey: null,
+        LatestProgress: null,
+        QueuePosition: null,
+        ClaimedAtUtc: null,
+        CompletedAtUtc: null,
+        FailedAtUtc: null,
+        CanceledAtUtc: null);
+
+    private static MetricsInspectionWindow CreateMetricsWindow()
+      => new(
+        TimeSpan.FromMinutes(5),
+        QueuedCount: 0,
+        ClaimedCount: 0,
+        FailedCount: 0,
+        CanceledCount: 0,
+        OldestQueuedAge: null,
+        EnqueueRatePerMinute: 0,
+        ClaimRatePerMinute: 0,
+        SuccessRatePerMinute: 0,
+        FailureRatePerMinute: 0,
+        CancellationRatePerMinute: 0,
+        RetryRatePerMinute: 0,
+        P50QueueLatency: null,
+        P95QueueLatency: null,
+        P50ExecutionDuration: null,
+        P95ExecutionDuration: null,
+        P95ScheduleFireLag: null,
+        SaturatedConcurrencyGroupCount: 0,
+        ActiveNodeCount: 0,
+        StaleNodeCount: 0,
+        DeadNodeCount: 0);
+}

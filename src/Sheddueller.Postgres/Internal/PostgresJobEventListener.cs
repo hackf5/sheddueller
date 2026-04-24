@@ -1,0 +1,90 @@
+namespace Sheddueller.Postgres.Internal;
+
+using System.Globalization;
+
+using Npgsql;
+
+using Sheddueller.Postgres.Internal.Operations;
+using Sheddueller.Runtime;
+using Sheddueller.Storage;
+
+internal sealed class PostgresJobEventListener(
+    ShedduellerPostgresOptions options,
+    IJobEventNotifier publisher) : IShedduellerJobEventListener
+{
+    private readonly PostgresOperationContext _context = new(options);
+
+    public async Task ListenAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await this.ListenUntilDisconnectedAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task ListenUntilDisconnectedAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await options.DataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        connection.Notification += this.OnNotification;
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"listen {PostgresNames.JobEventChannel};";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await connection.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            connection.Notification -= this.OnNotification;
+        }
+    }
+
+    private void OnNotification(object sender, NpgsqlNotificationEventArgs args)
+    {
+        if (!TryParsePayload(args.Payload, options.SchemaName, out var jobId, out var eventSequence))
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            var jobEvent = await PostgresJobEvents.ReadEventAsync(this._context, jobId, eventSequence, CancellationToken.None)
+              .ConfigureAwait(false);
+            if (jobEvent is not null)
+            {
+                await publisher.NotifyAsync(jobEvent, CancellationToken.None).ConfigureAwait(false);
+            }
+        });
+    }
+
+    private static bool TryParsePayload(
+        string payload,
+        string schemaName,
+        out Guid jobId,
+        out long eventSequence)
+    {
+        jobId = default;
+        eventSequence = default;
+        var parts = payload.Split('|', StringSplitOptions.None);
+        return parts.Length == 3
+          && string.Equals(parts[0], schemaName, StringComparison.Ordinal)
+          && Guid.TryParseExact(parts[1], "N", out jobId)
+          && long.TryParse(parts[2], CultureInfo.InvariantCulture, out eventSequence);
+    }
+}

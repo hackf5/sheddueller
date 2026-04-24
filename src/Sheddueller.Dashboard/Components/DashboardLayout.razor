@@ -1,62 +1,63 @@
 @inherits LayoutComponentBase
+@implements IDisposable
 
-<div class="sd-dashboard-shell">
-    <aside class="sd-sidebar" aria-label="Dashboard navigation">
-        <div class="sd-sidebar__brand">
-            <span class="sd-sidebar__title">Sheddueller</span>
-            <span class="sd-sidebar__subtitle">Operational Control</span>
-        </div>
-
-        <nav class="sd-sidebar__nav" aria-label="Primary">
-            <NavLink class="sd-sidebar__link" href="" Match="NavLinkMatch.All">
-                <span class="material-symbols-outlined" aria-hidden="true">dashboard</span>
-                <span>Overview</span>
-            </NavLink>
-            <NavLink class="sd-sidebar__link" href="jobs">
-                <span class="material-symbols-outlined" aria-hidden="true">format_list_bulleted</span>
-                <span>Jobs</span>
-            </NavLink>
-        </nav>
-
-        <nav class="sd-sidebar__nav sd-sidebar__nav--footer" aria-label="Secondary">
-            <span class="sd-sidebar__link sd-sidebar__link--muted" aria-disabled="true">
-                <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
-                <span>System Status</span>
-            </span>
-            <span class="sd-sidebar__link sd-sidebar__link--muted" aria-disabled="true">
-                <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
-                <span>Documentation</span>
-            </span>
-        </nav>
-    </aside>
-
-    <div class="sd-workspace">
-        <header class="sd-topbar">
-            <div class="sd-topbar__actions">
-                <label class="sd-search">
-                    <span class="material-symbols-outlined" aria-hidden="true">search</span>
-                    <input type="search" placeholder="Search logs, IDs..." aria-label="Search logs and IDs" disabled />
-                </label>
-
-                <div class="sd-topbar__utility">
-                    <button class="sd-icon-button" type="button" aria-label="Notifications" disabled>
-                        <span class="material-symbols-outlined" aria-hidden="true">notifications</span>
-                    </button>
-                    <button class="sd-icon-button" type="button" aria-label="Settings" disabled>
-                        <span class="material-symbols-outlined" aria-hidden="true">settings</span>
-                    </button>
-                    <span class="sd-avatar" aria-hidden="true">
-                        <span class="material-symbols-outlined">person</span>
-                    </span>
-                </div>
+<CascadingValue Name="DashboardShellRefresh" Value="_refreshContext">
+    <div class="sd-dashboard-shell">
+        <aside class="sd-sidebar" aria-label="Dashboard navigation">
+            <div class="sd-sidebar__brand">
+                <span class="sd-sidebar__title">Sheddueller</span>
+                <span class="sd-sidebar__subtitle">Operational Control</span>
             </div>
-        </header>
 
-        <main class="sd-main">
-            @Body
-        </main>
+            <nav class="sd-sidebar__nav" aria-label="Primary">
+                <NavLink class="sd-sidebar__link" href="" Match="NavLinkMatch.All">
+                    <span class="material-symbols-outlined" aria-hidden="true">dashboard</span>
+                    <span>Overview</span>
+                </NavLink>
+                <NavLink class="sd-sidebar__link" href="jobs">
+                    <span class="material-symbols-outlined" aria-hidden="true">format_list_bulleted</span>
+                    <span>Jobs</span>
+                </NavLink>
+                <NavLink class="sd-sidebar__link" href="schedules">
+                    <span class="material-symbols-outlined" aria-hidden="true">event_repeat</span>
+                    <span>Schedules</span>
+                </NavLink>
+                <NavLink class="sd-sidebar__link" href="concurrency-groups">
+                    <span class="material-symbols-outlined" aria-hidden="true">layers</span>
+                    <span>Concurrency Groups</span>
+                </NavLink>
+                <NavLink class="sd-sidebar__link" href="nodes">
+                    <span class="material-symbols-outlined" aria-hidden="true">dns</span>
+                    <span>Nodes</span>
+                </NavLink>
+                <NavLink class="sd-sidebar__link" href="metrics">
+                    <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
+                    <span>Metrics</span>
+                </NavLink>
+            </nav>
+
+            @if (CurrentRefresh is { } refresh)
+            {
+                <nav class="sd-sidebar__nav sd-sidebar__nav--footer" aria-label="Refresh controls">
+                    <div class="sd-shell-refresh">
+                        <span class="sd-shell-refresh__label">Live Refresh</span>
+                        <LiveStatus IsRefreshing="refresh.Coordinator.IsRefreshing" ShowRefreshing="refresh.ShowRefreshing" LastUpdatedUtc="@refresh.GetLastUpdatedUtc(DateTimeOffset.UtcNow)" />
+                        <button class="@ShellRefreshButtonClass(refresh)" type="button" @onclick="ToggleShellAutoRefreshAsync" aria-pressed="@refresh.Coordinator.AutoRefreshEnabled">
+                            <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+                            <span>Auto-refresh @AutoRefreshStateText(refresh)</span>
+                        </button>
+                    </div>
+                </nav>
+            }
+        </aside>
+
+        <div class="sd-workspace">
+            <main class="sd-main">
+                @Body
+            </main>
+        </div>
     </div>
-</div>
+</CascadingValue>
 
 <style>
     :root {
@@ -85,9 +86,7 @@
         --sd-success-container: #dcfce7;
         --sd-info: #1d4ed8;
         --sd-info-container: #dbeafe;
-        --sd-topbar-background: rgb(255 255 255 / 0.9);
         --sd-sidebar-width: 240px;
-        --sd-topbar-height: 56px;
         --sd-page-margin: 24px;
         --sd-gutter: 16px;
         --sd-density-high: 8px;
@@ -123,14 +122,13 @@
             --sd-success-container: #063f33;
             --sd-info: #38bdf8;
             --sd-info-container: #0b3c53;
-            --sd-topbar-background: rgb(19 27 46 / 0.9);
             color-scheme: dark;
         }
     }
 
     html,
     body {
-        min-height: 100%;
+        height: 100%;
     }
 
     body {
@@ -170,7 +168,8 @@
 
     .sd-dashboard-shell {
         display: flex;
-        min-height: 100vh;
+        height: 100vh;
+        overflow: hidden;
         background: var(--sd-background);
         color: var(--sd-on-surface);
     }
@@ -255,97 +254,62 @@
         cursor: default;
     }
 
+    .sd-shell-refresh {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 0 4px;
+    }
+
+    .sd-shell-refresh__label {
+        color: var(--sd-on-surface-variant);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .sd-shell-refresh .sd-live-status {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    button.sd-shell-refresh__button {
+        display: inline-flex;
+        width: 100%;
+        min-height: 32px;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface-variant);
+        padding: 6px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    button.sd-shell-refresh__button--active {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    button.sd-shell-refresh__button:hover {
+        color: var(--sd-primary);
+    }
+
     .sd-workspace {
         display: flex;
         width: calc(100% - var(--sd-sidebar-width));
-        min-height: 100vh;
+        height: 100vh;
+        min-height: 0;
         margin-left: var(--sd-sidebar-width);
         flex-direction: column;
-    }
-
-    .sd-topbar {
-        position: sticky;
-        top: 0;
-        z-index: 40;
-        display: flex;
-        min-height: var(--sd-topbar-height);
-        align-items: center;
-        justify-content: flex-end;
-        border-bottom: 1px solid var(--sd-outline-variant);
-        background: var(--sd-topbar-background);
-        backdrop-filter: blur(10px);
-        padding: 0 24px;
-    }
-
-    .sd-topbar__actions,
-    .sd-topbar__utility {
-        display: flex;
-        align-items: center;
-    }
-
-    .sd-topbar__actions {
-        gap: 16px;
-    }
-
-    .sd-topbar__utility {
-        gap: 8px;
-        margin-left: 8px;
-        padding-left: 16px;
-        border-left: 1px solid var(--sd-outline-variant);
-    }
-
-    .sd-search {
-        position: relative;
-        display: block;
-    }
-
-    .sd-search .material-symbols-outlined {
-        position: absolute;
-        top: 8px;
-        left: 10px;
-        color: var(--sd-outline);
-        font-size: 18px;
-    }
-
-    .sd-search input {
-        width: 256px;
-        min-height: 34px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface-container);
-        color: var(--sd-on-surface);
-        padding: 6px 12px 6px 36px;
-    }
-
-    .sd-search input::placeholder {
-        color: var(--sd-outline);
-    }
-
-    .sd-icon-button {
-        display: inline-flex;
-        width: 32px;
-        height: 32px;
-        align-items: center;
-        justify-content: center;
-        border: 0;
-        border-radius: 2px;
-        background: transparent;
-        color: var(--sd-on-surface-variant);
-        opacity: 1;
-    }
-
-    .sd-avatar {
-        display: inline-flex;
-        width: 32px;
-        height: 32px;
-        align-items: center;
-        justify-content: center;
-        margin-left: 8px;
-        overflow: hidden;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 999px;
-        background: var(--sd-surface-variant);
-        color: var(--sd-outline);
     }
 
     .sd-live-status {
@@ -384,7 +348,8 @@
     }
 
     .sd-main {
-        min-height: calc(100vh - var(--sd-topbar-height));
+        flex: 1 1 auto;
+        min-height: 0;
         overflow-y: auto;
         padding: var(--sd-page-margin);
     }
@@ -460,7 +425,225 @@
         padding: 7px 10px;
     }
 
-    :where(.sd-main button:not(.sd-icon-button)) {
+    .sd-table-shell {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: var(--sd-radius);
+        background: var(--sd-surface-lowest);
+    }
+
+    .sd-table-toolbar,
+    .sd-table-controls,
+    .sd-table-switch,
+    .sd-table-pagination {
+        display: flex;
+        align-items: center;
+    }
+
+    .sd-table-toolbar {
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface);
+        padding: 8px 16px;
+    }
+
+    .sd-table-toolbar h2 {
+        flex: 0 0 auto;
+        font-size: 18px;
+        line-height: 24px;
+    }
+
+    .sd-table-controls {
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .sd-table-search {
+        position: relative;
+        display: block;
+        width: 220px;
+    }
+
+    .sd-table-search .material-symbols-outlined {
+        position: absolute;
+        top: 7px;
+        left: 8px;
+        color: var(--sd-outline);
+        font-size: 16px;
+    }
+
+    .sd-table-search input,
+    .sd-table-select {
+        min-height: 32px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+        font-size: 12px;
+        line-height: 16px;
+    }
+
+    .sd-table-search input {
+        width: 100%;
+        padding: 6px 10px 6px 32px;
+    }
+
+    .sd-table-search input::placeholder,
+    .sd-table-select::placeholder {
+        color: var(--sd-outline);
+        font-family: Inter, Arial, sans-serif;
+    }
+
+    .sd-table-select {
+        padding: 6px 8px;
+    }
+
+    .sd-table-switch {
+        min-height: 32px;
+        gap: 8px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface-variant);
+        cursor: pointer;
+        padding: 5px 9px;
+        user-select: none;
+    }
+
+    .sd-table-switch input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    .sd-table-switch span {
+        position: relative;
+        display: inline-flex;
+        width: 28px;
+        height: 16px;
+        flex: 0 0 auto;
+        align-items: center;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 999px;
+        background: var(--sd-surface-variant);
+    }
+
+    .sd-table-switch span::before {
+        width: 10px;
+        height: 10px;
+        margin-left: 2px;
+        border-radius: 999px;
+        background: var(--sd-outline);
+        content: "";
+        transition: margin-left 150ms ease, background-color 150ms ease;
+    }
+
+    .sd-table-switch input:checked+span {
+        border-color: var(--sd-primary);
+        background: var(--sd-secondary-container);
+    }
+
+    .sd-table-switch input:checked+span::before {
+        margin-left: 14px;
+        background: var(--sd-primary);
+    }
+
+    .sd-table-switch input:focus-visible+span {
+        outline: 2px solid var(--sd-primary);
+        outline-offset: 2px;
+    }
+
+    .sd-table-switch strong {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .sd-table-wrap {
+        overflow: auto;
+    }
+
+    .sd-table-pagination {
+        min-height: 56px;
+        justify-content: space-between;
+        gap: 12px;
+        border-top: 1px solid var(--sd-outline-variant);
+        background: var(--sd-surface-low);
+        color: var(--sd-on-surface-variant);
+        padding: 12px 16px;
+        font-size: 11px;
+        line-height: 16px;
+    }
+
+    button.sd-table-load-more-button {
+        display: inline-flex;
+        min-width: 160px;
+        min-height: 32px;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-lowest);
+        color: var(--sd-on-surface);
+        padding: 6px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    button.sd-table-load-more-button:hover {
+        color: var(--sd-primary);
+    }
+
+    .sd-table-shell button:disabled,
+    .sd-table-shell input:disabled,
+    .sd-table-shell select:disabled {
+        cursor: progress;
+        opacity: 0.65;
+    }
+
+    @@media (max-width: 1120px) {
+        .sd-table-toolbar {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .sd-table-controls {
+            justify-content: flex-start;
+            flex-wrap: wrap;
+        }
+    }
+
+    @@media (max-width: 720px) {
+        .sd-table-controls,
+        .sd-table-search,
+        .sd-table-select,
+        .sd-table-switch,
+        .sd-table-pagination {
+            width: 100%;
+        }
+
+        .sd-table-controls,
+        .sd-table-pagination {
+            align-items: stretch;
+            flex-direction: column;
+        }
+    }
+
+    :where(.sd-main button) {
         border: 1px solid var(--sd-primary);
         border-radius: var(--sd-radius);
         background: var(--sd-primary);
@@ -486,3 +669,41 @@
         background: var(--sd-outline);
     }
 </style>
+
+@code {
+    private readonly DashboardShellRefreshContext _refreshContext = new();
+    private bool _disposed;
+
+    private DashboardShellRefreshRegistration? CurrentRefresh
+      => this._refreshContext.Current;
+
+    protected override void OnInitialized()
+    {
+        this._refreshContext.Changed += this.OnRefreshContextChanged;
+    }
+
+    public void Dispose()
+    {
+        this._disposed = true;
+        this._refreshContext.Changed -= this.OnRefreshContextChanged;
+    }
+
+    private void OnRefreshContextChanged()
+    {
+        if (!this._disposed)
+        {
+            _ = this.InvokeAsync(this.StateHasChanged);
+        }
+    }
+
+    private async Task ToggleShellAutoRefreshAsync()
+      => await this._refreshContext.ToggleCurrentAutoRefreshAsync();
+
+    private static string ShellRefreshButtonClass(DashboardShellRefreshRegistration refresh)
+      => refresh.Coordinator.AutoRefreshEnabled
+        ? "sd-shell-refresh__button sd-shell-refresh__button--active"
+        : "sd-shell-refresh__button";
+
+    private static string AutoRefreshStateText(DashboardShellRefreshRegistration refresh)
+      => refresh.Coordinator.AutoRefreshEnabled ? "On" : "Off";
+}

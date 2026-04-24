@@ -1,0 +1,9 @@
+<a class="@CssClass" href="@DashboardFormat.JobHref(JobId)" title="@DashboardFormat.JobId(JobId)">@DashboardFormat.JobId(JobId)</a>
+
+@code {
+    [Parameter]
+    public Guid JobId { get; set; }
+
+    [Parameter]
+    public string CssClass { get; set; } = "sd-job-link";
+}

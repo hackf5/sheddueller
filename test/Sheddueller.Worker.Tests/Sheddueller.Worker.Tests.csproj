@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller.Worker\Sheddueller.Worker.csproj" />
+    <ProjectReference Include="$(SrcDirectory)\Sheddueller\Sheddueller.csproj" />
+  </ItemGroup>
+</Project>

@@ -26,6 +26,8 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
         schedule.Priority.ShouldBe(5);
         schedule.ServiceType.ShouldBe(PostgresTestData.ServiceType);
         schedule.MethodName.ShouldBe(PostgresTestData.MethodName);
+        schedule.InvocationTargetKind.ShouldBe("Instance");
+        schedule.MethodParameterBindings.ShouldBeNull();
         schedule.RetryPolicyConfigured.ShouldBeTrue();
         schedule.MaxAttempts.ShouldBe(3);
         schedule.RetryBackoffKind.ShouldBe("Exponential");
@@ -33,6 +35,25 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
         schedule.RetryMaxDelayMs.ShouldBe(8000);
         schedule.NextFireAtUtc.ShouldNotBeNull();
         (await context.ReadScheduleGroupKeysAsync("schedule-a")).ShouldBe(["alpha", "beta"]);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateRecurringSchedule_InvokeMetadata_PersistsTargetKindAndParameterBindings()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule(
+          "schedule-a",
+          invocationTargetKind: JobInvocationTargetKind.Static,
+          methodParameterBindings:
+          [
+              new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+          ]));
+
+        var schedule = await context.ReadScheduleAsync("schedule-a");
+
+        schedule.InvocationTargetKind.ShouldBe("Static");
+        schedule.MethodParameterBindings.ShouldBe(["CancellationToken"]);
     }
 
     [Fact]

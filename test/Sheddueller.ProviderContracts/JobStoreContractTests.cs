@@ -1,5 +1,6 @@
 namespace Sheddueller.ProviderContracts;
 
+using Sheddueller.Inspection.Jobs;
 using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
@@ -60,6 +61,227 @@ public abstract class JobStoreContractTests
         (await ClaimAsync(context.Store)).JobId.ShouldBe(high);
         (await ClaimAsync(context.Store)).JobId.ShouldBe(firstLow);
         (await ClaimAsync(context.Store)).JobId.ShouldBe(secondLow);
+    }
+
+    [Fact]
+    public async Task EnqueueMany_PriorityAndFifo_ClaimsHigherPriorityThenOldestBatchItem()
+    {
+        await using var context = await this.CreateContextAsync();
+        var firstLow = Guid.NewGuid();
+        var secondLow = Guid.NewGuid();
+        var high = Guid.NewGuid();
+
+        var results = await context.Store.EnqueueManyAsync([
+          CreateRequest(firstLow, priority: 0),
+          CreateRequest(secondLow, priority: 0),
+          CreateRequest(high, priority: 10),
+        ]);
+
+        results.Select(result => result.JobId).ShouldBe([firstLow, secondLow, high]);
+        results[1].EnqueueSequence.ShouldBeGreaterThan(results[0].EnqueueSequence);
+        results[2].EnqueueSequence.ShouldBeGreaterThan(results[1].EnqueueSequence);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(high);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(firstLow);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(secondLow);
+    }
+
+    [Fact]
+    public async Task EnqueueMany_EmptyBatch_ReturnsEmptyWithoutPersistingJob()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        var results = await context.Store.EnqueueManyAsync([]);
+
+        results.ShouldBeEmpty();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+    }
+
+    [Fact]
+    public async Task EnqueueMany_DuplicateJobIdInBatch_ThrowsWithoutPersistingAnyBatchItem()
+    {
+        await using var context = await this.CreateContextAsync();
+        var duplicate = Guid.NewGuid();
+        var other = Guid.NewGuid();
+
+        await Should.ThrowAsync<Exception>(
+          () => context.Store.EnqueueManyAsync([
+            CreateRequest(other, priority: 10),
+            CreateRequest(duplicate, priority: 0),
+            CreateRequest(duplicate, priority: 0),
+          ]).AsTask());
+
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+    }
+
+    [Fact]
+    public async Task EnqueueMany_ExistingJobId_ThrowsWithoutPersistingAnyBatchItem()
+    {
+        await using var context = await this.CreateContextAsync();
+        var existing = Guid.NewGuid();
+        var newHighPriority = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(existing, priority: 0));
+
+        await Should.ThrowAsync<Exception>(
+          () => context.Store.EnqueueManyAsync([
+            CreateRequest(newHighPriority, priority: 10),
+            CreateRequest(existing, priority: 0),
+          ]).AsTask());
+
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(existing);
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_QueuedJob_ReturnsExistingJobWithoutPersistingDuplicate()
+    {
+        await using var context = await this.CreateContextAsync();
+        var existing = Guid.NewGuid();
+        var duplicate = Guid.NewGuid();
+
+        var firstResult = await context.Store.EnqueueAsync(CreateRequest(existing, idempotencyKey: "listing:3"));
+        var secondResult = await context.Store.EnqueueAsync(CreateRequest(duplicate, priority: 100, idempotencyKey: "listing:3"));
+
+        secondResult.JobId.ShouldBe(existing);
+        secondResult.EnqueueSequence.ShouldBe(firstResult.EnqueueSequence);
+        secondResult.WasEnqueued.ShouldBeFalse();
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(existing);
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+        (await GetInspectionReader(context).GetJobAsync(duplicate)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_ClaimedJob_DoesNotSuppressNewEnqueue()
+    {
+        await using var context = await this.CreateContextAsync();
+        var running = Guid.NewGuid();
+        var next = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(running, idempotencyKey: "listing:3"));
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
+
+        var nextResult = await context.Store.EnqueueAsync(CreateRequest(next, idempotencyKey: "listing:3"));
+
+        nextResult.JobId.ShouldBe(next);
+        nextResult.WasEnqueued.ShouldBeTrue();
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(next);
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_RetryWaitingJob_ReturnsRetryJobWithoutPersistingDuplicate()
+    {
+        await using var context = await this.CreateContextAsync();
+        var retrying = Guid.NewGuid();
+        var duplicate = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          retrying,
+          maxAttempts: 2,
+          retryBackoffKind: RetryBackoffKind.Fixed,
+          retryBaseDelay: TimeSpan.FromHours(1),
+          idempotencyKey: "listing:3"));
+        var claimed = await ClaimAsync(context.Store);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(retrying, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        var duplicateResult = await context.Store.EnqueueAsync(CreateRequest(duplicate, idempotencyKey: "listing:3"));
+
+        duplicateResult.JobId.ShouldBe(retrying);
+        duplicateResult.WasEnqueued.ShouldBeFalse();
+        (await GetInspectionReader(context).GetJobAsync(duplicate)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_TerminalJob_AllowsNewEnqueue()
+    {
+        await using var context = await this.CreateContextAsync();
+        var failed = Guid.NewGuid();
+        var replacement = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(failed, idempotencyKey: "listing:3"));
+        var claimed = await ClaimAsync(context.Store);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(failed, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        var replacementResult = await context.Store.EnqueueAsync(CreateRequest(replacement, idempotencyKey: "listing:3"));
+
+        replacementResult.JobId.ShouldBe(replacement);
+        replacementResult.WasEnqueued.ShouldBeTrue();
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(replacement);
+    }
+
+    [Fact]
+    public async Task EnqueueMany_DuplicateIdempotencyKey_ReturnsRepresentativeWithoutPersistingDuplicate()
+    {
+        await using var context = await this.CreateContextAsync();
+        var first = Guid.NewGuid();
+        var duplicate = Guid.NewGuid();
+        var other = Guid.NewGuid();
+
+        var results = await context.Store.EnqueueManyAsync([
+          CreateRequest(first, idempotencyKey: "listing:3"),
+          CreateRequest(duplicate, priority: 100, idempotencyKey: "listing:3"),
+          CreateRequest(other, idempotencyKey: "listing:4"),
+        ]);
+
+        results.Select(result => result.JobId).ShouldBe([first, first, other]);
+        results.Select(result => result.WasEnqueued).ShouldBe([true, false, true]);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(first);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(other);
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+        (await GetInspectionReader(context).GetJobAsync(duplicate)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_DelayedRequest_ThrowsWithoutPersistingJob()
+    {
+        await using var context = await this.CreateContextAsync();
+        var jobId = Guid.NewGuid();
+
+        await Should.ThrowAsync<ArgumentException>(
+          () => context.Store.EnqueueAsync(CreateRequest(
+            jobId,
+            notBeforeUtc: DateTimeOffset.UtcNow.AddMinutes(1),
+            idempotencyKey: "listing:3")).AsTask());
+
+        (await GetInspectionReader(context).GetJobAsync(jobId)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_ClaimedJobFailsWithQueuedReplacement_MarksClaimedJobFailedAndKeepsReplacement()
+    {
+        await using var context = await this.CreateContextAsync();
+        var running = Guid.NewGuid();
+        var replacement = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          running,
+          maxAttempts: 2,
+          retryBackoffKind: RetryBackoffKind.Fixed,
+          retryBaseDelay: TimeSpan.FromHours(1),
+          idempotencyKey: "listing:3"));
+        var claimed = await ClaimAsync(context.Store);
+        await context.Store.EnqueueAsync(CreateRequest(replacement, idempotencyKey: "listing:3"));
+
+        (await context.Store.MarkFailedAsync(new FailJobRequest(running, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        (await GetInspectionReader(context).GetJobAsync(running)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Failed);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(replacement);
+    }
+
+    [Fact]
+    public async Task IdempotencyKey_ClaimedJobReleaseWithQueuedReplacement_MarksClaimedJobFailedAndKeepsReplacement()
+    {
+        await using var context = await this.CreateContextAsync();
+        var running = Guid.NewGuid();
+        var replacement = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(running, idempotencyKey: "listing:3"));
+        var claimed = await ClaimAsync(context.Store);
+        await context.Store.EnqueueAsync(CreateRequest(replacement, idempotencyKey: "listing:3"));
+
+        (await context.Store.ReleaseJobAsync(new ReleaseJobRequest(running, "node-1", claimed.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+
+        (await GetInspectionReader(context).GetJobAsync(running)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Failed);
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(replacement);
     }
 
     [Fact]
@@ -225,20 +447,69 @@ public abstract class JobStoreContractTests
     }
 
     [Fact]
-    public async Task Cancel_QueuedJobOnly_CancelsBeforeClaim()
+    public async Task Cancel_QueuedJob_CancelsBeforeClaim()
     {
         await using var context = await this.CreateContextAsync();
-        var queued = Guid.NewGuid();
-        var claimed = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
 
-        await context.Store.EnqueueAsync(CreateRequest(queued));
-        await context.Store.EnqueueAsync(CreateRequest(claimed));
+        await context.Store.EnqueueAsync(CreateRequest(jobId));
 
-        (await context.Store.CancelAsync(new CancelJobRequest(queued, DateTimeOffset.UtcNow))).ShouldBeTrue();
+        (await context.Store.CancelAsync(new CancelJobRequest(jobId, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.Canceled);
 
+        var detail = await GetInspectionReader(context).GetJobAsync(jobId);
+        detail.ShouldNotBeNull().Summary.State.ShouldBe(JobState.Canceled);
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+    }
+
+    [Fact]
+    public async Task Cancel_ClaimedJob_RequestsCooperativeCancellation()
+    {
+        await using var context = await this.CreateContextAsync();
+        var jobId = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(jobId));
         var claimedJob = await ClaimAsync(context.Store);
-        (await context.Store.CancelAsync(new CancelJobRequest(claimedJob.JobId, DateTimeOffset.UtcNow))).ShouldBeFalse();
-        claimedJob.JobId.ShouldBe(claimed);
+
+        (await context.Store.CancelAsync(new CancelJobRequest(jobId, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.CancellationRequested);
+        var cancellationRequestedAtUtc = await context.Store.GetCancellationRequestedAtAsync(
+          new JobCancellationStatusRequest(jobId, "node-1", claimedJob.LeaseToken, DateTimeOffset.UtcNow));
+        cancellationRequestedAtUtc.ShouldNotBeNull();
+
+        var detail = await GetInspectionReader(context).GetJobAsync(jobId);
+        detail.ShouldNotBeNull().Summary.State.ShouldBe(JobState.Claimed);
+        detail.Summary.CancellationRequestedAtUtc.ShouldNotBeNull();
+
+        var events = await ReadEventsAsync(context, jobId);
+        events.Count(jobEvent => jobEvent.Kind == JobEventKind.CancelRequested).ShouldBe(1);
+
+        (await context.Store.CancelAsync(new CancelJobRequest(jobId, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.CancellationRequested);
+        events = await ReadEventsAsync(context, jobId);
+        events.Count(jobEvent => jobEvent.Kind == JobEventKind.CancelRequested).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Cancel_TerminalOrMissingJob_ReturnsNonMutatingResult()
+    {
+        await using var context = await this.CreateContextAsync();
+        var completed = Guid.NewGuid();
+        var failed = Guid.NewGuid();
+        var canceled = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(completed));
+        var completedClaim = await ClaimAsync(context.Store);
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(completed, "node-1", completedClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(failed));
+        var failedClaim = await ClaimAsync(context.Store);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(failed, "node-1", failedClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(canceled));
+        (await context.Store.CancelAsync(new CancelJobRequest(canceled, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.Canceled);
+
+        (await context.Store.CancelAsync(new CancelJobRequest(completed, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.AlreadyFinished);
+        (await context.Store.CancelAsync(new CancelJobRequest(failed, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.AlreadyFinished);
+        (await context.Store.CancelAsync(new CancelJobRequest(canceled, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.AlreadyFinished);
+        (await context.Store.CancelAsync(new CancelJobRequest(Guid.NewGuid(), DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.NotFound);
     }
 
     [Fact]
@@ -361,7 +632,8 @@ public abstract class JobStoreContractTests
         RetryBackoffKind? retryBackoffKind = null,
         TimeSpan? retryBaseDelay = null,
         TimeSpan? retryMaxDelay = null,
-        IReadOnlyList<string>? groupKeys = null)
+        IReadOnlyList<string>? groupKeys = null,
+        string? idempotencyKey = null)
       => new(
         jobId,
         priority,
@@ -375,7 +647,8 @@ public abstract class JobStoreContractTests
         maxAttempts,
         retryBackoffKind,
         retryBaseDelay,
-        retryMaxDelay);
+        retryMaxDelay,
+        IdempotencyKey: idempotencyKey);
 
     protected static UpsertRecurringScheduleRequest CreateSchedule(
         string scheduleKey,
@@ -416,6 +689,23 @@ public abstract class JobStoreContractTests
 
     protected static SerializedJobPayload EmptyPayload()
       => new(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray());
+
+    private static IJobInspectionReader GetInspectionReader(JobStoreContractContext context)
+      => context.Store as IJobInspectionReader
+        ?? throw new InvalidOperationException("Job store contract contexts must provide job inspection.");
+
+    private static async ValueTask<IReadOnlyList<JobEvent>> ReadEventsAsync(
+        JobStoreContractContext context,
+        Guid jobId)
+    {
+        var events = new List<JobEvent>();
+        await foreach (var jobEvent in GetInspectionReader(context).ReadEventsAsync(jobId))
+        {
+            events.Add(jobEvent);
+        }
+
+        return events;
+    }
 
     private sealed class JobStoreContractService
     {

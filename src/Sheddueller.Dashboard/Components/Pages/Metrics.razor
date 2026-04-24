@@ -1,0 +1,919 @@
+@page "/metrics"
+@inherits DashboardPageComponent
+@inject IMetricsInspectionReader Reader
+
+<div class="metrics-page">
+    <header class="metrics-header">
+        <div>
+            <h1>Metrics</h1>
+            <p>Live telemetry and comparative metrics for active scheduler nodes.</p>
+        </div>
+
+        <div class="metrics-header__actions">
+            <MetricsWindowSelector Windows="DefaultMetricWindows" SelectedWindow="_selectedWindow"
+                                   SelectedWindowChanged="SetSelectedWindow" />
+        </div>
+    </header>
+
+    @if (_metricsUnsupported)
+    {
+        <section class="metrics-message metrics-message--warning" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+            <div>
+                <h2>Metrics unavailable</h2>
+                <p>The configured scheduler provider does not support rolling inspection metrics.</p>
+            </div>
+        </section>
+    }
+    else if (_loadError is not null)
+    {
+        <section class="metrics-message metrics-message--error" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">error</span>
+            <div>
+                <h2>Metrics failed to load</h2>
+                <p>@_loadError</p>
+            </div>
+        </section>
+    }
+    else if (_isLoading && _snapshot is null)
+    {
+        <section class="metrics-message" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">progress_activity</span>
+            <div>
+                <h2>Loading metrics</h2>
+                <p>Reading rolling scheduler telemetry.</p>
+            </div>
+        </section>
+    }
+    else if (Windows.Count == 0)
+    {
+        <section class="metrics-message" aria-live="polite">
+            <span class="material-symbols-outlined" aria-hidden="true">query_stats</span>
+            <div>
+                <h2>No metrics returned</h2>
+                <p>The metrics reader returned no rolling windows.</p>
+            </div>
+        </section>
+    }
+    else if (SelectedWindow is { } selectedWindow)
+    {
+        var queueLatencyMax = DashboardMetricsFormat.MaxDuration(selectedWindow.P50QueueLatency,
+    selectedWindow.P95QueueLatency);
+        var executionDurationMax = DashboardMetricsFormat.MaxDuration(selectedWindow.P50ExecutionDuration,
+    selectedWindow.P95ExecutionDuration);
+
+        @if (LiveRefresh.RefreshError is not null)
+        {
+            <DashboardInlineAlert CssClass="metrics-inline-alert metrics-inline-alert--error" Icon="warning">
+                <span>Refresh failed: @LiveRefresh.RefreshError</span>
+            </DashboardInlineAlert>
+        }
+
+        @if (DashboardMetricsFormat.HasNoActivity(selectedWindow))
+        {
+            <DashboardInlineAlert CssClass="metrics-inline-alert" Icon="info">
+                <span>No data in selected window; zero and unavailable values are shown below.</span>
+            </DashboardInlineAlert>
+        }
+
+        <section class="metrics-summary-grid" aria-label="Selected window metrics">
+            <article class="metrics-summary-card">
+                <div class="metrics-summary-card__header">
+                    <span>Queue Depth</span>
+                    <span class="material-symbols-outlined" aria-hidden="true">stacked_inbox</span>
+                </div>
+                <strong>@DashboardFormat.Count(selectedWindow.QueuedCount)</strong>
+                <div class="metrics-summary-card__detail">
+                    <span aria-hidden="true"></span>
+                    <span>Oldest queued: <em>@DashboardMetricsFormat.Duration(selectedWindow.OldestQueuedAge)</em></span>
+                </div>
+            </article>
+
+            <article class="metrics-summary-card">
+                <div class="metrics-summary-card__header">
+                    <span>Throughput Rate</span>
+                    <span class="material-symbols-outlined" aria-hidden="true">speed</span>
+                </div>
+                <strong>@DashboardMetricsFormat.Rate(selectedWindow.SuccessRatePerMinute)</strong>
+                <div class="metrics-rate-stack" aria-label="Throughput rates">
+                    <span>Enqueue <em>@DashboardMetricsFormat.Rate(selectedWindow.EnqueueRatePerMinute)</em></span>
+                    <span>Claim <em>@DashboardMetricsFormat.Rate(selectedWindow.ClaimRatePerMinute)</em></span>
+                </div>
+            </article>
+
+            <article class="metrics-summary-card">
+                <div class="metrics-summary-card__header">
+                    <span>Schedule Fire Lag</span>
+                    <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+                </div>
+                <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95ScheduleFireLag)</strong>
+                <div class="metrics-summary-card__detail">
+                    <span aria-hidden="true"></span>
+                    <span>p95 over @DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
+                </div>
+            </article>
+
+            <article class="metrics-summary-card metrics-summary-card--nodes">
+                <div class="metrics-summary-card__header">
+                    <span>Node Health</span>
+                    <span class="material-symbols-outlined" aria-hidden="true">dns</span>
+                </div>
+                <div class="metrics-node-health">
+                    <span class="metrics-node-health__item metrics-node-health__item--active">
+                        <span aria-hidden="true"></span>
+                        <em>Active</em>
+                        <strong>@DashboardFormat.Count(selectedWindow.ActiveNodeCount)</strong>
+                    </span>
+                    <span class="metrics-node-health__item metrics-node-health__item--stale">
+                        <span aria-hidden="true"></span>
+                        <em>Stale</em>
+                        <strong>@DashboardFormat.Count(selectedWindow.StaleNodeCount)</strong>
+                    </span>
+                    <span class="metrics-node-health__item metrics-node-health__item--dead">
+                        <span aria-hidden="true"></span>
+                        <em>Dead</em>
+                        <strong>@DashboardFormat.Count(selectedWindow.DeadNodeCount)</strong>
+                    </span>
+                </div>
+            </article>
+        </section>
+
+        <section class="metrics-panel-grid" aria-label="Latency and duration metrics">
+            <article class="metrics-panel">
+                <div class="metrics-panel__header">
+                    <h2>Queue Latency</h2>
+                    <span>@DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
+                </div>
+
+                <div class="metrics-bar-list">
+                    <div class="metrics-bar-row">
+                        <div>
+                            <span>p50 Median</span>
+                            <strong>@DashboardMetricsFormat.Duration(selectedWindow.P50QueueLatency)</strong>
+                        </div>
+                        <span class="metrics-bar-row__track" aria-hidden="true">
+                            <span class="metrics-bar-row__fill"
+                                  style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P50QueueLatency, queueLatencyMax)"></span>
+                        </span>
+                    </div>
+                    <div class="metrics-bar-row metrics-bar-row--hot">
+                        <div>
+                            <span>p95 Tail</span>
+                            <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95QueueLatency)</strong>
+                        </div>
+                        <span class="metrics-bar-row__track" aria-hidden="true">
+                            <span class="metrics-bar-row__fill"
+                                  style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P95QueueLatency, queueLatencyMax)"></span>
+                        </span>
+                    </div>
+                </div>
+            </article>
+
+            <article class="metrics-panel">
+                <div class="metrics-panel__header">
+                    <h2>Execution Duration</h2>
+                    <span>@DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
+                </div>
+
+                <div class="metrics-duration-grid">
+                    <div class="metrics-duration-stat">
+                        <span>p50 Duration</span>
+                        <strong>@DashboardMetricsFormat.Duration(selectedWindow.P50ExecutionDuration)</strong>
+                        <span class="metrics-duration-stat__track" aria-hidden="true">
+                            <span
+                            style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P50ExecutionDuration, executionDurationMax)"></span>
+                        </span>
+                    </div>
+                    <div class="metrics-duration-stat metrics-duration-stat--tail">
+                        <span>p95 Duration</span>
+                        <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95ExecutionDuration)</strong>
+                        <span class="metrics-duration-stat__track" aria-hidden="true">
+                            <span
+                            style="@DashboardMetricsFormat.DurationBarWidthStyle(selectedWindow.P95ExecutionDuration, executionDurationMax)"></span>
+                        </span>
+                    </div>
+                </div>
+            </article>
+        </section>
+
+        <section class="metrics-table-shell">
+            <div class="metrics-table-toolbar">
+                <h2>Window Comparison</h2>
+                <span>Concurrency Saturation &amp; Rates</span>
+            </div>
+
+            <div class="metrics-table-wrap">
+                <table class="metrics-table">
+                    <thead>
+                        <tr>
+                            <th>Window</th>
+                            <th class="metrics-table__number">Queued</th>
+                            <th class="metrics-table__number">Claimed</th>
+                            <th class="metrics-table__number">Failed</th>
+                            <th class="metrics-table__number">Canceled</th>
+                            <th class="metrics-table__number">Enqueue/min</th>
+                            <th class="metrics-table__number">Claim/min</th>
+                            <th class="metrics-table__number">Success/min</th>
+                            <th class="metrics-table__number">Failure/min</th>
+                            <th class="metrics-table__number">Retry/min</th>
+                            <th class="metrics-table__number">p95 Queue</th>
+                            <th class="metrics-table__number">p95 Execution</th>
+                            <th class="metrics-table__number">p95 Fire Lag</th>
+                            <th class="metrics-table__number">Saturated Groups</th>
+                            <th>Nodes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var window in Windows)
+                        {
+                            <tr class="@WindowRowClass(window)" @key="window.Window">
+                                <td>
+                                    <button class="metrics-window-link" type="button"
+                                            @onclick="@(() => SetSelectedWindow(window.Window))">
+                                        @DashboardMetricsFormat.WindowLabel(window.Window)
+                                    </button>
+                                </td>
+                                <td class="metrics-table__number">@DashboardFormat.Count(window.QueuedCount)</td>
+                                <td class="metrics-table__number">@DashboardFormat.Count(window.ClaimedCount)</td>
+                                <td class="metrics-table__number">
+                                    <span
+                                    class="@DashboardMetricsFormat.AttentionValueClass(window.FailedCount)">@DashboardFormat.Count(window.FailedCount)</span>
+                                </td>
+                                <td class="metrics-table__number">@DashboardFormat.Count(window.CanceledCount)</td>
+                                <td class="metrics-table__number">@DashboardMetricsFormat.Rate(window.EnqueueRatePerMinute)</td>
+                                <td class="metrics-table__number">@DashboardMetricsFormat.Rate(window.ClaimRatePerMinute)</td>
+                                <td class="metrics-table__number">@DashboardMetricsFormat.Rate(window.SuccessRatePerMinute)</td>
+                                <td class="metrics-table__number">
+                                    <span
+                                    class="@DashboardMetricsFormat.AttentionValueClass(window.FailureRatePerMinute)">@DashboardMetricsFormat.Rate(window.FailureRatePerMinute)</span>
+                                </td>
+                                <td class="metrics-table__number">
+                                    <span
+                                    class="@DashboardMetricsFormat.WarningValueClass(window.RetryRatePerMinute)">@DashboardMetricsFormat.Rate(window.RetryRatePerMinute)</span>
+                                </td>
+                                <td class="metrics-table__number">@DashboardMetricsFormat.Duration(window.P95QueueLatency)</td>
+                                <td class="metrics-table__number">@DashboardMetricsFormat.Duration(window.P95ExecutionDuration)
+                                </td>
+                                <td class="metrics-table__number">@DashboardMetricsFormat.Duration(window.P95ScheduleFireLag)
+                                </td>
+                                <td class="metrics-table__number">
+                                    <span
+                                    class="@DashboardMetricsFormat.AttentionValueClass(window.SaturatedConcurrencyGroupCount)"
+                                    title="@DashboardMetricsFormat.SaturatedGroupTitle(window)">@DashboardFormat.Count(window.SaturatedConcurrencyGroupCount)</span>
+                                </td>
+                                <td>
+                                    <span class="metrics-node-cell">
+                                        <span class="metrics-node-cell__active">@DashboardFormat.Count(window.ActiveNodeCount)
+                                            active</span>
+                                            <span class="metrics-node-cell__stale">@DashboardFormat.Count(window.StaleNodeCount)
+                                                stale</span>
+                                                <span class="metrics-node-cell__dead">@DashboardFormat.Count(window.DeadNodeCount)
+                                                    dead</span>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                }
+            </div>
+
+            <style>
+                .metrics-page {
+                    display: flex;
+                    flex-direction: column;
+                    gap: var(--sd-gutter);
+                }
+
+                .metrics-header,
+                .metrics-header__actions,
+                .metrics-window-tabs,
+                .metrics-summary-card__header,
+                .metrics-summary-card__detail,
+                .metrics-rate-stack,
+                .metrics-node-health__item,
+                .metrics-inline-alert,
+                .metrics-message,
+                .metrics-panel__header,
+                .metrics-table-toolbar,
+                .metrics-node-cell {
+                    display: flex;
+                    align-items: center;
+                }
+
+                .metrics-header {
+                    justify-content: space-between;
+                    gap: 16px;
+                }
+
+                .metrics-header h1 {
+                    margin: 0;
+                    color: var(--sd-on-surface);
+                    font-family: "Space Grotesk", Inter, Arial, sans-serif;
+                    font-size: 24px;
+                    font-weight: 600;
+                    line-height: 32px;
+                }
+
+                .metrics-header p {
+                    margin: 4px 0 0;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-header__actions {
+                    flex-wrap: wrap;
+                    justify-content: flex-end;
+                    gap: 12px;
+                }
+
+                .metrics-window-tabs {
+                    gap: 2px;
+                    border: 1px solid var(--sd-outline-variant);
+                    border-radius: 4px;
+                    background: var(--sd-surface-high);
+                    padding: 2px;
+                }
+
+                .metrics-window-tabs button {
+                    min-width: 52px;
+                    border: 1px solid transparent;
+                    border-radius: 2px;
+                    background: transparent;
+                    color: var(--sd-on-surface-variant);
+                    cursor: pointer;
+                    padding: 6px 12px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                    line-height: 12px;
+                    text-transform: uppercase;
+                }
+
+                .metrics-window-tabs button:hover {
+                    background: var(--sd-surface-variant);
+                    color: var(--sd-on-surface);
+                }
+
+                .metrics-window-tabs button.metrics-window-tabs__button--selected,
+                .metrics-window-tabs button.metrics-window-tabs__button--selected:hover {
+                    border-color: var(--sd-primary) !important;
+                    background: var(--sd-primary) !important;
+                    color: var(--sd-on-primary) !important;
+                }
+
+                .metrics-message {
+                    gap: 12px;
+                    border: 1px solid var(--sd-outline-variant);
+                    border-radius: var(--sd-radius);
+                    background: var(--sd-surface-lowest);
+                    padding: 16px;
+                }
+
+                .metrics-message--error {
+                    border-color: var(--sd-error);
+                    background: var(--sd-error-container);
+                    color: var(--sd-on-error-container);
+                }
+
+                .metrics-message--warning {
+                    border-color: var(--sd-warning);
+                    background: var(--sd-warning-container);
+                    color: var(--sd-warning);
+                }
+
+                .metrics-message h2 {
+                    margin: 0;
+                    font-family: "Space Grotesk", Inter, Arial, sans-serif;
+                    font-size: 18px;
+                    font-weight: 600;
+                    line-height: 24px;
+                }
+
+                .metrics-message p {
+                    margin: 2px 0 0;
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-inline-alert {
+                    gap: 8px;
+                    border: 1px solid var(--sd-outline-variant);
+                    border-radius: var(--sd-radius);
+                    background: var(--sd-info-container);
+                    color: var(--sd-info);
+                    padding: 10px 12px;
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-inline-alert--error {
+                    border-color: var(--sd-error);
+                    background: var(--sd-error-container);
+                    color: var(--sd-on-error-container);
+                }
+
+                .metrics-summary-grid {
+                    display: grid;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    gap: var(--sd-gutter);
+                }
+
+                .metrics-summary-card,
+                .metrics-panel,
+                .metrics-table-shell {
+                    border: 1px solid var(--sd-outline-variant);
+                    border-radius: var(--sd-radius);
+                    background: var(--sd-surface-lowest);
+                }
+
+                .metrics-summary-card {
+                    display: flex;
+                    min-height: 142px;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    gap: 12px;
+                    padding: 16px;
+                }
+
+                .metrics-summary-card__header {
+                    justify-content: space-between;
+                    gap: 10px;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                    line-height: 12px;
+                    text-transform: uppercase;
+                }
+
+                .metrics-summary-card>strong {
+                    color: var(--sd-on-surface);
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-size: 30px;
+                    font-weight: 700;
+                    letter-spacing: 0;
+                    line-height: 34px;
+                }
+
+                .metrics-summary-card__detail {
+                    gap: 6px;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-summary-card__detail>span:first-child {
+                    width: 6px;
+                    height: 6px;
+                    flex: 0 0 auto;
+                    border-radius: 999px;
+                    background: var(--sd-outline);
+                }
+
+                .metrics-summary-card__detail em,
+                .metrics-rate-stack em {
+                    color: var(--sd-on-surface);
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-style: normal;
+                }
+
+                .metrics-rate-stack {
+                    flex-wrap: wrap;
+                    gap: 8px;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-rate-stack span {
+                    padding-right: 8px;
+                    border-right: 1px solid var(--sd-outline-variant);
+                }
+
+                .metrics-rate-stack span:last-child {
+                    padding-right: 0;
+                    border-right: 0;
+                }
+
+                .metrics-node-health {
+                    display: grid;
+                    gap: 8px;
+                }
+
+                .metrics-node-health__item {
+                    justify-content: space-between;
+                    gap: 10px;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-node-health__item>span {
+                    width: 8px;
+                    height: 8px;
+                    flex: 0 0 auto;
+                    border-radius: 999px;
+                    background: var(--sd-outline);
+                }
+
+                .metrics-node-health__item em {
+                    flex: 1;
+                    font-style: normal;
+                }
+
+                .metrics-node-health__item strong {
+                    color: var(--sd-on-surface);
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-size: 18px;
+                    line-height: 22px;
+                }
+
+                .metrics-node-health__item--active>span,
+                .metrics-node-cell__active::before {
+                    background: var(--sd-success);
+                }
+
+                .metrics-node-health__item--stale>span,
+                .metrics-node-cell__stale::before {
+                    background: var(--sd-warning);
+                }
+
+                .metrics-node-health__item--dead>span,
+                .metrics-node-cell__dead::before {
+                    background: var(--sd-error);
+                }
+
+                .metrics-panel-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: var(--sd-gutter);
+                }
+
+                .metrics-panel {
+                    min-height: 208px;
+                    padding: 16px;
+                }
+
+                .metrics-panel__header {
+                    justify-content: space-between;
+                    gap: 12px;
+                    margin-bottom: 24px;
+                }
+
+                .metrics-panel__header h2,
+                .metrics-table-toolbar h2 {
+                    margin: 0;
+                    color: var(--sd-on-surface);
+                    font-family: "Space Grotesk", Inter, Arial, sans-serif;
+                    font-size: 18px;
+                    font-weight: 600;
+                    line-height: 24px;
+                }
+
+                .metrics-panel__header span,
+                .metrics-table-toolbar span {
+                    color: var(--sd-on-surface-variant);
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                    line-height: 12px;
+                    text-transform: uppercase;
+                }
+
+                .metrics-bar-list {
+                    display: grid;
+                    gap: 18px;
+                }
+
+                .metrics-bar-row {
+                    display: grid;
+                    gap: 8px;
+                }
+
+                .metrics-bar-row div {
+                    display: flex;
+                    align-items: flex-end;
+                    justify-content: space-between;
+                    gap: 12px;
+                }
+
+                .metrics-bar-row span {
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .metrics-bar-row strong,
+                .metrics-duration-stat strong {
+                    color: var(--sd-on-surface);
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-weight: 700;
+                }
+
+                .metrics-bar-row__track,
+                .metrics-duration-stat__track {
+                    display: block;
+                    width: 100%;
+                    overflow: hidden;
+                    border-radius: 999px;
+                    background: var(--sd-surface-variant);
+                }
+
+                .metrics-bar-row__track {
+                    height: 8px;
+                }
+
+                .metrics-bar-row__fill,
+                .metrics-duration-stat__track span {
+                    display: block;
+                    height: 100%;
+                    border-radius: 999px;
+                    background: var(--sd-secondary);
+                }
+
+                .metrics-bar-row--hot .metrics-bar-row__fill,
+                .metrics-duration-stat--tail .metrics-duration-stat__track span {
+                    background: var(--sd-warning);
+                }
+
+                .metrics-duration-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 18px;
+                }
+
+                .metrics-duration-stat {
+                    display: grid;
+                    gap: 12px;
+                    min-width: 0;
+                }
+
+                .metrics-duration-stat>span:first-child {
+                    color: var(--sd-on-surface-variant);
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                    line-height: 12px;
+                    text-transform: uppercase;
+                }
+
+                .metrics-duration-stat strong {
+                    overflow: hidden;
+                    font-size: 24px;
+                    line-height: 28px;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .metrics-duration-stat__track {
+                    height: 6px;
+                }
+
+                .metrics-table-shell {
+                    overflow: hidden;
+                }
+
+                .metrics-table-toolbar {
+                    justify-content: space-between;
+                    gap: 16px;
+                    border-bottom: 1px solid var(--sd-outline-variant);
+                    background: var(--sd-surface);
+                    padding: 16px;
+                }
+
+                .metrics-table-wrap {
+                    overflow: auto;
+                }
+
+                .metrics-table {
+                    width: 100%;
+                    min-width: 1540px;
+                    border-collapse: collapse;
+                    table-layout: fixed;
+                    white-space: nowrap;
+                }
+
+                .metrics-table th,
+                .metrics-table td {
+                    border-bottom: 1px solid var(--sd-outline-variant);
+                    padding: 8px 16px;
+                    text-align: left;
+                    vertical-align: middle;
+                }
+
+                .metrics-table th {
+                    background: var(--sd-surface-low);
+                    color: var(--sd-on-surface-variant);
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.05em;
+                    line-height: 12px;
+                    text-transform: uppercase;
+                }
+
+                .metrics-table td {
+                    color: var(--sd-on-surface);
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-size: 13px;
+                    line-height: 18px;
+                }
+
+                .metrics-table tbody tr:hover {
+                    background: var(--sd-surface-low);
+                }
+
+                .metrics-table tbody tr:last-child td {
+                    border-bottom: 0;
+                }
+
+                .metrics-table__number {
+                    text-align: right !important;
+                }
+
+                .metrics-window-link {
+                    border: 0;
+                    background: transparent;
+                    color: inherit;
+                    cursor: pointer;
+                    font: inherit;
+                    padding: 0;
+                    text-decoration: underline;
+                    text-decoration-thickness: 1px;
+                    text-underline-offset: 3px;
+                }
+
+                .metrics-row--selected {
+                    background: var(--sd-secondary-container);
+                }
+
+                .metrics-value--attention {
+                    color: var(--sd-error);
+                    font-weight: 700;
+                }
+
+                .metrics-value--warning {
+                    color: var(--sd-warning);
+                    font-weight: 700;
+                }
+
+                .metrics-node-cell {
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+
+                .metrics-node-cell span {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+
+                .metrics-node-cell span::before {
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 999px;
+                    content: "";
+                }
+
+                .metrics-node-cell__stale {
+                    color: var(--sd-warning);
+                }
+
+                .metrics-node-cell__dead {
+                    color: var(--sd-error);
+                }
+
+                @@media (max-width: 1180px) {
+
+                    .metrics-header,
+                    .metrics-header__actions {
+                        align-items: stretch;
+                        flex-direction: column;
+                    }
+
+                    .metrics-header__actions {
+                        gap: 8px;
+                    }
+
+                    .metrics-window-tabs {
+                        align-self: flex-start;
+                    }
+
+                    .metrics-summary-grid {
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+                }
+
+                @@media (max-width: 760px) {
+
+                    .metrics-summary-grid,
+                    .metrics-panel-grid,
+                    .metrics-duration-grid {
+                        grid-template-columns: 1fr;
+                    }
+
+                    .metrics-table-toolbar {
+                        align-items: flex-start;
+                        flex-direction: column;
+                    }
+
+                    .metrics-window-tabs {
+                        width: 100%;
+                    }
+
+                    .metrics-window-tabs button {
+                        flex: 1;
+                    }
+                }
+            </style>
+
+@code {
+    private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan[] DefaultMetricWindows = [TimeSpan.FromMinutes(5), TimeSpan.FromHours(1),
+TimeSpan.FromHours(24)];
+
+    private MetricsInspectionSnapshot? _snapshot;
+    private string? _loadError;
+    private TimeSpan _selectedWindow = TimeSpan.FromHours(1);
+    private bool _isLoading;
+    private bool _metricsUnsupported;
+
+    private IReadOnlyList<MetricsInspectionWindow> Windows
+      => this._snapshot?.Windows ?? [];
+
+    private MetricsInspectionWindow? SelectedWindow
+      => this.Windows.FirstOrDefault(window => window.Window == this._selectedWindow)
+        ?? this.Windows.FirstOrDefault();
+
+    protected override async Task OnInitializedAsync()
+    {
+        this.InitializeLiveRefresh(
+          this.RefreshCurrentQueryAsync,
+          showRefreshing: false,
+          lastUpdatedUtc: nowUtc => this.LiveRefresh.LastUpdatedUtc ?? (this._snapshot is null ? null : nowUtc));
+
+        await this.LoadAsync();
+        this.StartPeriodicRefresh(PageRefreshInterval);
+    }
+
+    private void SetSelectedWindow(TimeSpan window)
+      => this._selectedWindow = window;
+
+    private async Task LoadAsync()
+    {
+        this._loadError = null;
+        this._metricsUnsupported = false;
+        this.LiveRefresh.ClearError();
+        this._isLoading = true;
+
+        try
+        {
+            var snapshot = await this.ReadSnapshotAsync(CancellationToken.None);
+            this.ApplySnapshot(snapshot);
+            this.LiveRefresh.MarkUpdated();
+        }
+        catch (NotSupportedException)
+        {
+            this._metricsUnsupported = true;
+        }
+        catch (Exception exception)
+        {
+            this._loadError = exception.Message;
+        }
+        finally
+        {
+            this._isLoading = false;
+            this.NotifyShellRefreshChanged();
+        }
+    }
+
+    private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = await this.ReadSnapshotAsync(cancellationToken);
+        await this.ApplyPageStateAsync(() => this.ApplySnapshot(snapshot));
+    }
+
+    private async Task<MetricsInspectionSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
+      => await Reader.GetMetricsAsync(
+          new MetricsInspectionQuery(DefaultMetricWindows),
+          cancellationToken)
+        ;
+
+    private void ApplySnapshot(MetricsInspectionSnapshot snapshot)
+    {
+        this._snapshot = snapshot;
+        this._loadError = null;
+        this._metricsUnsupported = false;
+
+        if (snapshot.Windows.Count > 0 && !snapshot.Windows.Any(window => window.Window == this._selectedWindow))
+        {
+            this._selectedWindow = snapshot.Windows[0].Window;
+        }
+    }
+
+    private string WindowRowClass(MetricsInspectionWindow window)
+      => window.Window == (this.SelectedWindow?.Window ?? this._selectedWindow) ? "metrics-row--selected" : string.Empty;
+}

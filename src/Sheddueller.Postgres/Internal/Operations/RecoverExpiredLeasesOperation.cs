@@ -1,6 +1,5 @@
 namespace Sheddueller.Postgres.Internal.Operations;
 
-using Sheddueller.Dashboard;
 using Sheddueller.Storage;
 
 internal static class RecoverExpiredLeasesOperation
@@ -16,7 +15,7 @@ internal static class RecoverExpiredLeasesOperation
         foreach (var job in expiredJobs)
         {
             await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
-            await PostgresClaimedJobs.ApplyFailedAttemptAsync(
+            var lifecycleMessage = await PostgresClaimedJobs.ApplyFailedAttemptAsync(
               context,
               connection,
               transaction,
@@ -24,22 +23,22 @@ internal static class RecoverExpiredLeasesOperation
               new JobFailureInfo("Sheddueller.LeaseExpired", "The job lease expired before the owning node renewed it.", null),
               cancellationToken)
               .ConfigureAwait(false);
-            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(job.JobId, DashboardJobEventKind.AttemptFailed, job.AttemptCount, Message: "The job lease expired before the owning node renewed it."),
+              new AppendJobEventRequest(job.JobId, JobEventKind.AttemptFailed, job.AttemptCount, Message: "The job lease expired before the owning node renewed it."),
               cancellationToken)
               .ConfigureAwait(false);
-            await PostgresDashboardEvents.AppendAndNotifyInTransactionAsync(
+            await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
               context,
               connection,
               transaction,
-              new AppendDashboardJobEventRequest(
+              new AppendJobEventRequest(
                 job.JobId,
-                DashboardJobEventKind.Lifecycle,
+                JobEventKind.Lifecycle,
                 job.AttemptCount,
-                Message: job.AttemptCount < job.MaxAttempts ? "Retry scheduled" : "Failed"),
+                Message: lifecycleMessage),
               cancellationToken)
               .ConfigureAwait(false);
         }

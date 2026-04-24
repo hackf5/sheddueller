@@ -1,15 +1,19 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Sheddueller.Dashboard/Sheddueller.Dashboard.csproj" />
-    <Project Path="src/Sheddueller.InMemory/Sheddueller.InMemory.csproj" />
     <Project Path="src/Sheddueller.Postgres/Sheddueller.Postgres.csproj" />
+    <Project Path="src/Sheddueller.Testing/Sheddueller.Testing.csproj" />
+    <Project Path="src/Sheddueller.Worker/Sheddueller.Worker.csproj" />
     <Project Path="src/Sheddueller/Sheddueller.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Sheddueller.SampleHost/Sheddueller.SampleHost.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Sheddueller.Dashboard.Tests/Sheddueller.Dashboard.Tests.csproj" />
     <Project Path="test/Sheddueller.Postgres.Tests/Sheddueller.Postgres.Tests.csproj" />
+    <Project Path="test/Sheddueller.Testing.Tests/Sheddueller.Testing.Tests.csproj" />
     <Project Path="test/Sheddueller.Tests/Sheddueller.Tests.csproj" />
+    <Project Path="test/Sheddueller.Worker.Tests/Sheddueller.Worker.Tests.csproj" />
   </Folder>
 </Solution>

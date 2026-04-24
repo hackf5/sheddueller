@@ -7,7 +7,7 @@ internal static class PostgresJobGroups
     public static async ValueTask<IReadOnlyList<string>> ReadJobGroupKeysAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlTransaction? transaction,
         Guid jobId,
         CancellationToken cancellationToken)
     {

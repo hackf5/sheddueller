@@ -3,6 +3,7 @@ namespace Sheddueller.Postgres.Tests;
 using Microsoft.Extensions.DependencyInjection;
 
 using Sheddueller.Postgres;
+using Sheddueller.Postgres.Internal;
 
 using Shouldly;
 
@@ -13,7 +14,7 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
 
-        (await context.ReadSchemaVersionAsync()).ShouldBe(3);
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresNames.ExpectedSchemaVersion);
     }
 
     [Fact]
@@ -24,6 +25,87 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
 
         await migrator.ApplyAsync();
 
-        (await context.ReadSchemaVersionAsync()).ShouldBe(3);
+        (await context.ReadSchemaVersionAsync()).ShouldBe(PostgresNames.ExpectedSchemaVersion);
+    }
+
+    [Fact]
+    public async Task Migration_FreshSchema_CreatesIndexedHandlerSearchColumn()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        (await ScalarAsync<bool>(
+          context,
+          "select exists (select 1 from pg_extension where extname = 'pg_trgm');"))
+          .ShouldBeTrue();
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'jobs'
+                and column_name = 'handler_search_text'
+                and is_generated = 'ALWAYS'
+          );
+          """))
+          .ShouldBeTrue();
+
+        var indexDefinition = await ScalarAsync<string>(
+          context,
+          """
+          select indexdef
+          from pg_indexes
+          where schemaname = @schema_name
+            and indexname = 'idx_jobs_inspection_handler_search_trgm';
+          """);
+
+        indexDefinition.ShouldContain("USING gin");
+        indexDefinition.ShouldContain("handler_search_text");
+        indexDefinition.ShouldContain("gin_trgm_ops");
+    }
+
+    [Fact]
+    public async Task Migration_FreshSchema_CreatesQueuedIdempotencyKeyIndex()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'jobs'
+                and column_name = 'idempotency_key'
+          );
+          """))
+          .ShouldBeTrue();
+
+        var indexDefinition = await ScalarAsync<string>(
+          context,
+          """
+          select indexdef
+          from pg_indexes
+          where schemaname = @schema_name
+            and indexname = 'idx_jobs_queued_idempotency_key';
+          """);
+
+        indexDefinition.ShouldContain("UNIQUE INDEX");
+        indexDefinition.ShouldContain("idempotency_key");
+        indexDefinition.ShouldContain("state = 'Queued'");
+    }
+
+    private static async ValueTask<T> ScalarAsync<T>(
+        PostgresTestContext context,
+        string commandText)
+    {
+        await using var command = context.DataSource.CreateCommand(commandText);
+        command.Parameters.AddWithValue("schema_name", context.SchemaName);
+        var result = await command.ExecuteScalarAsync();
+        result.ShouldNotBeNull();
+        return result.ShouldBeOfType<T>();
     }
 }
