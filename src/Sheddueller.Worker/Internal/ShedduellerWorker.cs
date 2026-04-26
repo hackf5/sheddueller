@@ -308,25 +308,7 @@ internal sealed class ShedduellerWorker(
     private static IReadOnlyList<JobMethodParameterBinding> NormalizeParameterBindings(
         Type[] methodParameterTypes,
         IReadOnlyList<JobMethodParameterBinding>? parameterBindings)
-    {
-        if (parameterBindings is { Count: > 0 })
-        {
-            return parameterBindings;
-        }
-
-        var inferred = new JobMethodParameterBinding[methodParameterTypes.Length];
-        for (var i = 0; i < methodParameterTypes.Length; i++)
-        {
-            inferred[i] = methodParameterTypes[i] switch
-            {
-                Type type when type == typeof(CancellationToken) => new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
-                Type type when type == typeof(IJobContext) => new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext),
-                _ => new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
-            };
-        }
-
-        return inferred;
-    }
+      => JobMethodParameterBindingResolver.Normalize(methodParameterTypes, parameterBindings);
 
     private void TrackRunningJob(Task executionTask)
     {
