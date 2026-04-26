@@ -59,7 +59,7 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
         html.ShouldContain("_framework/blazor.web.js");
         html.ShouldContain("_content/Sheddueller.Dashboard/vendor/prism/prism-dark.css\" rel=\"stylesheet\" media=\"(prefers-color-scheme: dark)\"");
-        html.ShouldNotContain("Operational Control");
+        html.ShouldNotContain("Dashboard");
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class DashboardEndpointTests
         var html = await GetOkHtmlAsync(app, "/sheddueller/");
 
         html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
-        html.ShouldContain("Operational Control");
+        html.ShouldContain("Dashboard");
         html.ShouldContain("Overview");
         html.ShouldContain("_framework/blazor.web.js");
         html.ShouldContain("prefers-color-scheme: dark");

@@ -85,7 +85,6 @@
                 </div>
                 <strong>@DashboardFormat.Count(selectedWindow.QueuedCount)</strong>
                 <div class="metrics-summary-card__detail">
-                    <span aria-hidden="true"></span>
                     <span>Oldest queued: <em>@DashboardMetricsFormat.Duration(selectedWindow.OldestQueuedAge)</em></span>
                 </div>
             </article>
@@ -109,7 +108,6 @@
                 </div>
                 <strong>@DashboardMetricsFormat.Duration(selectedWindow.P95ScheduleFireLag)</strong>
                 <div class="metrics-summary-card__detail">
-                    <span aria-hidden="true"></span>
                     <span>p95 over @DashboardMetricsFormat.WindowLabel(selectedWindow.Window)</span>
                 </div>
             </article>
@@ -475,14 +473,6 @@
                     color: var(--sd-on-surface-variant);
                     font-size: 12px;
                     line-height: 16px;
-                }
-
-                .metrics-summary-card__detail>span:first-child {
-                    width: 6px;
-                    height: 6px;
-                    flex: 0 0 auto;
-                    border-radius: 999px;
-                    background: var(--sd-outline);
                 }
 
                 .metrics-summary-card__detail em,
