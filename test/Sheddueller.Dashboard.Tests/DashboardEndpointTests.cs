@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
 using Sheddueller;
+using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Inspection.Metrics;
@@ -327,6 +328,9 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Queue Depth");
         html.ShouldContain("Throughput Rate");
         html.ShouldContain("Schedule Fire Lag");
+        html.ShouldContain("Live Throughput");
+        html.ShouldContain("1s Buckets / 1h Window");
+        html.ShouldContain("Failed Attempts");
         html.ShouldContain("Queue Latency");
         html.ShouldContain("Execution Duration");
         html.ShouldContain("Window Comparison");
@@ -474,6 +478,7 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
         builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
+        builder.Services.AddSingleton<IDashboardThroughputReader, StubDashboardThroughputReader>();
         builder.Services.AddShedduellerDashboard(options =>
         {
             options.Prerender = prerender;
@@ -1259,5 +1264,44 @@ public sealed class DashboardEndpointTests
             MetricsInspectionQuery query,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(Snapshot);
+    }
+
+    private sealed class StubDashboardThroughputReader : IDashboardThroughputReader
+    {
+        private static readonly DateTimeOffset WindowEndUtc = new(2026, 4, 20, 12, 30, 0, TimeSpan.Zero);
+
+        private static readonly DashboardThroughputSnapshot Snapshot = new(
+          WindowEndUtc.AddSeconds(-2),
+          WindowEndUtc,
+          TimeSpan.FromSeconds(1),
+          [
+              new DashboardThroughputBucket(
+                WindowEndUtc.AddSeconds(-2),
+                QueuedCount: 0,
+                StartedCount: 0,
+                SucceededCount: 0,
+                FailedCount: 0,
+                CanceledCount: 0,
+                FailedAttemptCount: 0),
+              new DashboardThroughputBucket(
+                WindowEndUtc.AddSeconds(-1),
+                QueuedCount: 12,
+                StartedCount: 10,
+                SucceededCount: 9,
+                FailedCount: 1,
+                CanceledCount: 0,
+                FailedAttemptCount: 2),
+              new DashboardThroughputBucket(
+                WindowEndUtc,
+                QueuedCount: 14,
+                StartedCount: 11,
+                SucceededCount: 8,
+                FailedCount: 0,
+                CanceledCount: 1,
+                FailedAttemptCount: 3),
+          ]);
+
+        public DashboardThroughputSnapshot GetSnapshot()
+          => Snapshot;
     }
 }

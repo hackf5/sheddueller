@@ -1,0 +1,170 @@
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+
+@if (ThroughputSnapshot is null)
+{
+    <div class="throughput-chart throughput-chart--empty">
+        <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+        <span>Waiting for live throughput data</span>
+    </div>
+}
+else
+{
+    var recent = RecentTotals(ThroughputSnapshot);
+
+    <div class="throughput-chart" @ref="_chartElement">
+        @if (!HasActivity(ThroughputSnapshot))
+        {
+            <div class="throughput-chart__empty">
+                <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
+                <span>Waiting for live job events</span>
+            </div>
+        }
+    </div>
+
+    <div class="throughput-chart-legend" aria-label="Recent throughput totals">
+        <span class="throughput-chart-legend__item throughput-chart-legend__item--queued">
+            <span aria-hidden="true"></span>
+            <em>Queued</em>
+            <strong>@DashboardFormat.Count(recent.QueuedCount)</strong>
+        </span>
+        <span class="throughput-chart-legend__item throughput-chart-legend__item--started">
+            <span aria-hidden="true"></span>
+            <em>Started</em>
+            <strong>@DashboardFormat.Count(recent.StartedCount)</strong>
+        </span>
+        <span class="throughput-chart-legend__item throughput-chart-legend__item--succeeded">
+            <span aria-hidden="true"></span>
+            <em>Succeeded</em>
+            <strong>@DashboardFormat.Count(recent.SucceededCount)</strong>
+        </span>
+        <span class="throughput-chart-legend__item throughput-chart-legend__item--failed">
+            <span aria-hidden="true"></span>
+            <em>Failed</em>
+            <strong>@DashboardFormat.Count(recent.FailedCount)</strong>
+        </span>
+        <span class="throughput-chart-legend__item throughput-chart-legend__item--canceled">
+            <span aria-hidden="true"></span>
+            <em>Canceled</em>
+            <strong>@DashboardFormat.Count(recent.CanceledCount)</strong>
+        </span>
+        <span class="throughput-chart-legend__item throughput-chart-legend__item--attempts">
+            <span aria-hidden="true"></span>
+            <em>Failed Attempts</em>
+            <strong>@DashboardFormat.Count(recent.FailedAttemptCount)</strong>
+        </span>
+    </div>
+}
+
+@code {
+    private ElementReference _chartElement;
+    private bool _chartRendered;
+
+    [Parameter]
+    public object? Snapshot { get; set; }
+
+    private DashboardThroughputSnapshot? ThroughputSnapshot
+      => this.Snapshot as DashboardThroughputSnapshot;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (this.ThroughputSnapshot is null)
+        {
+            return;
+        }
+
+        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, CreateModel(this.ThroughputSnapshot));
+        this._chartRendered = true;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!this._chartRendered)
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync("shedduellerThroughputChart.destroy", this._chartElement);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private static bool HasActivity(DashboardThroughputSnapshot snapshot)
+      => snapshot.Buckets.Any(bucket =>
+        bucket.QueuedCount > 0
+        || bucket.StartedCount > 0
+        || bucket.SucceededCount > 0
+        || bucket.FailedCount > 0
+        || bucket.CanceledCount > 0
+        || bucket.FailedAttemptCount > 0);
+
+    private static DashboardThroughputBucket RecentTotals(DashboardThroughputSnapshot snapshot)
+    {
+        var oldestIncludedUtc = snapshot.WindowEndUtc.AddMinutes(-1);
+        var totals = snapshot.Buckets
+          .Where(bucket => bucket.StartedAtUtc > oldestIncludedUtc)
+          .Aggregate(
+            new DashboardThroughputTotals(),
+            static (current, bucket) => current.Add(bucket));
+
+        return new DashboardThroughputBucket(
+          snapshot.WindowEndUtc.AddMinutes(-1),
+          totals.QueuedCount,
+          totals.StartedCount,
+          totals.SucceededCount,
+          totals.FailedCount,
+          totals.CanceledCount,
+          totals.FailedAttemptCount);
+    }
+
+    private static ThroughputChartModel CreateModel(DashboardThroughputSnapshot snapshot)
+      => new(
+        (int)snapshot.BucketSize.TotalSeconds,
+        snapshot.WindowStartUtc.ToUnixTimeSeconds(),
+        snapshot.WindowEndUtc.ToUnixTimeSeconds(),
+        snapshot.Buckets.Select(static bucket => bucket.StartedAtUtc.ToUnixTimeSeconds()).ToArray(),
+        snapshot.Buckets.Select(static bucket => bucket.QueuedCount).ToArray(),
+        snapshot.Buckets.Select(static bucket => bucket.StartedCount).ToArray(),
+        snapshot.Buckets.Select(static bucket => bucket.SucceededCount).ToArray(),
+        snapshot.Buckets.Select(static bucket => bucket.FailedCount).ToArray(),
+        snapshot.Buckets.Select(static bucket => bucket.CanceledCount).ToArray(),
+        snapshot.Buckets.Select(static bucket => bucket.FailedAttemptCount).ToArray());
+
+    private sealed record ThroughputChartModel(
+        int BucketSizeSeconds,
+        long WindowStartUnixSeconds,
+        long WindowEndUnixSeconds,
+        long[] Timestamps,
+        int[] Queued,
+        int[] Started,
+        int[] Succeeded,
+        int[] Failed,
+        int[] Canceled,
+        int[] FailedAttempts);
+
+    private sealed record DashboardThroughputTotals(
+        int QueuedCount = 0,
+        int StartedCount = 0,
+        int SucceededCount = 0,
+        int FailedCount = 0,
+        int CanceledCount = 0,
+        int FailedAttemptCount = 0)
+    {
+        public DashboardThroughputTotals Add(DashboardThroughputBucket bucket)
+          => this with
+          {
+              QueuedCount = this.QueuedCount + bucket.QueuedCount,
+              StartedCount = this.StartedCount + bucket.StartedCount,
+              SucceededCount = this.SucceededCount + bucket.SucceededCount,
+              FailedCount = this.FailedCount + bucket.FailedCount,
+              CanceledCount = this.CanceledCount + bucket.CanceledCount,
+              FailedAttemptCount = this.FailedAttemptCount + bucket.FailedAttemptCount,
+          };
+    }
+}
