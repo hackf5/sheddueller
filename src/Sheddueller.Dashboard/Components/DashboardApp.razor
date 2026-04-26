@@ -21,7 +21,7 @@
     <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
     <script src="_content/Sheddueller.Dashboard/vendor/prism/prism.js" data-manual></script>
     <script src="_content/Sheddueller.Dashboard/vendor/prism/sheddueller-prism.js"></script>
-    <script src="_content/Sheddueller.Dashboard/vendor/sheddueller-throughput-chart.js"></script>
+    <script src="_content/Sheddueller.Dashboard/vendor/sheddueller-throughput-chart.js?v=@DashboardAssetVersion"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>
@@ -31,4 +31,17 @@
       => DashboardOptions.Value.Prerender
         ? InteractiveServer
         : new InteractiveServerRenderMode(prerender: false);
+
+    private static string DashboardAssetVersion
+    {
+        get
+        {
+            var assembly = typeof(ShedduellerDashboardOptions).Assembly;
+            var attribute = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(
+              assembly,
+              typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+
+            return Uri.EscapeDataString(attribute?.InformationalVersion ?? assembly.GetName().Version?.ToString() ?? "dev");
+        }
+    }
 }

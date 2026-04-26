@@ -493,21 +493,20 @@
                 }
 
                 .metrics-rate-stack {
-                    flex-wrap: wrap;
-                    gap: 8px;
+                    display: grid;
+                    min-height: 36px;
+                    align-content: start;
+                    gap: 4px;
                     color: var(--sd-on-surface-variant);
                     font-size: 12px;
                     line-height: 16px;
                 }
 
                 .metrics-rate-stack span {
-                    padding-right: 8px;
-                    border-right: 1px solid var(--sd-outline-variant);
-                }
-
-                .metrics-rate-stack span:last-child {
-                    padding-right: 0;
-                    border-right: 0;
+                    display: grid;
+                    grid-template-columns: 52px max-content;
+                    gap: 6px;
+                    white-space: nowrap;
                 }
 
                 .metrics-node-health {
@@ -707,6 +706,24 @@
                     height: 220px;
                 }
 
+                .throughput-chart__clip-layer {
+                    position: absolute;
+                    inset: 0;
+                    z-index: 1;
+                    pointer-events: none;
+                }
+
+                .throughput-chart__clip-marker {
+                    position: absolute;
+                    width: 7px;
+                    height: 7px;
+                    border: 1px solid var(--sd-surface-lowest);
+                    border-radius: 999px;
+                    box-shadow: 0 0 0 1px var(--sd-background);
+                    pointer-events: auto;
+                    transform: translate(-50%, 0);
+                }
+
                 .throughput-chart__empty,
                 .throughput-chart--empty {
                     position: absolute;
@@ -740,8 +757,24 @@
                     background: var(--sd-surface);
                     padding: 6px 8px;
                     color: var(--sd-on-surface-variant);
+                    cursor: pointer;
+                    font: inherit;
                     font-size: 12px;
                     line-height: 16px;
+                }
+
+                .throughput-chart-legend__item:hover {
+                    border-color: var(--sd-outline);
+                    background: var(--sd-surface-high);
+                }
+
+                .throughput-chart-legend__item:focus-visible {
+                    outline: 2px solid var(--sd-primary);
+                    outline-offset: 2px;
+                }
+
+                .throughput-chart-legend__item--muted {
+                    opacity: 0.55;
                 }
 
                 .throughput-chart-legend__item>span {
@@ -749,6 +782,10 @@
                     height: 8px;
                     flex: 0 0 auto;
                     border-radius: 999px;
+                    background: var(--sd-outline);
+                }
+
+                .throughput-chart-legend__item.throughput-chart-legend__item--muted>span {
                     background: var(--sd-outline);
                 }
 

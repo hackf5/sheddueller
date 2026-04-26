@@ -330,6 +330,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Schedule Fire Lag");
         html.ShouldContain("Live Throughput");
         html.ShouldContain("1s Buckets / 1h Window");
+        html.ShouldContain("aria-label=\"Throughput series filters\"");
+        html.ShouldContain("aria-pressed=\"true\"");
         html.ShouldContain("Failed Attempts");
         html.ShouldContain("Queue Latency");
         html.ShouldContain("Execution Duration");
