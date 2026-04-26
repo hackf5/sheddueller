@@ -3,6 +3,7 @@ namespace Sheddueller.Runtime;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Sheddueller.Enqueueing;
@@ -15,7 +16,8 @@ internal sealed class RecurringScheduleManager(
     IJobPayloadSerializer serializer,
     IOptions<ShedduellerOptions> options,
     TimeProvider timeProvider,
-    IShedduellerWakeSignal wakeSignal) : IRecurringScheduleManager
+    IShedduellerWakeSignal wakeSignal,
+    ILogger<RecurringScheduleManager> logger) : IRecurringScheduleManager
 {
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
         string scheduleKey,
@@ -65,25 +67,36 @@ internal sealed class RecurringScheduleManager(
             wakeSignal.Notify();
         }
 
+        logger.RecurringScheduleTriggered(scheduleKey, result.Status.ToString());
+
         return result;
     }
 
-    public ValueTask<bool> DeleteAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    public async ValueTask<bool> DeleteAsync(string scheduleKey, CancellationToken cancellationToken = default)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
-        return store.DeleteRecurringScheduleAsync(scheduleKey, cancellationToken);
+        var deleted = await store.DeleteRecurringScheduleAsync(scheduleKey, cancellationToken).ConfigureAwait(false);
+        logger.RecurringScheduleDeleted(scheduleKey, deleted);
+
+        return deleted;
     }
 
-    public ValueTask<bool> PauseAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    public async ValueTask<bool> PauseAsync(string scheduleKey, CancellationToken cancellationToken = default)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
-        return store.PauseRecurringScheduleAsync(scheduleKey, timeProvider.GetUtcNow(), cancellationToken);
+        var paused = await store.PauseRecurringScheduleAsync(scheduleKey, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        logger.RecurringSchedulePaused(scheduleKey, paused);
+
+        return paused;
     }
 
-    public ValueTask<bool> ResumeAsync(string scheduleKey, CancellationToken cancellationToken = default)
+    public async ValueTask<bool> ResumeAsync(string scheduleKey, CancellationToken cancellationToken = default)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
-        return store.ResumeRecurringScheduleAsync(scheduleKey, timeProvider.GetUtcNow(), cancellationToken);
+        var resumed = await store.ResumeRecurringScheduleAsync(scheduleKey, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        logger.RecurringScheduleResumed(scheduleKey, resumed);
+
+        return resumed;
     }
 
     public ValueTask<RecurringScheduleInfo?> GetAsync(string scheduleKey, CancellationToken cancellationToken = default)
@@ -175,6 +188,7 @@ internal sealed class RecurringScheduleManager(
 
         var result = await store.CreateOrUpdateRecurringScheduleAsync(request, cancellationToken).ConfigureAwait(false);
         wakeSignal.Notify();
+        logger.RecurringScheduleUpserted(scheduleKey, result.ToString());
 
         return result;
     }

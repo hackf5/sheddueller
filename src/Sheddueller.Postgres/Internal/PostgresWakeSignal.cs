@@ -2,12 +2,18 @@
 
 namespace Sheddueller.Postgres.Internal;
 
+using Microsoft.Extensions.Logging;
+
 using Npgsql;
 
 using Sheddueller.Runtime;
 
-internal sealed class PostgresWakeSignal(ShedduellerPostgresOptions options) : IShedduellerWakeSignal, IDisposable
+internal sealed class PostgresWakeSignal(
+    ShedduellerPostgresOptions options,
+    ILogger<PostgresWakeSignal> logger) : IShedduellerWakeSignal, IDisposable
 {
+    private static readonly TimeSpan ListenerRetryDelay = TimeSpan.FromSeconds(1);
+
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _disposeTokenSource = new();
     private readonly Lock _listenerLock = new();
@@ -60,9 +66,10 @@ internal sealed class PostgresWakeSignal(ShedduellerPostgresOptions options) : I
             {
                 return;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), this._disposeTokenSource.Token).ConfigureAwait(false);
+                logger.PostgresWakeListenerRetrying(exception, this._options.SchemaName, (long)ListenerRetryDelay.TotalMilliseconds);
+                await Task.Delay(ListenerRetryDelay, this._disposeTokenSource.Token).ConfigureAwait(false);
             }
         }
     }
@@ -77,6 +84,7 @@ internal sealed class PostgresWakeSignal(ShedduellerPostgresOptions options) : I
             await using var command = connection.CreateCommand();
             command.CommandText = $"listen {PostgresNames.WakeupChannel};";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            logger.PostgresWakeListenerStarted(this._options.SchemaName);
 
             while (!cancellationToken.IsCancellationRequested)
             {

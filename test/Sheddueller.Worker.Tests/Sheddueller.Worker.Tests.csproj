@@ -3,4 +3,8 @@
     <ProjectReference Include="$(SrcDirectory)\Sheddueller.Worker\Sheddueller.Worker.csproj" />
     <ProjectReference Include="$(SrcDirectory)\Sheddueller\Sheddueller.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Sheddueller.Tests\Logging\TestLoggerProvider.cs" Link="Logging\TestLoggerProvider.cs" />
+  </ItemGroup>
 </Project>

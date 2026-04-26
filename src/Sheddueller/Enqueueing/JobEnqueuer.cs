@@ -2,6 +2,7 @@ namespace Sheddueller.Enqueueing;
 
 using System.Linq.Expressions;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Sheddueller.Runtime;
@@ -13,7 +14,8 @@ internal sealed class JobEnqueuer(
   IJobPayloadSerializer serializer,
   IOptions<ShedduellerOptions> options,
   TimeProvider timeProvider,
-  IShedduellerWakeSignal wakeSignal) : IJobEnqueuer
+  IShedduellerWakeSignal wakeSignal,
+  ILogger<JobEnqueuer> logger) : IJobEnqueuer
 {
     public ValueTask<Guid> EnqueueAsync(
       Expression<Func<CancellationToken, Task>> work,
@@ -73,10 +75,13 @@ internal sealed class JobEnqueuer(
             throw new InvalidOperationException("The job store returned a result count that does not match the submitted batch size.");
         }
 
-        if (results.Any(result => result.WasEnqueued))
+        var enqueuedCount = results.Count(result => result.WasEnqueued);
+        if (enqueuedCount > 0)
         {
             wakeSignal.Notify();
         }
+
+        logger.JobsBatchEnqueued(requests.Length, enqueuedCount);
 
         var jobIds = new Guid[results.Count];
         for (var i = 0; i < results.Count; i++)
@@ -102,6 +107,11 @@ internal sealed class JobEnqueuer(
         if (result.WasEnqueued)
         {
             wakeSignal.Notify();
+            logger.JobEnqueued(result.JobId, result.EnqueueSequence);
+        }
+        else
+        {
+            logger.JobEnqueueDeduplicated(result.JobId, result.EnqueueSequence);
         }
 
         return result.JobId;

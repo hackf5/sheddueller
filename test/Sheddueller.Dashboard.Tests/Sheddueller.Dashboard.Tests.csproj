@@ -7,4 +7,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Sheddueller.Tests\Logging\TestLoggerProvider.cs" Link="Logging\TestLoggerProvider.cs" />
+  </ItemGroup>
 </Project>

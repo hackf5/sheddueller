@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="..\Sheddueller.ProviderContracts\*.cs" LinkBase="ProviderContracts" />
+    <Compile Include="..\Sheddueller.Tests\Logging\TestLoggerProvider.cs" Link="Logging\TestLoggerProvider.cs" />
   </ItemGroup>
 
   <ItemGroup>

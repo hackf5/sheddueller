@@ -2,6 +2,8 @@ namespace Sheddueller.Postgres.Internal;
 
 using System.Globalization;
 
+using Microsoft.Extensions.Logging;
+
 using Npgsql;
 
 using Sheddueller.Postgres.Internal.Operations;
@@ -10,8 +12,11 @@ using Sheddueller.Storage;
 
 internal sealed class PostgresJobEventListener(
     ShedduellerPostgresOptions options,
-    IJobEventNotifier publisher) : IShedduellerJobEventListener
+    IJobEventNotifier publisher,
+    ILogger<PostgresJobEventListener> logger) : IShedduellerJobEventListener
 {
+    private static readonly TimeSpan ListenerRetryDelay = TimeSpan.FromSeconds(1);
+
     private readonly PostgresOperationContext _context = new(options);
 
     public async Task ListenAsync(CancellationToken cancellationToken)
@@ -26,9 +31,10 @@ internal sealed class PostgresJobEventListener(
             {
                 return;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                logger.PostgresJobEventListenerRetrying(exception, options.SchemaName, (long)ListenerRetryDelay.TotalMilliseconds);
+                await Task.Delay(ListenerRetryDelay, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -43,6 +49,7 @@ internal sealed class PostgresJobEventListener(
             await using var command = connection.CreateCommand();
             command.CommandText = $"listen {PostgresNames.JobEventChannel};";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            logger.PostgresJobEventListenerStarted(options.SchemaName);
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -56,21 +63,37 @@ internal sealed class PostgresJobEventListener(
     }
 
     private void OnNotification(object sender, NpgsqlNotificationEventArgs args)
+      => this.HandleNotificationPayload(args.Payload);
+
+    internal void HandleNotificationPayload(string payload)
     {
-        if (!TryParsePayload(args.Payload, options.SchemaName, out var jobId, out var eventSequence))
+        if (!TryParsePayload(payload, options.SchemaName, out var jobId, out var eventSequence))
         {
+            logger.PostgresJobEventNotificationPayloadInvalid(options.SchemaName);
             return;
         }
 
-        _ = Task.Run(async () =>
+        _ = Task.Run(() => this.PublishNotificationAsync(jobId, eventSequence));
+    }
+
+    private async Task PublishNotificationAsync(Guid jobId, long eventSequence)
+    {
+        try
         {
             var jobEvent = await PostgresJobEvents.ReadEventAsync(this._context, jobId, eventSequence, CancellationToken.None)
               .ConfigureAwait(false);
-            if (jobEvent is not null)
+            if (jobEvent is null)
             {
-                await publisher.NotifyAsync(jobEvent, CancellationToken.None).ConfigureAwait(false);
+                logger.PostgresJobEventNotificationMissing(jobId, eventSequence);
+                return;
             }
-        });
+
+            await publisher.NotifyAsync(jobEvent, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            logger.PostgresJobEventNotificationFailed(exception, jobId, eventSequence);
+        }
     }
 
     private static bool TryParsePayload(

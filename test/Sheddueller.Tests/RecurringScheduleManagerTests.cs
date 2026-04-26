@@ -1,5 +1,6 @@
 namespace Sheddueller.Tests;
 
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 using Sheddueller.Runtime;
@@ -75,7 +76,8 @@ public sealed class RecurringScheduleManagerTests
         new SystemTextJsonJobPayloadSerializer(),
         Options.Create(options ?? new ShedduellerOptions()),
         TimeProvider.System,
-        wakeSignal);
+        wakeSignal,
+        NullLogger<RecurringScheduleManager>.Instance);
 
     private sealed class RecordingWakeSignal : IShedduellerWakeSignal
     {
