@@ -1,5 +1,7 @@
 namespace Sheddueller.ProviderContracts;
 
+using System.Text.Json;
+
 using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Inspection.Metrics;
@@ -66,6 +68,85 @@ public abstract class InspectionContractTests
 
         page.Jobs.ShouldHaveSingleItem().ClaimedAtUtc.ShouldNotBeNull();
         detail.ShouldNotBeNull().Summary.ClaimedAtUtc.ShouldBe(detail.ClaimedAtUtc);
+    }
+
+    [Fact]
+    public async Task GetJob_InvocationMetadata_ReconstructsRuntimeBindingsAndJsonArguments()
+    {
+        await using var context = await this.CreateContextAsync();
+        var jobId = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          jobId,
+          serviceType: typeof(InspectionInvocationService).AssemblyQualifiedName,
+          methodName: nameof(InspectionInvocationService.RunAsync),
+          methodParameterTypes:
+          [
+              typeof(InspectionPayload).AssemblyQualifiedName!,
+              typeof(InspectionDependency).AssemblyQualifiedName!,
+              typeof(IJobContext).AssemblyQualifiedName!,
+              typeof(CancellationToken).AssemblyQualifiedName!,
+          ],
+          serializedArguments: new SerializedJobPayload(
+            SystemTextJsonJobPayloadSerializer.JsonContentType,
+            JsonSerializer.SerializeToUtf8Bytes(new[] { new { name = "alpha", count = 42 } })),
+          methodParameterBindings:
+          [
+              new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
+              new JobMethodParameterBinding(JobMethodParameterBindingKind.Service, typeof(InspectionDependency).AssemblyQualifiedName),
+              new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext),
+              new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+          ]));
+
+        var detail = await context.Reader.GetJobAsync(jobId);
+
+        var invocation = detail.ShouldNotBeNull().Invocation.ShouldNotBeNull();
+        invocation.TargetKind.ShouldBe(JobInvocationTargetKind.Instance);
+        invocation.ServiceType.ShouldBe(typeof(InspectionInvocationService).AssemblyQualifiedName);
+        invocation.MethodName.ShouldBe(nameof(InspectionInvocationService.RunAsync));
+        invocation.ReconstructedCall.ShouldBe(string.Join(
+          Environment.NewLine,
+          "InspectionInvocationService.RunAsync(",
+          "    {\"name\":\"alpha\",\"count\":42},",
+          "    Job.Resolve<InspectionDependency>(),",
+          "    Job.Context,",
+          "    CancellationToken)"));
+        invocation.SerializedArgumentsContentType.ShouldBe(SystemTextJsonJobPayloadSerializer.JsonContentType);
+        invocation.SerializedArgumentsStatus.ShouldBe(JobSerializedArgumentsInspectionStatus.Displayable);
+        invocation.Parameters.Select(parameter => parameter.Binding.Kind).ShouldBe([
+            JobMethodParameterBindingKind.Serialized,
+            JobMethodParameterBindingKind.Service,
+            JobMethodParameterBindingKind.JobContext,
+            JobMethodParameterBindingKind.CancellationToken,
+        ]);
+        var valueJson = invocation.Parameters[0].SerializedValueJson.ShouldNotBeNull();
+        valueJson.ShouldContain("\"name\": \"alpha\"");
+        valueJson.ShouldContain("\"count\": 42");
+        invocation.Parameters[1].Binding.ServiceType.ShouldBe(typeof(InspectionDependency).AssemblyQualifiedName);
+        invocation.Parameters.Skip(1).All(parameter => parameter.SerializedValueJson is null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetJob_InvocationMetadata_CustomPayloadReportsUnsupportedContentType()
+    {
+        await using var context = await this.CreateContextAsync();
+        var jobId = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          jobId,
+          methodParameterTypes: [typeof(string).AssemblyQualifiedName!],
+          serializedArguments: new SerializedJobPayload("application/x-test", [1, 2, 3]),
+          methodParameterBindings: [new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized)]));
+
+        var detail = await context.Reader.GetJobAsync(jobId);
+
+        var invocation = detail.ShouldNotBeNull().Invocation.ShouldNotBeNull();
+        invocation.SerializedArgumentsContentType.ShouldBe("application/x-test");
+        invocation.ReconstructedCall.ShouldContain("<serialized String>");
+        invocation.SerializedArgumentsByteCount.ShouldBe(3);
+        invocation.SerializedArgumentsStatus.ShouldBe(JobSerializedArgumentsInspectionStatus.UnsupportedContentType);
+        invocation.SerializedArgumentsStatusMessage.ShouldNotBeNull().ShouldContain("unsupported content type");
+        invocation.Parameters.ShouldHaveSingleItem().SerializedValueJson.ShouldBeNull();
     }
 
     [Fact]
@@ -425,21 +506,27 @@ public abstract class InspectionContractTests
         RetryBackoffKind? retryBackoffKind = null,
         TimeSpan? retryBaseDelay = null,
         string? serviceType = null,
-        string? methodName = null)
+        string? methodName = null,
+        IReadOnlyList<string>? methodParameterTypes = null,
+        SerializedJobPayload? serializedArguments = null,
+        JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
       => new(
         jobId,
         priority,
         serviceType ?? typeof(InspectionContractService).AssemblyQualifiedName!,
         methodName ?? nameof(InspectionContractService.RunAsync),
-        [typeof(CancellationToken).AssemblyQualifiedName!],
-        new SerializedJobPayload(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
+        methodParameterTypes ?? [typeof(CancellationToken).AssemblyQualifiedName!],
+        serializedArguments ?? new SerializedJobPayload(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
         groupKeys ?? [],
         DateTimeOffset.UtcNow,
         notBeforeUtc,
         maxAttempts,
         retryBackoffKind,
         retryBaseDelay,
-        Tags: tags);
+        Tags: tags,
+        InvocationTargetKind: invocationTargetKind,
+        MethodParameterBindings: methodParameterBindings);
 
     protected static UpsertRecurringScheduleRequest CreateSchedule(
         string scheduleKey,
@@ -472,6 +559,22 @@ public abstract class InspectionContractTests
     private sealed class InspectionContractService
     {
         public Task RunAsync(CancellationToken cancellationToken)
+          => Task.CompletedTask;
+    }
+
+    private sealed record InspectionPayload(string Name, int Count);
+
+    private sealed class InspectionDependency
+    {
+    }
+
+    private sealed class InspectionInvocationService
+    {
+        public Task RunAsync(
+            InspectionPayload payload,
+            InspectionDependency dependency,
+            IJobContext context,
+            CancellationToken cancellationToken)
           => Task.CompletedTask;
     }
 }

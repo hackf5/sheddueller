@@ -2,6 +2,7 @@ namespace Sheddueller.Tests;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Sheddueller.Runtime;
@@ -30,6 +31,7 @@ public sealed class RegistrationTests
         provider.GetRequiredService<IConcurrencyGroupManager>().ShouldNotBeNull();
         provider.GetRequiredService<IJobStore>().ShouldBeSameAs(provider.GetRequiredService<RecordingJobStore>());
         provider.GetRequiredService<IJobPayloadSerializer>().ShouldBeSameAs(serializer);
+        provider.GetRequiredService<ILoggerFactory>().ShouldNotBeNull();
         provider.GetServices<IHostedService>().ShouldBeEmpty();
         provider.GetServices<IShedduellerStartupValidator>().Count().ShouldBe(1);
     }

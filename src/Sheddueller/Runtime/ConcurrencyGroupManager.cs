@@ -1,9 +1,15 @@
 namespace Sheddueller.Runtime;
 
+using Microsoft.Extensions.Logging;
+
 using Sheddueller.Enqueueing;
 using Sheddueller.Storage;
 
-internal sealed class ConcurrencyGroupManager(IJobStore store, TimeProvider timeProvider, IShedduellerWakeSignal wakeSignal) : IConcurrencyGroupManager
+internal sealed class ConcurrencyGroupManager(
+    IJobStore store,
+    TimeProvider timeProvider,
+    IShedduellerWakeSignal wakeSignal,
+    ILogger<ConcurrencyGroupManager> logger) : IConcurrencyGroupManager
 {
     public async ValueTask SetLimitAsync(string groupKey, int limit, CancellationToken cancellationToken = default)
     {
@@ -18,6 +24,7 @@ internal sealed class ConcurrencyGroupManager(IJobStore store, TimeProvider time
           .SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest(groupKey, limit, timeProvider.GetUtcNow()), cancellationToken)
           .ConfigureAwait(false);
         wakeSignal.Notify();
+        logger.ConcurrencyGroupLimitSet(groupKey, limit);
     }
 
     public ValueTask<int?> GetConfiguredLimitAsync(string groupKey, CancellationToken cancellationToken = default)

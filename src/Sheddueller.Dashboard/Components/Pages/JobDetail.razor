@@ -1,8 +1,10 @@
 @page "/jobs/{JobId:guid}"
 @inherits DashboardPageComponent
+@using Microsoft.JSInterop
 @inject IJobInspectionReader Reader
 @inject IJobManager JobManager
 @inject DashboardLiveUpdateStream LiveUpdates
+@inject IJSRuntime JsRuntime
 
 <div class="job-detail-page">
     <header class="job-detail-toolbar">
@@ -208,6 +210,54 @@
             </section>
 
             <div class="job-detail-operations">
+                @if (_detail.Invocation is { } invocation)
+                {
+                    <section class="job-detail-panel job-detail-invocation-panel">
+                        <h2>Invocation</h2>
+
+                        <pre class="job-detail-invocation-call language-csharp"><code class="language-csharp"
+                                                                                       @ref="_invocationCodeElement">@invocation.ReconstructedCall</code></pre>
+
+                        <div class="job-detail-invocation-summary">
+                            <div class="job-detail-metadata-item">
+                                <span>Handler</span>
+                                <strong title="@DashboardFormat.FullHandler(job)">@DashboardFormat.InvocationHandler(invocation)</strong>
+                            </div>
+                            <div class="job-detail-metadata-item">
+                                <span>Target</span>
+                                <strong>@invocation.TargetKind.ToString()</strong>
+                            </div>
+                            <div class="job-detail-metadata-item">
+                                <span>Payload</span>
+                                <strong title="@invocation.SerializedArgumentsContentType">@DashboardFormat.Count(invocation.SerializedArgumentsByteCount) bytes</strong>
+                            </div>
+                        </div>
+
+                        @if (invocation.SerializedArgumentsStatus != JobSerializedArgumentsInspectionStatus.Displayable)
+                        {
+                            <p class="job-detail-empty">@DashboardFormat.InvocationStatus(invocation)</p>
+                        }
+
+                        <div class="job-detail-parameter-list">
+                            @foreach (var parameter in invocation.Parameters)
+                            {
+                                <article class="job-detail-parameter" @key="parameter.ParameterIndex">
+                                    <div class="job-detail-parameter__header">
+                                        <span>@string.Create(CultureInfo.InvariantCulture, $"#{parameter.ParameterIndex + 1}")</span>
+                                        <strong title="@parameter.ParameterType">@DashboardFormat.ShortTypeName(parameter.ParameterType)</strong>
+                                        <em>@DashboardFormat.InvocationBinding(parameter)</em>
+                                    </div>
+
+                                    @if (parameter.SerializedValueJson is not null)
+                                    {
+                                        <pre>@parameter.SerializedValueJson</pre>
+                                    }
+                                </article>
+                            }
+                        </div>
+                    </section>
+                }
+
                 <section class="job-detail-panel">
                     <h2>Lifecycle Timeline</h2>
 
@@ -571,6 +621,8 @@
     .job-detail-mono,
     .job-detail-metadata-item strong,
     .job-detail-chip,
+    .job-detail-invocation-call,
+    .job-detail-parameter pre,
     .job-detail-progress-percent,
     .job-detail-log-table,
     .job-detail-timeline__time span {
@@ -942,6 +994,112 @@
         color: var(--sd-on-surface-variant);
         font-size: 12px;
         line-height: 16px;
+    }
+
+    .job-detail-invocation-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .job-detail-invocation-summary {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) minmax(160px, 1fr);
+        gap: 12px;
+        margin-top: 2px;
+    }
+
+    .job-detail-invocation-call {
+        overflow: auto;
+        margin: 0;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+        font-size: 13px;
+        line-height: 20px;
+        padding: 10px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    pre.job-detail-invocation-call[class*="language-"] {
+        overflow: auto;
+        margin: 0;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 13px;
+        line-height: 20px;
+        padding: 10px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    pre.job-detail-invocation-call[class*="language-"] > code[class*="language-"] {
+        display: block;
+        background: transparent;
+        font: inherit;
+        white-space: inherit;
+        overflow-wrap: inherit;
+    }
+
+    .job-detail-parameter-list {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        border-top: 1px solid var(--sd-outline-variant);
+    }
+
+    .job-detail-parameter {
+        min-width: 0;
+        border-bottom: 1px solid var(--sd-outline-variant);
+        padding: 10px 0;
+    }
+
+    .job-detail-parameter:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+    }
+
+    .job-detail-parameter__header {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .job-detail-parameter__header span,
+    .job-detail-parameter__header em {
+        flex: 0 0 auto;
+        color: var(--sd-on-surface-variant);
+        font-size: 12px;
+        font-style: normal;
+        line-height: 16px;
+    }
+
+    .job-detail-parameter__header strong {
+        overflow: hidden;
+        color: var(--sd-on-surface);
+        font-size: 13px;
+        line-height: 18px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .job-detail-parameter pre {
+        overflow: auto;
+        max-height: 240px;
+        margin-top: 8px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+        font-size: 12px;
+        line-height: 18px;
+        padding: 10px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
     }
 
     .job-detail-operations {
@@ -1335,6 +1493,10 @@
         .job-detail-timeline__time {
             text-align: left;
         }
+
+        .job-detail-invocation-summary {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
@@ -1342,10 +1504,12 @@
     private const int EventPageSize = 500;
 
     private readonly List<JobEvent> _events = [];
+    private ElementReference _invocationCodeElement;
     private JobInspectionDetail? _detail;
     private Guid? _loadedJobId;
     private string? _error;
     private string? _actionMessage;
+    private string? _highlightedInvocationCall;
     private JobDetailActionAlertKind _actionAlertKind;
     private bool _isLoading;
     private bool _isCancelRunning;
@@ -1418,6 +1582,7 @@
         this._loadedJobId = this.JobId;
         this._detail = null;
         this._events.Clear();
+        this._highlightedInvocationCall = null;
         this._error = null;
         this.ClearActionAlert();
         this._isCancelRunning = false;
@@ -1426,6 +1591,31 @@
         this._showProgressLogs = false;
 
         await this.LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _ = firstRender;
+
+        if (this._detail?.Invocation is not { } invocation ||
+            string.Equals(this._highlightedInvocationCall, invocation.ReconstructedCall, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            await JsRuntime.InvokeVoidAsync(
+                "ShedduellerDashboard.highlightCode",
+                this._invocationCodeElement);
+            this._highlightedInvocationCall = invocation.ReconstructedCall;
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException)
+        {
+        }
     }
 
     private protected override ValueTask DisposePageAsync()

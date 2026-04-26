@@ -11,6 +11,11 @@ public sealed record JobInspectionDetail(
     DateTimeOffset? ScheduledFireAtUtc)
 {
     /// <summary>
+    /// Reconstructed persisted invocation metadata for this job.
+    /// </summary>
+    public JobInvocationInspection? Invocation { get; init; }
+
+    /// <summary>
     /// Jobs cloned from this failed job.
     /// </summary>
     public IReadOnlyList<Guid> RetryCloneJobIds { get; init; } = [];

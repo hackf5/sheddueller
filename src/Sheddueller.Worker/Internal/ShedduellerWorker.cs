@@ -6,6 +6,7 @@ using System.Runtime.ExceptionServices;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Sheddueller;
@@ -21,7 +22,9 @@ internal sealed class ShedduellerWorker(
     TimeProvider timeProvider,
     IShedduellerWakeSignal wakeSignal,
     IShedduellerNodeIdProvider nodeIdProvider,
-    IJobEventSink jobEventSink) : BackgroundService
+    IJobEventSink jobEventSink,
+    ILogger<ShedduellerWorker> logger,
+    ILogger<JobContext> jobContextLogger) : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
@@ -30,11 +33,14 @@ internal sealed class ShedduellerWorker(
     private readonly IShedduellerWakeSignal _wakeSignal = wakeSignal;
     private readonly IShedduellerNodeIdProvider _nodeIdProvider = nodeIdProvider;
     private readonly IJobEventSink _jobEventSink = jobEventSink;
+    private readonly ILogger<ShedduellerWorker> _logger = logger;
+    private readonly ILogger<JobContext> _jobContextLogger = jobContextLogger;
     private readonly ConcurrentDictionary<Task, byte> _runningJobs = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var store = this._serviceProvider.GetRequiredService<IJobStore>();
+        this._logger.WorkerStarted(this._nodeIdProvider.NodeId);
 
         try
         {
@@ -57,6 +63,7 @@ internal sealed class ShedduellerWorker(
                     }
 
                     claimedJob = true;
+                    this._logger.JobClaimed(claimed.Job.JobId, claimed.Job.AttemptCount, this._nodeIdProvider.NodeId);
                     this.TrackRunningJob(this.ExecuteClaimedJobAsync(store, claimed.Job, stoppingToken));
                 }
 
@@ -72,8 +79,14 @@ internal sealed class ShedduellerWorker(
         {
             // Shutdown stops claiming. Running jobs are awaited below so terminal state can be recorded.
         }
+        catch (Exception exception)
+        {
+            this._logger.WorkerFailed(exception, this._nodeIdProvider.NodeId);
+            throw;
+        }
 
         await this.WaitForRunningJobsAsync().ConfigureAwait(false);
+        this._logger.WorkerStopped(this._nodeIdProvider.NodeId);
     }
 
     private async ValueTask WaitForWorkOrCapacityAsync(CancellationToken stoppingToken)
@@ -104,29 +117,42 @@ internal sealed class ShedduellerWorker(
         try
         {
             await this.InvokeClaimedJobAsync(job, executionTokenSource.Token).ConfigureAwait(false);
-            await store
+            var completed = await store
                 .MarkCompletedAsync(new CompleteJobRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
                 .ConfigureAwait(false);
+            if (completed)
+            {
+                this._logger.JobCompleted(job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
+            }
         }
         catch (OperationCanceledException) when (executionTokenSource.IsCancellationRequested)
         {
             if (cancellationState.CancellationRequestedAtUtc is not null)
             {
-                await store
+                var observed = await store
                     .MarkCancellationObservedAsync(
                         new ObserveJobCancellationRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow()),
                         CancellationToken.None)
                     .ConfigureAwait(false);
+                if (observed)
+                {
+                    this._logger.JobCancellationObserved(job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
+                }
             }
             else
             {
-                await store
+                var released = await store
                     .ReleaseJobAsync(new ReleaseJobRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow()), CancellationToken.None)
                     .ConfigureAwait(false);
+                if (released)
+                {
+                    this._logger.JobReleased(job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
+                }
             }
         }
         catch (Exception exception)
         {
+            this._logger.JobFailed(exception, job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
             await store
                 .MarkFailedAsync(
                     new FailJobRequest(job.JobId, this._nodeIdProvider.NodeId, job.LeaseToken, this._timeProvider.GetUtcNow(), CreateFailureInfo(exception)),
@@ -136,7 +162,7 @@ internal sealed class ShedduellerWorker(
         finally
         {
             await executionTokenSource.CancelAsync().ConfigureAwait(false);
-            await WaitForHeartbeatTaskAsync(heartbeatTask).ConfigureAwait(false);
+            await this.WaitForHeartbeatTaskAsync(heartbeatTask, job).ConfigureAwait(false);
             executionTokenSource.Dispose();
         }
     }
@@ -149,7 +175,7 @@ internal sealed class ShedduellerWorker(
         var serializableParameterTypes = methodParameterTypes
           .Where((_, index) => parameterBindings[index].Kind == JobMethodParameterBindingKind.Serialized)
           .ToArray();
-        var jobContext = new JobContext(job.JobId, job.AttemptCount, this._jobEventSink, executionToken);
+        var jobContext = new JobContext(job.JobId, job.AttemptCount, this._jobEventSink, this._jobContextLogger, executionToken);
 
         var scope = this._scopeFactory.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
@@ -282,25 +308,7 @@ internal sealed class ShedduellerWorker(
     private static IReadOnlyList<JobMethodParameterBinding> NormalizeParameterBindings(
         Type[] methodParameterTypes,
         IReadOnlyList<JobMethodParameterBinding>? parameterBindings)
-    {
-        if (parameterBindings is { Count: > 0 })
-        {
-            return parameterBindings;
-        }
-
-        var inferred = new JobMethodParameterBinding[methodParameterTypes.Length];
-        for (var i = 0; i < methodParameterTypes.Length; i++)
-        {
-            inferred[i] = methodParameterTypes[i] switch
-            {
-                Type type when type == typeof(CancellationToken) => new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
-                Type type when type == typeof(IJobContext) => new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext),
-                _ => new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
-            };
-        }
-
-        return inferred;
-    }
+      => JobMethodParameterBindingResolver.Normalize(methodParameterTypes, parameterBindings);
 
     private void TrackRunningJob(Task executionTask)
     {
@@ -335,6 +343,7 @@ internal sealed class ShedduellerWorker(
         if (recovered > 0 || materialized > 0)
         {
             this._wakeSignal.Notify();
+            this._logger.WorkerPeriodicStoreWorkCompleted(this._nodeIdProvider.NodeId, recovered, materialized);
         }
     }
 
@@ -359,6 +368,7 @@ internal sealed class ShedduellerWorker(
 
                 if (!renewed)
                 {
+                    this._logger.JobLeaseRenewalLost(job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
                     await executionTokenSource.CancelAsync().ConfigureAwait(false);
                     return;
                 }
@@ -371,6 +381,7 @@ internal sealed class ShedduellerWorker(
                 if (cancellationRequestedAtUtc is not null && cancellationState.CancellationRequestedAtUtc is null)
                 {
                     cancellationState.CancellationRequestedAtUtc = cancellationRequestedAtUtc;
+                    this._logger.JobCancellationRequestedObserved(job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
                     await executionTokenSource.CancelAsync().ConfigureAwait(false);
                     return;
                 }
@@ -383,14 +394,15 @@ internal sealed class ShedduellerWorker(
     }
 
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Heartbeat failures should not fault the job execution cleanup path.")]
-    private static async ValueTask WaitForHeartbeatTaskAsync(Task heartbeatTask)
+    private async ValueTask WaitForHeartbeatTaskAsync(Task heartbeatTask, ClaimedJob job)
     {
         try
         {
             await heartbeatTask.ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception)
         {
+            this._logger.JobHeartbeatFailed(exception, job.JobId, job.AttemptCount, this._nodeIdProvider.NodeId);
             // Failure to renew will be handled by lease expiry recovery.
         }
     }

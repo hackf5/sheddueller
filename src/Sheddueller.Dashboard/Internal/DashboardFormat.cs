@@ -28,6 +28,26 @@ internal static class DashboardFormat
     public static string ShortHandler(JobInspectionSummary job)
       => string.Concat(ShortTypeName(job.ServiceType), ".", job.MethodName);
 
+    public static string InvocationHandler(JobInvocationInspection invocation)
+      => string.Concat(ShortTypeName(invocation.ServiceType), ".", invocation.MethodName);
+
+    public static string InvocationBinding(JobInvocationParameterInspection parameter)
+      => parameter.Binding.Kind switch
+      {
+          JobMethodParameterBindingKind.Serialized => "serialized",
+          JobMethodParameterBindingKind.CancellationToken => "scheduler-owned",
+          JobMethodParameterBindingKind.JobContext => "Job.Context",
+          JobMethodParameterBindingKind.Service => string.Create(
+            CultureInfo.InvariantCulture,
+            $"Job.Resolve<{ShortTypeName(parameter.Binding.ServiceType ?? parameter.ParameterType)}>()"),
+          _ => parameter.Binding.Kind.ToString(),
+      };
+
+    public static string InvocationStatus(JobInvocationInspection invocation)
+      => invocation.SerializedArgumentsStatus == JobSerializedArgumentsInspectionStatus.Displayable
+        ? "Serialized arguments are displayable."
+        : FirstNonEmpty(invocation.SerializedArgumentsStatusMessage, invocation.SerializedArgumentsStatus.ToString());
+
     public static string Attempts(JobInspectionSummary job, bool compact = false)
       => compact
         ? string.Create(CultureInfo.InvariantCulture, $"{job.AttemptCount}/{job.MaxAttempts}")
@@ -292,7 +312,7 @@ internal static class DashboardFormat
     public static string FirstNonEmpty(params string?[] values)
       => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
-    private static string ShortTypeName(string typeName)
+    public static string ShortTypeName(string typeName)
     {
         var typeDelimiterIndex = typeName.IndexOf(',', StringComparison.Ordinal);
         if (typeDelimiterIndex >= 0)

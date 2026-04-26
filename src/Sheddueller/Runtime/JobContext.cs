@@ -2,12 +2,15 @@ namespace Sheddueller.Runtime;
 
 using System.Diagnostics.CodeAnalysis;
 
+using Microsoft.Extensions.Logging;
+
 using Sheddueller.Storage;
 
 internal sealed class JobContext(
     Guid jobId,
     int attemptNumber,
     IJobEventSink eventSink,
+    ILogger<JobContext> logger,
     CancellationToken cancellationToken) : IJobContext
 {
     public Guid JobId { get; } = jobId;
@@ -65,8 +68,9 @@ internal sealed class JobContext(
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            logger.JobEventAppendFailed(exception, request.JobId);
             // Best-effort telemetry must not fail the owning job.
         }
     }

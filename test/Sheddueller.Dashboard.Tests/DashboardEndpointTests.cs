@@ -16,6 +16,7 @@ using Sheddueller.Inspection.Jobs;
 using Sheddueller.Inspection.Metrics;
 using Sheddueller.Inspection.Nodes;
 using Sheddueller.Inspection.Schedules;
+using Sheddueller.Serialization;
 using Sheddueller.Storage;
 
 using Shouldly;
@@ -307,6 +308,13 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?handler=StubService.Run\"");
         html.ShouldContain("href=\"jobs?tag=tenant%3Aacme\"");
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
+        html.ShouldContain("Invocation");
+        html.ShouldContain("StubService.Run(");
+        html.ShouldContain("permanent-failure");
+        html.ShouldContain("Job.Resolve");
+        html.ShouldContain("StubDependency");
+        html.ShouldContain("Job.Context");
+        html.ShouldContain("scheduler-owned");
         html.ShouldContain("Lifecycle Timeline");
         html.ShouldContain("Attempt 1 Failed");
         html.ShouldContain("ConnectionTimeoutError: db-primary cluster unreachable");
@@ -525,6 +533,39 @@ public sealed class DashboardEndpointTests
         private static readonly DateTimeOffset CompletedAtUtc = DateTimeOffset.Parse("2026-04-20T12:09:00Z", CultureInfo.InvariantCulture);
         private static readonly DateTimeOffset CanceledAtUtc = DateTimeOffset.Parse("2026-04-20T12:02:00Z", CultureInfo.InvariantCulture);
         private static readonly DateTimeOffset LeaseExpiresAtUtc = DateTimeOffset.Parse("2026-04-20T12:10:00Z", CultureInfo.InvariantCulture);
+        private static readonly JobInvocationInspection Invocation = new(
+          JobInvocationTargetKind.Instance,
+          "Sheddueller.Dashboard.Tests.DashboardEndpointTests.StubService",
+          "Run",
+          string.Join(
+            Environment.NewLine,
+            "StubService.Run(",
+            "    \"permanent-failure\",",
+            "    Job.Resolve<StubDependency>(),",
+            "    Job.Context,",
+            "    CancellationToken)"),
+          [
+              new JobInvocationParameterInspection(
+                0,
+                typeof(string).AssemblyQualifiedName!,
+                new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
+                "\"permanent-failure\""),
+              new JobInvocationParameterInspection(
+                1,
+                "Sheddueller.Dashboard.Tests.DashboardEndpointTests.StubDependency",
+                new JobMethodParameterBinding(JobMethodParameterBindingKind.Service, "Sheddueller.Dashboard.Tests.DashboardEndpointTests.StubDependency")),
+              new JobInvocationParameterInspection(
+                2,
+                typeof(IJobContext).AssemblyQualifiedName!,
+                new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext)),
+              new JobInvocationParameterInspection(
+                3,
+                typeof(CancellationToken).AssemblyQualifiedName!,
+                new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken)),
+          ],
+          SystemTextJsonJobPayloadSerializer.JsonContentType,
+          SerializedArgumentsByteCount: 31,
+          JobSerializedArgumentsInspectionStatus.Displayable);
 
         private static readonly JobInspectionSummary Job = new(
           JobId,
@@ -711,7 +752,7 @@ public sealed class DashboardEndpointTests
         }
 
         private static JobInspectionDetail CreateDetail(JobInspectionSummary job)
-          => job.State == JobState.Queued
+          => (job.State == JobState.Queued
             ? new JobInspectionDetail(
               job,
               ClaimedAtUtc: null,
@@ -723,7 +764,10 @@ public sealed class DashboardEndpointTests
               ClaimedAtUtc,
               ClaimedByNodeId: "worker-us-east-1a-04",
               job.State == JobState.Claimed ? LeaseExpiresAtUtc : null,
-              ScheduledFireAtUtc: null);
+              ScheduledFireAtUtc: null)) with
+          {
+              Invocation = Invocation,
+          };
     }
 
     private sealed class StubJobManager : IJobManager

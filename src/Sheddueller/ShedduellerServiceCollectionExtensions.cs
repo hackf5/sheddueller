@@ -27,6 +27,7 @@ public static class ShedduellerServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.AddLogging();
         services.AddOptions<ShedduellerOptions>();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IJobPayloadSerializer, SystemTextJsonJobPayloadSerializer>();
