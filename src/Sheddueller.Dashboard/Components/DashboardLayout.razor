@@ -6,7 +6,7 @@
         <aside class="sd-sidebar" aria-label="Dashboard navigation">
             <div class="sd-sidebar__brand">
                 <span class="sd-sidebar__title">Sheddueller</span>
-                <span class="sd-sidebar__subtitle">Operational Control</span>
+                <span class="sd-sidebar__subtitle">Dashboard</span>
             </div>
 
             <nav class="sd-sidebar__nav" aria-label="Primary">
@@ -41,8 +41,10 @@
                 <nav class="sd-sidebar__nav sd-sidebar__nav--footer" aria-label="Refresh controls">
                     <div class="sd-shell-refresh">
                         <span class="sd-shell-refresh__label">Live Refresh</span>
-                        <LiveStatus IsRefreshing="refresh.Coordinator.IsRefreshing" ShowRefreshing="refresh.ShowRefreshing" LastUpdatedUtc="@refresh.GetLastUpdatedUtc(DateTimeOffset.UtcNow)" />
-                        <button class="@ShellRefreshButtonClass(refresh)" type="button" @onclick="ToggleShellAutoRefreshAsync" aria-pressed="@refresh.Coordinator.AutoRefreshEnabled">
+                        <LiveStatus IsRefreshing="refresh.Coordinator.IsRefreshing" ShowRefreshing="refresh.ShowRefreshing"
+                                    LastUpdatedUtc="@refresh.GetLastUpdatedUtc(DateTimeOffset.UtcNow)" />
+                        <button class="@ShellRefreshButtonClass(refresh)" type="button"
+                                @onclick="ToggleShellAutoRefreshAsync" aria-pressed="@refresh.Coordinator.AutoRefreshEnabled">
                             <span class="material-symbols-outlined" aria-hidden="true">sync</span>
                             <span>Auto-refresh @AutoRefreshStateText(refresh)</span>
                         </button>
@@ -701,6 +703,7 @@
     }
 
     @@media (max-width: 720px) {
+
         .sd-table-controls,
         .sd-table-search,
         .sd-table-select,

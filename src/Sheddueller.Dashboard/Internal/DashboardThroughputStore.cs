@@ -4,9 +4,11 @@ using Sheddueller.Storage;
 
 internal sealed class DashboardThroughputStore : IDashboardThroughputReader, IDisposable
 {
-    internal static readonly TimeSpan BucketSize = TimeSpan.FromSeconds(1);
+    private const int BucketSizeSeconds = 5;
+
+    internal static readonly TimeSpan BucketSize = TimeSpan.FromSeconds(BucketSizeSeconds);
     internal static readonly TimeSpan Window = TimeSpan.FromHours(1);
-    internal const int BucketCount = 3600;
+    internal const int BucketCount = 720;
 
     private readonly Lock _gate = new();
     private readonly DashboardThroughputBucketState[] _buckets = new DashboardThroughputBucketState[BucketCount];
@@ -25,18 +27,18 @@ internal sealed class DashboardThroughputStore : IDashboardThroughputReader, IDi
 
     public DashboardThroughputSnapshot GetSnapshot()
     {
-        var windowEndUtc = TruncateToSecond(this._timeProvider.GetUtcNow());
-        var windowStartUtc = windowEndUtc.AddSeconds(-(BucketCount - 1));
+        var windowEndUtc = TruncateToBucket(this._timeProvider.GetUtcNow());
+        var windowStartUtc = windowEndUtc.AddSeconds(-(BucketCount - 1) * BucketSizeSeconds);
         var buckets = new DashboardThroughputBucket[BucketCount];
 
         lock (this._gate)
         {
             for (var offset = 0; offset < BucketCount; offset++)
             {
-                var bucketStartUtc = windowStartUtc.AddSeconds(offset);
-                var unixSecond = bucketStartUtc.ToUnixTimeSeconds();
-                var state = this._buckets[BucketIndex(unixSecond)];
-                buckets[offset] = state.UnixSecond == unixSecond
+                var bucketStartUtc = windowStartUtc.AddSeconds(offset * BucketSizeSeconds);
+                var bucketNumber = BucketNumber(bucketStartUtc);
+                var state = this._buckets[BucketIndex(bucketNumber)];
+                buckets[offset] = state.BucketNumber == bucketNumber
                   ? state.ToBucket(bucketStartUtc)
                   : EmptyBucket(bucketStartUtc);
             }
@@ -63,21 +65,23 @@ internal sealed class DashboardThroughputStore : IDashboardThroughputReader, IDi
             return;
         }
 
-        var eventBucketUtc = TruncateToSecond(jobEvent.OccurredAtUtc);
-        var nowUtc = TruncateToSecond(this._timeProvider.GetUtcNow());
-        if (eventBucketUtc <= nowUtc.Subtract(Window) || eventBucketUtc > nowUtc)
+        var occurredAtUtc = jobEvent.OccurredAtUtc.ToUniversalTime();
+        var nowUtc = this._timeProvider.GetUtcNow();
+        var nowBucketUtc = TruncateToBucket(nowUtc);
+        var eventBucketUtc = TruncateToBucket(occurredAtUtc);
+        if (eventBucketUtc <= nowBucketUtc.Subtract(Window) || occurredAtUtc > nowUtc)
         {
             return;
         }
 
-        var unixSecond = eventBucketUtc.ToUnixTimeSeconds();
-        var index = BucketIndex(unixSecond);
+        var bucketNumber = BucketNumber(eventBucketUtc);
+        var index = BucketIndex(bucketNumber);
         lock (this._gate)
         {
             ref var state = ref this._buckets[index];
-            if (state.UnixSecond != unixSecond)
+            if (state.BucketNumber != bucketNumber)
             {
-                state = new DashboardThroughputBucketState(unixSecond);
+                state = new DashboardThroughputBucketState(bucketNumber);
             }
 
             state.Increment(metric);
@@ -143,14 +147,19 @@ internal sealed class DashboardThroughputStore : IDashboardThroughputReader, IDi
         return false;
     }
 
-    private static DateTimeOffset TruncateToSecond(DateTimeOffset timestamp)
+    private static DateTimeOffset TruncateToBucket(DateTimeOffset timestamp)
     {
         var utc = timestamp.ToUniversalTime();
-        return new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, utc.Minute, utc.Second, TimeSpan.Zero);
+        var unixSeconds = utc.ToUnixTimeSeconds();
+        var bucketStartUnixSeconds = unixSeconds - (unixSeconds % BucketSizeSeconds);
+        return DateTimeOffset.FromUnixTimeSeconds(bucketStartUnixSeconds);
     }
 
-    private static int BucketIndex(long unixSecond)
-      => (int)(((unixSecond % BucketCount) + BucketCount) % BucketCount);
+    private static long BucketNumber(DateTimeOffset timestamp)
+      => timestamp.ToUnixTimeSeconds() / BucketSizeSeconds;
+
+    private static int BucketIndex(long bucketNumber)
+      => (int)(((bucketNumber % BucketCount) + BucketCount) % BucketCount);
 
     private static DashboardThroughputBucket EmptyBucket(DateTimeOffset startedAtUtc)
       => new(startedAtUtc, 0, 0, 0, 0, 0, 0);
@@ -165,9 +174,9 @@ internal sealed class DashboardThroughputStore : IDashboardThroughputReader, IDi
         FailedAttempt,
     }
 
-    private struct DashboardThroughputBucketState(long unixSecond)
+    private struct DashboardThroughputBucketState(long bucketNumber)
     {
-        public long UnixSecond { get; private set; } = unixSecond;
+        public long BucketNumber { get; private set; } = bucketNumber;
 
         public int QueuedCount { get; private set; }
 

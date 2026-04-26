@@ -10,16 +10,16 @@ using Shouldly;
 public sealed class DashboardThroughputStoreTests
 {
     [Fact]
-    public void Snapshot_NoEvents_ZeroFillsOneHourOfSecondBuckets()
+    public void Snapshot_NoEvents_ZeroFillsOneHourOfFiveSecondBuckets()
     {
         var now = new DateTimeOffset(2026, 4, 26, 12, 0, 5, TimeSpan.Zero);
         using var store = CreateStore(now);
 
         var snapshot = store.GetSnapshot();
 
-        snapshot.BucketSize.ShouldBe(TimeSpan.FromSeconds(1));
-        snapshot.Buckets.Count.ShouldBe(3600);
-        snapshot.WindowStartUtc.ShouldBe(now.AddSeconds(-3599));
+        snapshot.BucketSize.ShouldBe(TimeSpan.FromSeconds(5));
+        snapshot.Buckets.Count.ShouldBe(720);
+        snapshot.WindowStartUtc.ShouldBe(now.AddSeconds(-3595));
         snapshot.WindowEndUtc.ShouldBe(now);
         snapshot.Buckets[0].StartedAtUtc.ShouldBe(snapshot.WindowStartUtc);
         snapshot.Buckets[^1].StartedAtUtc.ShouldBe(now);
@@ -27,7 +27,7 @@ public sealed class DashboardThroughputStoreTests
     }
 
     [Fact]
-    public void Record_KnownJobEvents_StoresCountsInSecondBucket()
+    public void Record_KnownJobEvents_StoresCountsInFiveSecondBucket()
     {
         var now = new DateTimeOffset(2026, 4, 26, 12, 0, 5, TimeSpan.Zero);
         using var store = CreateStore(now);
