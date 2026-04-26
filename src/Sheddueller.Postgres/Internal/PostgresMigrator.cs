@@ -138,12 +138,38 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
 
           create table if not exists {this._names.JobTags} (
               job_id uuid not null references {this._names.Jobs}(job_id) on delete cascade,
+              ordinal integer not null,
               name text not null,
               value text not null,
               primary key (job_id, name, value),
+              constraint job_tags_ordinal_check check (ordinal >= 0),
               constraint job_tags_name_check check (length(name) > 0),
               constraint job_tags_value_check check (length(value) > 0)
           );
+
+          alter table {this._names.JobTags}
+              add column if not exists ordinal integer;
+
+          with ordered_tags as (
+              select
+                  job_id,
+                  name,
+                  value,
+                  row_number() over (partition by job_id order by name asc, value asc) - 1 as ordinal
+              from {this._names.JobTags}
+              where ordinal is null
+          )
+          update {this._names.JobTags} tag
+          set ordinal = ordered_tags.ordinal
+          from ordered_tags
+          where tag.job_id = ordered_tags.job_id
+            and tag.name = ordered_tags.name
+            and tag.value = ordered_tags.value;
+
+          alter table {this._names.JobTags}
+              alter column ordinal set not null,
+              drop constraint if exists job_tags_ordinal_check,
+              add constraint job_tags_ordinal_check check (ordinal >= 0);
 
           create table if not exists {this._names.ConcurrencyGroups} (
               group_key text primary key,
@@ -197,12 +223,38 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
 
           create table if not exists {this._names.ScheduleTags} (
               schedule_key text not null references {this._names.RecurringSchedules}(schedule_key) on delete cascade,
+              ordinal integer not null,
               name text not null,
               value text not null,
               primary key (schedule_key, name, value),
+              constraint schedule_tags_ordinal_check check (ordinal >= 0),
               constraint schedule_tags_name_check check (length(name) > 0),
               constraint schedule_tags_value_check check (length(value) > 0)
           );
+
+          alter table {this._names.ScheduleTags}
+              add column if not exists ordinal integer;
+
+          with ordered_tags as (
+              select
+                  schedule_key,
+                  name,
+                  value,
+                  row_number() over (partition by schedule_key order by name asc, value asc) - 1 as ordinal
+              from {this._names.ScheduleTags}
+              where ordinal is null
+          )
+          update {this._names.ScheduleTags} tag
+          set ordinal = ordered_tags.ordinal
+          from ordered_tags
+          where tag.schedule_key = ordered_tags.schedule_key
+            and tag.name = ordered_tags.name
+            and tag.value = ordered_tags.value;
+
+          alter table {this._names.ScheduleTags}
+              alter column ordinal set not null,
+              drop constraint if exists schedule_tags_ordinal_check,
+              add constraint schedule_tags_ordinal_check check (ordinal >= 0);
 
           create table if not exists {this._names.JobEvents} (
               job_id uuid not null references {this._names.Jobs}(job_id) on delete cascade,
@@ -290,8 +342,14 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create index if not exists idx_job_tags_name_value_job_id
               on {this._names.JobTags} (name, value, job_id);
 
+          create unique index if not exists idx_job_tags_job_id_ordinal
+              on {this._names.JobTags} (job_id, ordinal);
+
           create index if not exists idx_schedule_tags_name_value_schedule_key
               on {this._names.ScheduleTags} (name, value, schedule_key);
+
+          create unique index if not exists idx_schedule_tags_schedule_key_ordinal
+              on {this._names.ScheduleTags} (schedule_key, ordinal);
 
           create index if not exists idx_job_events_job_sequence
               on {this._names.JobEvents} (job_id, event_sequence);

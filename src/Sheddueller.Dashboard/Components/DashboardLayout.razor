@@ -151,6 +151,79 @@
         color: inherit;
     }
 
+    .sd-chip-list {
+        position: relative;
+        overflow: visible;
+    }
+
+    .sd-chip-list .sd-chip {
+        max-width: 180px;
+        flex: 0 0 auto;
+    }
+
+    .sd-chip-overflow {
+        position: relative;
+        display: inline-flex;
+        flex: 0 0 auto;
+    }
+
+    .sd-chip-overflow__summary {
+        display: inline-flex;
+        min-width: 30px;
+        max-width: none;
+        appearance: none;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .sd-chip-overflow:hover .sd-chip-overflow__summary,
+    .sd-chip-overflow:focus-within .sd-chip-overflow__summary {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    .sd-chip-overflow__panel {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        z-index: 30;
+        display: none;
+        min-width: 220px;
+        max-width: min(420px, 70vw);
+        gap: 2px;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 4px;
+        background: var(--sd-surface-lowest);
+        box-shadow: 0 12px 28px rgb(0 0 0 / 30%);
+        padding: 10px 6px 6px;
+        white-space: normal;
+    }
+
+    .sd-chip-overflow:hover .sd-chip-overflow__panel,
+    .sd-chip-overflow:focus-within .sd-chip-overflow__panel {
+        display: grid;
+    }
+
+    .sd-chip-overflow__item {
+        display: block;
+        overflow-wrap: anywhere;
+        border-radius: 2px;
+        color: var(--sd-on-surface);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 11px;
+        line-height: 16px;
+        padding: 4px 6px;
+        text-decoration: none;
+        white-space: normal;
+    }
+
+    a.sd-chip-overflow__item:hover {
+        background: var(--sd-surface-low);
+        color: var(--sd-primary);
+    }
+
     button,
     input,
     select {

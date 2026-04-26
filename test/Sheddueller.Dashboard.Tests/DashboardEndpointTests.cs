@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
 using Sheddueller;
+using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.ConcurrencyGroups;
 using Sheddueller.Inspection.Jobs;
 using Sheddueller.Inspection.Metrics;
@@ -57,6 +58,7 @@ public sealed class DashboardEndpointTests
 
         html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
         html.ShouldContain("_framework/blazor.web.js");
+        html.ShouldContain("_content/Sheddueller.Dashboard/vendor/prism/prism-dark.css\" rel=\"stylesheet\" media=\"(prefers-color-scheme: dark)\"");
         html.ShouldNotContain("Operational Control");
     }
 
@@ -105,6 +107,9 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Filter by handler substring");
         html.ShouldContain("Filter by tag substring");
         html.ShouldContain("Filter by concurrency group substring");
+        html.ShouldContain("Sort jobs");
+        html.ShouldContain("Operational Order");
+        html.ShouldContain("Newest First");
         html.ShouldContain("Clear Filters");
         html.ShouldNotContain("Expand query filters");
         html.ShouldNotContain("Execute Query");
@@ -122,6 +127,52 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         AssertShellRefresh(html);
         html.ShouldContain($"href=\"jobs/{StubJobInspectionReader.JobId:D}\"");
+        html.ShouldContain("<th>Queue</th>");
+        html.ShouldContain("Running");
+        html.ShouldContain("#1");
+    }
+
+    [Fact]
+    public async Task Jobs_ClaimedAndQueuedFilters_RendersClaimedBeforeQueued()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Queued&state=Claimed");
+
+        AssertStatusCheckbox(html, "Queued", isChecked: true);
+        AssertStatusCheckbox(html, "Claimed", isChecked: true);
+        AssertAppearsBefore(html, $"href=\"jobs/{StubJobInspectionReader.JobId:D}\"", $"href=\"jobs/{StubJobInspectionReader.QueuedJobId:D}\"");
+        html.ShouldContain("Running");
+        html.ShouldContain("#1");
+    }
+
+    [Fact]
+    public async Task Jobs_SortQuery_RendersSelectedSortAndPreservesQuickLinks()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Queued&sort=NewestFirst");
+
+        AssertSelectValue(html, "Sort jobs", "NewestFirst");
+        html.ShouldContain("href=\"jobs?state=Claimed&amp;sort=NewestFirst\"");
+        html.ShouldContain("href=\"jobs?state=Queued&amp;handler=StubService.Run&amp;sort=NewestFirst\"");
+    }
+
+    [Fact]
+    public async Task Jobs_TagDisplayOrder_ConfiguredNamesLeadCompactChips()
+    {
+        await using var app = await CreateStartedDashboardAsync(configureDashboard: options =>
+        {
+            options.TagDisplayOrder = ["domain", "tenant"];
+        });
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs");
+
+        AssertAppearsBefore(html, "href=\"jobs?tag=domain%3Apayments\"", "href=\"jobs?tag=tenant%3Aacme\"");
+        html.ShouldContain("jobs-chip--overflow");
+        html.ShouldContain("aria-haspopup=\"true\"");
+        html.ShouldContain("&#x2B;2");
+        html.ShouldContain("sd-chip-overflow__panel");
+        html.ShouldContain("href=\"jobs?tag=schedule%3Adaily_rollup\"");
+        html.ShouldContain("href=\"jobs?tag=source%3Astub\"");
+        html.ShouldContain("aria-label=\"Additional tags: domain:payments, tenant:acme, schedule:daily_rollup, source:stub\"");
     }
 
     [Fact]
@@ -277,6 +328,9 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Queue Depth");
         html.ShouldContain("Throughput Rate");
         html.ShouldContain("Schedule Fire Lag");
+        html.ShouldContain("Live Throughput");
+        html.ShouldContain("1s Buckets / 1h Window");
+        html.ShouldContain("Failed Attempts");
         html.ShouldContain("Queue Latency");
         html.ShouldContain("Execution Duration");
         html.ShouldContain("Window Comparison");
@@ -309,6 +363,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?tag=tenant%3Aacme\"");
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         html.ShouldContain("Invocation");
+        html.ShouldContain("pre.job-detail-invocation-call[class*=\"language-\"]");
+        html.ShouldContain("box-shadow: none;");
         html.ShouldContain("StubService.Run(");
         html.ShouldContain("permanent-failure");
         html.ShouldContain("Job.Resolve");
@@ -358,6 +414,17 @@ public sealed class DashboardEndpointTests
           disabled: true);
     }
 
+    [Fact]
+    public async Task JobDetail_CompletedJob_RendersRunTime()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, $"/sheddueller/jobs/{StubJobInspectionReader.CompletedJobId:D}");
+
+        html.ShouldContain("Run Time:");
+        html.ShouldContain("4 m");
+        html.ShouldContain("2026-04-20 12:09:00 UTC");
+    }
+
     [Theory]
     [InlineData("a1543a1d-b7e0-4b43-b7ed-62249dc117be", "This job completed at 2026-04-20 12:09:00 UTC and cannot be canceled.")]
     [InlineData("b4f8131d-a097-4410-8f47-8d37387e1357", "This job failed at 2026-04-20 12:04:00 UTC and cannot be canceled.")]
@@ -398,7 +465,8 @@ public sealed class DashboardEndpointTests
 
     private static async Task<WebApplication> CreateStartedDashboardAsync(
         bool prerender = true,
-        bool mapWithWebApplication = true)
+        bool mapWithWebApplication = true,
+        Action<ShedduellerDashboardOptions>? configureDashboard = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -410,7 +478,12 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
         builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
-        builder.Services.AddShedduellerDashboard(options => options.Prerender = prerender);
+        builder.Services.AddSingleton<IDashboardThroughputReader, StubDashboardThroughputReader>();
+        builder.Services.AddShedduellerDashboard(options =>
+        {
+            options.Prerender = prerender;
+            configureDashboard?.Invoke(options);
+        });
 
         var app = builder.Build();
         if (mapWithWebApplication)
@@ -480,6 +553,38 @@ public sealed class DashboardEndpointTests
         }
 
         label.ShouldNotContain("checked");
+    }
+
+    private static void AssertSelectValue(
+        string html,
+        string ariaLabel,
+        string value)
+    {
+        var markerIndex = html.IndexOf(string.Create(CultureInfo.InvariantCulture, $"aria-label=\"{ariaLabel}\""), StringComparison.Ordinal);
+        markerIndex.ShouldBeGreaterThanOrEqualTo(0);
+
+        var startIndex = html.LastIndexOf("<select", markerIndex, StringComparison.Ordinal);
+        var endIndex = html.IndexOf("</select>", markerIndex, StringComparison.Ordinal);
+
+        startIndex.ShouldBeGreaterThanOrEqualTo(0);
+        endIndex.ShouldBeGreaterThan(startIndex);
+
+        var select = html[startIndex..(endIndex + "</select>".Length)];
+        var selectOpen = select[..select.IndexOf('>', StringComparison.Ordinal)];
+        if (selectOpen.Contains(string.Create(CultureInfo.InvariantCulture, $"value=\"{value}\""), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var optionMarker = string.Create(CultureInfo.InvariantCulture, $"value=\"{value}\"");
+        var optionMarkerIndex = select.IndexOf(optionMarker, StringComparison.Ordinal);
+        optionMarkerIndex.ShouldBeGreaterThanOrEqualTo(0);
+        var optionStartIndex = select.LastIndexOf("<option", optionMarkerIndex, StringComparison.Ordinal);
+        var optionEndIndex = select.IndexOf("</option>", optionMarkerIndex, StringComparison.Ordinal);
+        optionStartIndex.ShouldBeGreaterThanOrEqualTo(0);
+        optionEndIndex.ShouldBeGreaterThan(optionStartIndex);
+        var option = select[optionStartIndex..(optionEndIndex + "</option>".Length)];
+        option.ShouldContain("selected");
     }
 
     private static void AssertCancelButton(
@@ -582,6 +687,8 @@ public sealed class DashboardEndpointTests
           [
               new JobTag("tenant", "acme"),
               new JobTag("schedule", "daily_rollup"),
+              new JobTag("domain", "payments"),
+              new JobTag("source", "stub"),
           ],
           ConcurrencyGroupKeys: ["tenant-acme", "daily-rollup"],
           SourceScheduleKey: "daily_rollup",
@@ -712,7 +819,7 @@ public sealed class DashboardEndpointTests
         public ValueTask<JobInspectionPage> SearchJobsAsync(
             JobInspectionQuery query,
             CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(new JobInspectionPage([Job], ContinuationToken: null, TotalCount: 1));
+          => ValueTask.FromResult(new JobInspectionPage([Job, QueuedJob], ContinuationToken: null, TotalCount: 2));
 
         public ValueTask<JobInspectionDetail?> GetJobAsync(
             Guid jobId,
@@ -1157,5 +1264,44 @@ public sealed class DashboardEndpointTests
             MetricsInspectionQuery query,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(Snapshot);
+    }
+
+    private sealed class StubDashboardThroughputReader : IDashboardThroughputReader
+    {
+        private static readonly DateTimeOffset WindowEndUtc = new(2026, 4, 20, 12, 30, 0, TimeSpan.Zero);
+
+        private static readonly DashboardThroughputSnapshot Snapshot = new(
+          WindowEndUtc.AddSeconds(-2),
+          WindowEndUtc,
+          TimeSpan.FromSeconds(1),
+          [
+              new DashboardThroughputBucket(
+                WindowEndUtc.AddSeconds(-2),
+                QueuedCount: 0,
+                StartedCount: 0,
+                SucceededCount: 0,
+                FailedCount: 0,
+                CanceledCount: 0,
+                FailedAttemptCount: 0),
+              new DashboardThroughputBucket(
+                WindowEndUtc.AddSeconds(-1),
+                QueuedCount: 12,
+                StartedCount: 10,
+                SucceededCount: 9,
+                FailedCount: 1,
+                CanceledCount: 0,
+                FailedAttemptCount: 2),
+              new DashboardThroughputBucket(
+                WindowEndUtc,
+                QueuedCount: 14,
+                StartedCount: 11,
+                SucceededCount: 8,
+                FailedCount: 0,
+                CanceledCount: 1,
+                FailedAttemptCount: 3),
+          ]);
+
+        public DashboardThroughputSnapshot GetSnapshot()
+          => Snapshot;
     }
 }

@@ -15,6 +15,7 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
           "schedule-a",
           priority: 5,
           groupKeys: ["beta", "alpha", "alpha"],
+          tags: [new JobTag("tenant", "acme"), new JobTag("domain", "payments")],
           retryPolicy: new RetryPolicy(3, RetryBackoffKind.Exponential, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(8)),
           overlapMode: RecurringOverlapMode.Allow));
 
@@ -35,6 +36,7 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
         schedule.RetryMaxDelayMs.ShouldBe(8000);
         schedule.NextFireAtUtc.ShouldNotBeNull();
         (await context.ReadScheduleGroupKeysAsync("schedule-a")).ShouldBe(["alpha", "beta"]);
+        (await context.ReadScheduleTagsAsync("schedule-a")).ShouldBe([new JobTag("tenant", "acme"), new JobTag("domain", "payments")]);
     }
 
     [Fact]
@@ -70,13 +72,22 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
     public async Task CreateOrUpdateRecurringSchedule_UpdateActiveSchedule_ReplacesDefinitionAndGroups()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
-        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule("schedule-a", priority: 1, groupKeys: ["old"]));
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule(
+          "schedule-a",
+          priority: 1,
+          groupKeys: ["old"],
+          tags: [new JobTag("tenant", "old")]));
 
-        var result = await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule("schedule-a", priority: 9, groupKeys: ["new"]));
+        var result = await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule(
+          "schedule-a",
+          priority: 9,
+          groupKeys: ["new"],
+          tags: [new JobTag("source", "api"), new JobTag("tenant", "new")]));
 
         result.ShouldBe(RecurringScheduleUpsertResult.Updated);
         (await context.ReadScheduleAsync("schedule-a")).Priority.ShouldBe(9);
         (await context.ReadScheduleGroupKeysAsync("schedule-a")).ShouldBe(["new"]);
+        (await context.ReadScheduleTagsAsync("schedule-a")).ShouldBe([new JobTag("source", "api"), new JobTag("tenant", "new")]);
     }
 
     [Fact]

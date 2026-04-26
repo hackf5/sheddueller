@@ -30,14 +30,19 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.AddOptions<ShedduellerDashboardOptions>()
           .Configure(options => configure?.Invoke(options))
           .Validate(options => options.EventRetention > TimeSpan.Zero, "ShedduellerDashboardOptions.EventRetention must be positive.")
+          .Validate(DashboardTagOrder.IsValid, "ShedduellerDashboardOptions.TagDisplayOrder cannot contain null, empty, or duplicate tag names.")
           .ValidateOnStart();
 
         services.AddRazorComponents()
           .AddInteractiveServerComponents();
         services.AddSignalR();
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<DashboardLiveUpdateStream>();
+        services.TryAddSingleton<DashboardThroughputStore>();
+        services.TryAddSingleton<IDashboardThroughputReader>(serviceProvider => serviceProvider.GetRequiredService<DashboardThroughputStore>());
         services.Replace(ServiceDescriptor.Singleton<IJobEventNotifier, SignalRJobEventNotifier>());
         TryAddStartupValidationHostedService(services);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardThroughputHostedService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardJobEventListenerService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobEventRetentionService>());
 

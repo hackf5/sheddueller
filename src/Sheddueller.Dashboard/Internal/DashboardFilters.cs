@@ -21,6 +21,8 @@ internal sealed class DashboardJobFilters
 
     public string ConcurrencyGroupContains => this._concurrencyGroupContains;
 
+    public JobInspectionSort Sort { get; private set; } = JobInspectionSort.Operational;
+
     public IReadOnlyList<JobState> SelectedStates
       => [.. Enum.GetValues<JobState>().Where(this._states.Contains)];
 
@@ -47,6 +49,17 @@ internal sealed class DashboardJobFilters
     public bool SetConcurrencyGroupContains(string value)
       => SetTextFilter(ref this._concurrencyGroupContains, value);
 
+    public bool SetSort(JobInspectionSort sort)
+    {
+        if (this.Sort == sort)
+        {
+            return false;
+        }
+
+        this.Sort = sort;
+        return true;
+    }
+
     public bool ReplaceStates(IEnumerable<JobState> states)
     {
         var nextStates = states.ToHashSet();
@@ -69,7 +82,8 @@ internal sealed class DashboardJobFilters
         var changed = !this.SelectedStates.SequenceEqual(filters.SelectedStates)
           || !string.Equals(this.HandlerContains, filters.HandlerContains, StringComparison.Ordinal)
           || !string.Equals(this.TagContains, filters.TagContains, StringComparison.Ordinal)
-          || !string.Equals(this.ConcurrencyGroupContains, filters.ConcurrencyGroupContains, StringComparison.Ordinal);
+          || !string.Equals(this.ConcurrencyGroupContains, filters.ConcurrencyGroupContains, StringComparison.Ordinal)
+          || this.Sort != filters.Sort;
 
         if (!changed)
         {
@@ -85,6 +99,7 @@ internal sealed class DashboardJobFilters
         this._handlerContains = filters.HandlerContains;
         this._tagContains = filters.TagContains;
         this._concurrencyGroupContains = filters.ConcurrencyGroupContains;
+        this.Sort = filters.Sort;
         return true;
     }
 
@@ -112,7 +127,8 @@ internal sealed class DashboardJobFilters
         Normalize(this.TagContains),
         Normalize(this.ConcurrencyGroupContains),
         pageSize,
-        continuationToken);
+        continuationToken,
+        this.Sort);
 
     private static bool SetTextFilter(
         ref string field,
@@ -137,6 +153,7 @@ internal static class DashboardJobFilterQuery
     public const string HandlerParameter = "handler";
     public const string TagParameter = "tag";
     public const string GroupParameter = "group";
+    public const string SortParameter = "sort";
 
     private const string JobsPath = "jobs";
 
@@ -177,6 +194,13 @@ internal static class DashboardJobFilterQuery
             _ = filters.SetConcurrencyGroupContains(group);
         }
 
+        if (TryGetLastNonEmptyValue(query, SortParameter, out var sortValue)
+            && Enum.TryParse<JobInspectionSort>(sortValue, ignoreCase: true, out var sort)
+            && Enum.IsDefined(sort))
+        {
+            _ = filters.SetSort(sort);
+        }
+
         return filters;
     }
 
@@ -192,6 +216,10 @@ internal static class DashboardJobFilterQuery
         AddQueryPart(queryParts, HandlerParameter, filters.HandlerContains);
         AddQueryPart(queryParts, TagParameter, filters.TagContains);
         AddQueryPart(queryParts, GroupParameter, filters.ConcurrencyGroupContains);
+        if (filters.Sort != JobInspectionSort.Operational)
+        {
+            AddQueryPart(queryParts, SortParameter, filters.Sort.ToString());
+        }
 
         return queryParts.Count == 0
           ? JobsPath

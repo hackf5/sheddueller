@@ -49,6 +49,39 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
+    public void RunTime_TerminalJob_FormatsClaimToTerminalDuration()
+    {
+        var claimedAtUtc = DateTimeOffset.Parse("2026-04-20T12:05:00Z", CultureInfo.InvariantCulture);
+        var job = CreateJob() with
+        {
+            State = JobState.Completed,
+            CompletedAtUtc = claimedAtUtc.AddSeconds(72),
+        };
+
+        DashboardFormat.RunTime(CreateDetail(job, claimedAtUtc)).ShouldBe("1.2 m");
+    }
+
+    [Fact]
+    public void RunTime_MissingOrInvalidTimestamps_ReturnsEmptyValue()
+    {
+        var claimedAtUtc = DateTimeOffset.Parse("2026-04-20T12:05:00Z", CultureInfo.InvariantCulture);
+        var terminalJob = CreateJob() with
+        {
+            State = JobState.Completed,
+            CompletedAtUtc = claimedAtUtc.AddSeconds(72),
+        };
+        var activeJob = CreateJob();
+        var invalidJob = terminalJob with
+        {
+            CompletedAtUtc = claimedAtUtc.AddSeconds(-1),
+        };
+
+        DashboardFormat.RunTime(CreateDetail(terminalJob, claimedAtUtc: null)).ShouldBe("-");
+        DashboardFormat.RunTime(CreateDetail(activeJob, claimedAtUtc)).ShouldBe("-");
+        DashboardFormat.RunTime(CreateDetail(invalidJob, claimedAtUtc)).ShouldBe("-");
+    }
+
+    [Fact]
     public void LiveStatusText_LastUpdatedAfterDashboardClock_DoesNotRenderFutureUpdate()
     {
         var now = DateTimeOffset.Parse("2026-04-20T12:00:00Z", CultureInfo.InvariantCulture);
@@ -70,6 +103,35 @@ public sealed class DashboardFormatTests
         DashboardFormat.TagsTitle(tags).ShouldBe("tenant:acme, schedule:daily_rollup");
         DashboardFormat.TagsTitle([]).ShouldBe("No tags");
         DashboardFormat.GroupKeysTitle(["tenant-acme", "daily-rollup"]).ShouldBe("tenant-acme, daily-rollup");
+    }
+
+    [Fact]
+    public void TagOrder_ConfiguredNames_PrioritizesConfiguredNamesAndPreservesOrdinalFallback()
+    {
+        var tags = new[]
+        {
+            new JobTag("source", "api"),
+            new JobTag("tenant", "acme"),
+            new JobTag("domain", "billing"),
+            new JobTag("job", "sync"),
+        };
+
+        DashboardTagOrder.Apply(tags, ["domain", "tenant"])
+          .ShouldBe(
+          [
+              new JobTag("domain", "billing"),
+              new JobTag("tenant", "acme"),
+              new JobTag("source", "api"),
+              new JobTag("job", "sync"),
+          ]);
+    }
+
+    [Fact]
+    public void TagOrder_OptionsValidation_RejectsEmptyAndDuplicateNames()
+    {
+        DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = [" tenant ", "domain"] }).ShouldBeTrue();
+        DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = ["tenant", " tenant "] }).ShouldBeFalse();
+        DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = ["tenant", " "] }).ShouldBeFalse();
     }
 
     [Fact]
@@ -149,6 +211,16 @@ public sealed class DashboardFormatTests
         CompletedAtUtc: null,
         FailedAtUtc: null,
         CanceledAtUtc: null);
+
+    private static JobInspectionDetail CreateDetail(
+        JobInspectionSummary job,
+        DateTimeOffset? claimedAtUtc)
+      => new(
+        job,
+        claimedAtUtc,
+        ClaimedByNodeId: null,
+        LeaseExpiresAtUtc: null,
+        ScheduledFireAtUtc: null);
 
     private static MetricsInspectionWindow CreateMetricsWindow()
       => new(

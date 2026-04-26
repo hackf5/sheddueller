@@ -106,6 +106,7 @@ internal static class EnqueueJobOperation
 
           create temp table sheddueller_enqueue_tags (
               job_id uuid not null,
+              ordinal integer not null,
               name text not null,
               value text not null
           ) on commit drop;
@@ -237,6 +238,7 @@ internal static class EnqueueJobOperation
           """
           copy sheddueller_enqueue_tags (
               job_id,
+              ordinal,
               name,
               value)
           from stdin (format binary)
@@ -246,10 +248,13 @@ internal static class EnqueueJobOperation
 
         foreach (var request in requests)
         {
-            foreach (var tag in SubmissionValidator.NormalizeJobTags(request.Tags))
+            var tags = SubmissionValidator.NormalizeJobTags(request.Tags);
+            for (var i = 0; i < tags.Count; i++)
             {
+                var tag = tags[i];
                 await importer.StartRowAsync(cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(request.JobId, NpgsqlDbType.Uuid, cancellationToken).ConfigureAwait(false);
+                await importer.WriteAsync(i, NpgsqlDbType.Integer, cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(tag.Name, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(tag.Value, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
             }
@@ -518,8 +523,8 @@ internal static class EnqueueJobOperation
           connection,
           transaction,
           $"""
-          insert into {context.Names.JobTags} (job_id, name, value)
-          select distinct tag.job_id, tag.name, tag.value
+          insert into {context.Names.JobTags} (job_id, ordinal, name, value)
+          select tag.job_id, tag.ordinal, tag.name, tag.value
           from sheddueller_enqueue_tags tag
           join sheddueller_enqueue_results result on result.job_id = tag.job_id
             and result.was_enqueued = true

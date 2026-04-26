@@ -11,4 +11,5 @@ public sealed record JobInspectionQuery(
     string? TagContains = null,
     string? ConcurrencyGroupContains = null,
     int PageSize = 100,
-    string? ContinuationToken = null);
+    string? ContinuationToken = null,
+    JobInspectionSort Sort = JobInspectionSort.Operational);

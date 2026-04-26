@@ -4,6 +4,7 @@ using System.Globalization;
 
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.ConcurrencyGroups;
+using Sheddueller.Inspection.Jobs;
 using Sheddueller.Inspection.Nodes;
 using Sheddueller.Inspection.Schedules;
 using Sheddueller.Storage;
@@ -22,6 +23,7 @@ public sealed class DashboardFilterTests
         filters.SetHandlerContains(" InvoiceHandler ").ShouldBeTrue();
         filters.SetTagContains(" tenant:acme ").ShouldBeTrue();
         filters.SetConcurrencyGroupContains(" acme ").ShouldBeTrue();
+        filters.SetSort(JobInspectionSort.NewestFirst).ShouldBeTrue();
 
         var query = filters.ToQuery(pageSize: 25, continuationToken: "next");
 
@@ -31,6 +33,7 @@ public sealed class DashboardFilterTests
         query.ConcurrencyGroupContains.ShouldBe("acme");
         query.PageSize.ShouldBe(25);
         query.ContinuationToken.ShouldBe("next");
+        query.Sort.ShouldBe(JobInspectionSort.NewestFirst);
         filters.HasAppliedFilters.ShouldBeTrue();
         filters.IsStateSelected(JobState.Claimed).ShouldBeTrue();
     }
@@ -51,6 +54,7 @@ public sealed class DashboardFilterTests
         query.HandlerContains.ShouldBeNull();
         query.TagContains.ShouldBeNull();
         query.ConcurrencyGroupContains.ShouldBeNull();
+        query.Sort.ShouldBe(JobInspectionSort.Operational);
         filters.HasAppliedFilters.ShouldBeFalse();
         filters.IsStateSelected(JobState.Failed).ShouldBeFalse();
     }
@@ -59,7 +63,7 @@ public sealed class DashboardFilterTests
     public void JobFilterQuery_ParseQuery_NormalizesUrlFilters()
     {
         var filters = DashboardJobFilterQuery.ParseQuery(
-          "?state=claimed&state=invalid&state=Queued&handler=Ignored.Run&handler=%20BillingWorker.Run%20&tag=tenant%3Aacme&tag=%20schedule%3Adaily%20&group=%20tenant-acme%20");
+          "?state=claimed&state=invalid&state=Queued&handler=Ignored.Run&handler=%20BillingWorker.Run%20&tag=tenant%3Aacme&tag=%20schedule%3Adaily%20&group=%20tenant-acme%20&sort=newestfirst");
 
         var query = filters.ToQuery(pageSize: 25, continuationToken: null);
 
@@ -71,6 +75,7 @@ public sealed class DashboardFilterTests
         query.HandlerContains.ShouldBe("BillingWorker.Run");
         query.TagContains.ShouldBe("schedule:daily");
         query.ConcurrencyGroupContains.ShouldBe("tenant-acme");
+        query.Sort.ShouldBe(JobInspectionSort.NewestFirst);
     }
 
     [Fact]
@@ -82,13 +87,14 @@ public sealed class DashboardFilterTests
         filters.SetHandlerContains("OldWorker.Run");
         filters.SetTagContains("tenant:acme");
         filters.SetConcurrencyGroupContains("tenant acme");
+        filters.SetSort(JobInspectionSort.NewestFirst);
 
         DashboardJobFilterQuery.WithStateHref(filters, JobState.Claimed)
-          .ShouldBe("jobs?state=Claimed&handler=OldWorker.Run&tag=tenant%3Aacme&group=tenant%20acme");
+          .ShouldBe("jobs?state=Claimed&handler=OldWorker.Run&tag=tenant%3Aacme&group=tenant%20acme&sort=NewestFirst");
         DashboardJobFilterQuery.WithHandlerHref(filters, "BillingWorker.Run")
-          .ShouldBe("jobs?state=Queued&state=Failed&handler=BillingWorker.Run&tag=tenant%3Aacme&group=tenant%20acme");
+          .ShouldBe("jobs?state=Queued&state=Failed&handler=BillingWorker.Run&tag=tenant%3Aacme&group=tenant%20acme&sort=NewestFirst");
         DashboardJobFilterQuery.WithTagHref(filters, "schedule:daily")
-          .ShouldBe("jobs?state=Queued&state=Failed&handler=OldWorker.Run&tag=schedule%3Adaily&group=tenant%20acme");
+          .ShouldBe("jobs?state=Queued&state=Failed&handler=OldWorker.Run&tag=schedule%3Adaily&group=tenant%20acme&sort=NewestFirst");
         DashboardJobFilterQuery.TagHref("tenant:acme west").ShouldBe("jobs?tag=tenant%3Aacme%20west");
     }
 

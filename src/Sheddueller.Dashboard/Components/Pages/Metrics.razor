@@ -1,6 +1,7 @@
 @page "/metrics"
 @inherits DashboardPageComponent
 @inject IMetricsInspectionReader Reader
+@inject IDashboardThroughputReader ThroughputReader
 
 <div class="metrics-page">
     <header class="metrics-header">
@@ -136,6 +137,15 @@
                     </span>
                 </div>
             </article>
+        </section>
+
+        <section class="metrics-throughput-panel" aria-label="Live throughput graph">
+            <div class="metrics-panel__header">
+                <h2>Live Throughput</h2>
+                <span>1s Buckets / 1h Window</span>
+            </div>
+
+            <ThroughputChart Snapshot="_throughputSnapshot" />
         </section>
 
         <section class="metrics-panel-grid" aria-label="Latency and duration metrics">
@@ -424,6 +434,7 @@
 
                 .metrics-summary-card,
                 .metrics-panel,
+                .metrics-throughput-panel,
                 .metrics-table-shell {
                     border: 1px solid var(--sd-outline-variant);
                     border-radius: var(--sd-radius);
@@ -558,6 +569,13 @@
                     padding: 16px;
                 }
 
+                .metrics-throughput-panel {
+                    display: grid;
+                    gap: 16px;
+                    min-height: 342px;
+                    padding: 16px;
+                }
+
                 .metrics-panel__header {
                     justify-content: space-between;
                     gap: 12px;
@@ -671,6 +689,101 @@
 
                 .metrics-duration-stat__track {
                     height: 6px;
+                }
+
+                .throughput-chart {
+                    position: relative;
+                    min-height: 220px;
+                    overflow: hidden;
+                }
+
+                .throughput-chart>div.uplot {
+                    width: 100%;
+                }
+
+                .throughput-chart__canvas {
+                    display: block;
+                    width: 100%;
+                    height: 220px;
+                }
+
+                .throughput-chart__empty,
+                .throughput-chart--empty {
+                    position: absolute;
+                    inset: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                    pointer-events: none;
+                }
+
+                .throughput-chart--empty {
+                    position: relative;
+                }
+
+                .throughput-chart-legend {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+
+                .throughput-chart-legend__item {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    border: 1px solid var(--sd-outline-variant);
+                    border-radius: var(--sd-radius);
+                    background: var(--sd-surface);
+                    padding: 6px 8px;
+                    color: var(--sd-on-surface-variant);
+                    font-size: 12px;
+                    line-height: 16px;
+                }
+
+                .throughput-chart-legend__item>span {
+                    width: 8px;
+                    height: 8px;
+                    flex: 0 0 auto;
+                    border-radius: 999px;
+                    background: var(--sd-outline);
+                }
+
+                .throughput-chart-legend__item em {
+                    font-style: normal;
+                }
+
+                .throughput-chart-legend__item strong {
+                    color: var(--sd-on-surface);
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    font-weight: 700;
+                }
+
+                .throughput-chart-legend__item--queued>span {
+                    background: var(--sd-secondary);
+                }
+
+                .throughput-chart-legend__item--started>span {
+                    background: var(--sd-info);
+                }
+
+                .throughput-chart-legend__item--succeeded>span {
+                    background: var(--sd-success);
+                }
+
+                .throughput-chart-legend__item--failed>span {
+                    background: var(--sd-error);
+                }
+
+                .throughput-chart-legend__item--canceled>span {
+                    background: var(--sd-warning);
+                }
+
+                .throughput-chart-legend__item--attempts>span {
+                    background: #7c3aed;
                 }
 
                 .metrics-table-shell {
@@ -836,6 +949,7 @@
 TimeSpan.FromHours(24)];
 
     private MetricsInspectionSnapshot? _snapshot;
+    private DashboardThroughputSnapshot? _throughputSnapshot;
     private string? _loadError;
     private TimeSpan _selectedWindow = TimeSpan.FromHours(1);
     private bool _isLoading;
@@ -871,8 +985,8 @@ TimeSpan.FromHours(24)];
 
         try
         {
-            var snapshot = await this.ReadSnapshotAsync(CancellationToken.None);
-            this.ApplySnapshot(snapshot);
+            var snapshot = await this.ReadPageSnapshotAsync(CancellationToken.None);
+            this.ApplySnapshot(snapshot.Metrics, snapshot.Throughput);
             this.LiveRefresh.MarkUpdated();
         }
         catch (NotSupportedException)
@@ -892,19 +1006,25 @@ TimeSpan.FromHours(24)];
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
-        var snapshot = await this.ReadSnapshotAsync(cancellationToken);
-        await this.ApplyPageStateAsync(() => this.ApplySnapshot(snapshot));
+        var snapshot = await this.ReadPageSnapshotAsync(cancellationToken);
+        await this.ApplyPageStateAsync(() => this.ApplySnapshot(snapshot.Metrics, snapshot.Throughput));
     }
 
-    private async Task<MetricsInspectionSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
-      => await Reader.GetMetricsAsync(
+    private async Task<MetricsPageSnapshot> ReadPageSnapshotAsync(CancellationToken cancellationToken)
+    {
+        var metrics = await Reader.GetMetricsAsync(
           new MetricsInspectionQuery(DefaultMetricWindows),
           cancellationToken)
         ;
+        return new MetricsPageSnapshot(metrics, ThroughputReader.GetSnapshot());
+    }
 
-    private void ApplySnapshot(MetricsInspectionSnapshot snapshot)
+    private void ApplySnapshot(
+        MetricsInspectionSnapshot snapshot,
+        DashboardThroughputSnapshot throughputSnapshot)
     {
         this._snapshot = snapshot;
+        this._throughputSnapshot = throughputSnapshot;
         this._loadError = null;
         this._metricsUnsupported = false;
 
@@ -916,4 +1036,8 @@ TimeSpan.FromHours(24)];
 
     private string WindowRowClass(MetricsInspectionWindow window)
       => window.Window == (this.SelectedWindow?.Window ?? this._selectedWindow) ? "metrics-row--selected" : string.Empty;
+
+    private sealed record MetricsPageSnapshot(
+        MetricsInspectionSnapshot Metrics,
+        DashboardThroughputSnapshot Throughput);
 }

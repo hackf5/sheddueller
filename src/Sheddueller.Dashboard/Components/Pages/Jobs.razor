@@ -25,6 +25,11 @@
         </div>
 
         <div class="jobs-text-filters">
+            <select class="sd-table-select jobs-sort-filter" aria-label="Sort jobs"
+                    value="@_filters.Sort" @onchange="SetSortAsync">
+                <option value="@JobInspectionSort.Operational">Operational Order</option>
+                <option value="@JobInspectionSort.NewestFirst">Newest First</option>
+            </select>
             <DashboardSearchBox Value="@_filters.HandlerContains" ValueChanged="SetHandlerContainsAsync"
                                 Placeholder="Handler contains..." AriaLabel="Filter by handler substring" />
             <DashboardSearchBox Value="@_filters.TagContains" ValueChanged="SetTagContainsAsync"
@@ -74,6 +79,7 @@
                         <col class="jobs-table__col--timestamp" />
                         <col class="jobs-table__col--timestamp" />
                         <col class="jobs-table__col--state" />
+                        <col class="jobs-table__col--queue" />
                         <col class="jobs-table__col--handler" />
                         <col class="jobs-table__col--tags" />
                         <col class="jobs-table__col--progress-unit" />
@@ -89,6 +95,7 @@
                             <th>Enqueued</th>
                             <th>Terminal Time</th>
                             <th>State</th>
+                            <th>Queue</th>
                             <th>Handler</th>
                             <th>Tags</th>
                             <th colspan="2">Progress</th>
@@ -102,7 +109,7 @@
                         @if (_jobs.Count == 0)
                         {
                             <tr>
-                                <td class="jobs-empty-row" colspan="12">@EmptyText</td>
+                                <td class="jobs-empty-row" colspan="13">@EmptyText</td>
                             </tr>
                         }
                         else
@@ -127,14 +134,16 @@
                                                     Title="@StateFilterTitle(job.State)" AriaLabel="@StateFilterTitle(job.State)" />
                                     </td>
                                     <td>
+                                        <span class="@QueuePositionClass(job)" title="@QueuePositionTitle(job)">@QueuePositionText(job)</span>
+                                    </td>
+                                    <td>
                                         <a class="jobs-handler jobs-filter-link" href="@HandlerFilterHref(job)"
                                            title="@DashboardFormat.FullHandler(job)"
                                            aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
                                     </td>
                                     <td>
-                                        <ChipList ClassPrefix="jobs-chip" Values="DashboardFormat.Tags(job.Tags)"
-                                                  Title="@DashboardFormat.TagsTitle(job.Tags)" HrefFactory="TagFilterHref"
-                                                  LinkAriaLabelPrefix="Filter jobs by tag" />
+                                        <TagChipList ClassPrefix="jobs-chip" Tags="job.Tags" HrefFactory="TagFilterHref"
+                                                     LinkAriaLabelPrefix="Filter jobs by tag" MaxVisible="2" />
                                     </td>
                                     <td colspan="2">
                                         <ProgressIndicator BaseClass="jobs-progress" Progress="job.LatestProgress" />
@@ -277,6 +286,11 @@
         min-width: 180px;
     }
 
+    .jobs-filter-bar .sd-table-select {
+        flex: 0 0 166px;
+        min-width: 150px;
+    }
+
     button.jobs-clear-button,
     button.jobs-load-more-button {
         display: inline-flex;
@@ -368,7 +382,7 @@
 
     .jobs-table {
         width: 100%;
-        min-width: 1640px;
+        min-width: 1816px;
         border-collapse: collapse;
         table-layout: fixed;
         white-space: nowrap;
@@ -380,6 +394,14 @@
 
     .jobs-table__col--state {
         width: 144px;
+    }
+
+    .jobs-table__col--queue {
+        width: 96px;
+    }
+
+    .jobs-table__col--tags {
+        width: 380px;
     }
 
     .jobs-table__col--disposition {
@@ -486,12 +508,12 @@
         min-width: 0;
         align-items: center;
         gap: 4px;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .jobs-chip {
         display: inline-block;
-        max-width: 112px;
+        max-width: 180px;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
         border-radius: 2px;
@@ -584,6 +606,44 @@
         text-overflow: ellipsis;
     }
 
+    .jobs-queue {
+        display: inline-flex;
+        min-width: 56px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        padding: 2px 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .jobs-queue--claimable {
+        border-color: var(--sd-primary);
+        color: var(--sd-primary);
+    }
+
+    .jobs-queue--claimed {
+        border-color: var(--sd-secondary-container);
+        background: var(--sd-secondary-container);
+        color: var(--sd-on-secondary-container);
+    }
+
+    .jobs-queue--blocked,
+    .jobs-queue--waiting,
+    .jobs-queue--delayed {
+        color: var(--sd-on-surface-variant);
+    }
+
+    .jobs-queue--empty {
+        min-width: 0;
+        border-color: transparent;
+        color: var(--sd-on-surface-variant);
+    }
+
     .jobs-disposition--error {
         color: var(--sd-error);
     }
@@ -668,6 +728,7 @@
         .jobs-status-filter,
         .jobs-text-filters,
         .jobs-filter-bar .sd-table-search,
+        .jobs-filter-bar .sd-table-select,
         button.jobs-clear-button,
         .jobs-pagination {
             width: 100%;
@@ -767,6 +828,21 @@
 
     private Task SetConcurrencyGroupContainsAsync(string value)
       => this.SetTextFilterAsync(value, this._filters.SetConcurrencyGroupContains);
+
+    private async Task SetSortAsync(ChangeEventArgs eventArgs)
+    {
+        if (eventArgs.Value is not string value
+            || !Enum.TryParse<JobInspectionSort>(value, ignoreCase: true, out var sort)
+            || !Enum.IsDefined(sort)
+            || !this._filters.SetSort(sort))
+        {
+            return;
+        }
+
+        this.CancelPendingFilterLoad();
+        this.NavigateToCurrentFilters();
+        await this.LoadAsync();
+    }
 
     private Task SetTextFilterAsync(
         string value,
@@ -1020,6 +1096,32 @@
 
     private static string StatusFilterClass(JobState state)
       => string.Concat("jobs-status-option jobs-status-option--", DashboardFormat.StateCssModifier(state));
+
+    private static string QueuePositionText(JobInspectionSummary job)
+      => job.QueuePosition switch
+      {
+          { Kind: JobQueuePositionKind.Claimable, Position: { } position } => string.Create(CultureInfo.InvariantCulture, $"#{position}"),
+          { Kind: JobQueuePositionKind.Claimable } => "Ready",
+          { Kind: JobQueuePositionKind.Claimed } => "Running",
+          { Kind: JobQueuePositionKind.BlockedByConcurrency } => "Blocked",
+          { Kind: JobQueuePositionKind.RetryWaiting } => "Retry",
+          { Kind: JobQueuePositionKind.Delayed } => "Delayed",
+          _ => "-",
+      };
+
+    private static string QueuePositionTitle(JobInspectionSummary job)
+      => job.QueuePosition?.Reason ?? QueuePositionText(job);
+
+    private static string QueuePositionClass(JobInspectionSummary job)
+      => string.Concat("jobs-queue jobs-queue--", job.QueuePosition?.Kind switch
+      {
+          JobQueuePositionKind.Claimable => "claimable",
+          JobQueuePositionKind.Claimed => "claimed",
+          JobQueuePositionKind.BlockedByConcurrency => "blocked",
+          JobQueuePositionKind.RetryWaiting => "waiting",
+          JobQueuePositionKind.Delayed => "delayed",
+          _ => "empty",
+      });
 
     private static string GetDispositionClass(JobInspectionSummary job)
       => job.State == JobState.Failed ? "jobs-disposition--error" : "jobs-disposition--muted";

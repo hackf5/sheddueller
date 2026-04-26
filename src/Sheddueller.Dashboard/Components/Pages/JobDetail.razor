@@ -127,6 +127,13 @@
                         </div>
                         <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(GetStartedAt(_detail))</span>
                     </div>
+                    <div class="job-detail-timestamp-pair">
+                        <div>
+                            <span>Run Time:</span>
+                            <strong class="job-detail-inline-duration">@DashboardFormat.RunTime(_detail)</strong>
+                        </div>
+                        <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(DashboardFormat.TerminalTimestamp(job))</span>
+                    </div>
                 </div>
 
                 <div class="job-detail-summary-block job-detail-summary-block--ruled">
@@ -195,9 +202,8 @@
 
                 <div class="job-detail-chip-section">
                     <span class="job-detail-label">Tags</span>
-                    <ChipList ClassPrefix="job-detail-chip" Values="DashboardFormat.Tags(job.Tags)"
-                              Title="@DashboardFormat.TagsTitle(job.Tags)" HrefFactory="TagFilterHref"
-                              LinkAriaLabelPrefix="Filter jobs by tag" />
+                    <TagChipList ClassPrefix="job-detail-chip" Tags="job.Tags" HrefFactory="TagFilterHref"
+                                 LinkAriaLabelPrefix="Filter jobs by tag" />
                 </div>
 
                 <div class="job-detail-chip-section">
@@ -622,6 +628,7 @@
     .job-detail-metadata-item strong,
     .job-detail-chip,
     .job-detail-invocation-call,
+    .job-detail-inline-duration,
     .job-detail-parameter pre,
     .job-detail-progress-percent,
     .job-detail-log-table,
@@ -1028,10 +1035,14 @@
         margin: 0;
         border: 1px solid var(--sd-outline-variant);
         border-radius: 2px;
+        background: var(--sd-surface-container);
+        box-shadow: none;
+        color: var(--sd-on-surface);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         font-size: 13px;
         line-height: 20px;
         padding: 10px;
+        text-shadow: none;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
@@ -1039,7 +1050,9 @@
     pre.job-detail-invocation-call[class*="language-"] > code[class*="language-"] {
         display: block;
         background: transparent;
+        color: inherit;
         font: inherit;
+        text-shadow: none;
         white-space: inherit;
         overflow-wrap: inherit;
     }

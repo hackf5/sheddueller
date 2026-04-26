@@ -98,12 +98,79 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
         indexDefinition.ShouldContain("state = 'Queued'");
     }
 
+    [Fact]
+    public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await AssertOrdinalColumnAsync(context, "job_tags");
+        await AssertOrdinalColumnAsync(context, "schedule_tags");
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from pg_indexes
+              where schemaname = @schema_name
+                and indexname = 'idx_job_tags_job_id_ordinal'
+                and indexdef like '%UNIQUE INDEX%'
+          );
+          """))
+          .ShouldBeTrue();
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from pg_indexes
+              where schemaname = @schema_name
+                and indexname = 'idx_schedule_tags_schedule_key_ordinal'
+                and indexdef like '%UNIQUE INDEX%'
+          );
+          """))
+          .ShouldBeTrue();
+    }
+
     private static async ValueTask<T> ScalarAsync<T>(
         PostgresTestContext context,
         string commandText)
     {
         await using var command = context.DataSource.CreateCommand(commandText);
         command.Parameters.AddWithValue("schema_name", context.SchemaName);
+        var result = await command.ExecuteScalarAsync();
+        result.ShouldNotBeNull();
+        return result.ShouldBeOfType<T>();
+    }
+
+    private static async Task AssertOrdinalColumnAsync(
+        PostgresTestContext context,
+        string tableName)
+      => (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = @table_name
+                and column_name = 'ordinal'
+                and data_type = 'integer'
+                and is_nullable = 'NO'
+          );
+          """,
+          command => command.Parameters.AddWithValue("table_name", tableName)))
+        .ShouldBeTrue();
+
+    private static async ValueTask<T> ScalarAsync<T>(
+        PostgresTestContext context,
+        string commandText,
+        Action<Npgsql.NpgsqlCommand> configure)
+    {
+        await using var command = context.DataSource.CreateCommand(commandText);
+        command.Parameters.AddWithValue("schema_name", context.SchemaName);
+        configure(command);
         var result = await command.ExecuteScalarAsync();
         result.ShouldNotBeNull();
         return result.ShouldBeOfType<T>();
