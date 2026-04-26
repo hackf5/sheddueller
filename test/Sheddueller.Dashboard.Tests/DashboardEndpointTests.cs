@@ -57,6 +57,7 @@ public sealed class DashboardEndpointTests
 
         html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
         html.ShouldContain("_framework/blazor.web.js");
+        html.ShouldContain("_content/Sheddueller.Dashboard/vendor/prism/prism-dark.css\" rel=\"stylesheet\" media=\"(prefers-color-scheme: dark)\"");
         html.ShouldNotContain("Operational Control");
     }
 
@@ -358,6 +359,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?tag=tenant%3Aacme\"");
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         html.ShouldContain("Invocation");
+        html.ShouldContain("pre.job-detail-invocation-call[class*=\"language-\"]");
+        html.ShouldContain("box-shadow: none;");
         html.ShouldContain("StubService.Run(");
         html.ShouldContain("permanent-failure");
         html.ShouldContain("Job.Resolve");

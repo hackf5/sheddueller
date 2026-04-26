@@ -1035,10 +1035,14 @@
         margin: 0;
         border: 1px solid var(--sd-outline-variant);
         border-radius: 2px;
+        background: var(--sd-surface-container);
+        box-shadow: none;
+        color: var(--sd-on-surface);
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         font-size: 13px;
         line-height: 20px;
         padding: 10px;
+        text-shadow: none;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
@@ -1046,7 +1050,9 @@
     pre.job-detail-invocation-call[class*="language-"] > code[class*="language-"] {
         display: block;
         background: transparent;
+        color: inherit;
         font: inherit;
+        text-shadow: none;
         white-space: inherit;
         overflow-wrap: inherit;
     }
