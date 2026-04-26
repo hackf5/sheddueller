@@ -59,7 +59,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
         html.ShouldContain("_framework/blazor.web.js");
         html.ShouldContain("_content/Sheddueller.Dashboard/vendor/prism/prism-dark.css\" rel=\"stylesheet\" media=\"(prefers-color-scheme: dark)\"");
-        html.ShouldNotContain("Dashboard");
+        html.ShouldContain("_content/Sheddueller.Dashboard/vendor/sheddueller-throughput-chart.js?v=");
+        html.ShouldNotContain("sd-sidebar__brand");
     }
 
     [Fact]

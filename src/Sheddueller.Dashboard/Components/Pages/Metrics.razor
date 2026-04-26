@@ -1,7 +1,6 @@
 @page "/metrics"
 @inherits DashboardPageComponent
 @inject IMetricsInspectionReader Reader
-@inject IDashboardThroughputReader ThroughputReader
 
 <div class="metrics-page">
     <header class="metrics-header">
@@ -143,7 +142,7 @@
                 <span>1s Buckets / 1h Window</span>
             </div>
 
-            <ThroughputChart Snapshot="_throughputSnapshot" />
+            <ThroughputChart AutoRefreshEnabledProvider="@(() => LiveRefresh.AutoRefreshEnabled)" />
         </section>
 
         <section class="metrics-panel-grid" aria-label="Latency and duration metrics">
@@ -686,7 +685,12 @@
                     overflow: hidden;
                 }
 
-                .throughput-chart>div.uplot {
+                .throughput-chart__plot {
+                    position: absolute;
+                    inset: 0;
+                }
+
+                .throughput-chart__plot>div.uplot {
                     width: 100%;
                 }
 
@@ -976,7 +980,6 @@
 TimeSpan.FromHours(24)];
 
     private MetricsInspectionSnapshot? _snapshot;
-    private DashboardThroughputSnapshot? _throughputSnapshot;
     private string? _loadError;
     private TimeSpan _selectedWindow = TimeSpan.FromHours(1);
     private bool _isLoading;
@@ -1012,8 +1015,10 @@ TimeSpan.FromHours(24)];
 
         try
         {
-            var snapshot = await this.ReadPageSnapshotAsync(CancellationToken.None);
-            this.ApplySnapshot(snapshot.Metrics, snapshot.Throughput);
+            var snapshot = await Reader.GetMetricsAsync(
+              new MetricsInspectionQuery(DefaultMetricWindows),
+              CancellationToken.None);
+            this.ApplySnapshot(snapshot);
             this.LiveRefresh.MarkUpdated();
         }
         catch (NotSupportedException)
@@ -1033,25 +1038,15 @@ TimeSpan.FromHours(24)];
 
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
-        var snapshot = await this.ReadPageSnapshotAsync(cancellationToken);
-        await this.ApplyPageStateAsync(() => this.ApplySnapshot(snapshot.Metrics, snapshot.Throughput));
-    }
-
-    private async Task<MetricsPageSnapshot> ReadPageSnapshotAsync(CancellationToken cancellationToken)
-    {
-        var metrics = await Reader.GetMetricsAsync(
+        var snapshot = await Reader.GetMetricsAsync(
           new MetricsInspectionQuery(DefaultMetricWindows),
-          cancellationToken)
-        ;
-        return new MetricsPageSnapshot(metrics, ThroughputReader.GetSnapshot());
+          cancellationToken);
+        await this.ApplyPageStateAsync(() => this.ApplySnapshot(snapshot));
     }
 
-    private void ApplySnapshot(
-        MetricsInspectionSnapshot snapshot,
-        DashboardThroughputSnapshot throughputSnapshot)
+    private void ApplySnapshot(MetricsInspectionSnapshot snapshot)
     {
         this._snapshot = snapshot;
-        this._throughputSnapshot = throughputSnapshot;
         this._loadError = null;
         this._metricsUnsupported = false;
 
@@ -1064,7 +1059,4 @@ TimeSpan.FromHours(24)];
     private string WindowRowClass(MetricsInspectionWindow window)
       => window.Window == (this.SelectedWindow?.Window ?? this._selectedWindow) ? "metrics-row--selected" : string.Empty;
 
-    private sealed record MetricsPageSnapshot(
-        MetricsInspectionSnapshot Metrics,
-        DashboardThroughputSnapshot Throughput);
 }

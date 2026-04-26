@@ -1,7 +1,8 @@
 @implements IAsyncDisposable
 @inject IJSRuntime Js
+@inject IDashboardThroughputReader ThroughputReader
 
-@if (ThroughputSnapshot is null)
+@if (_snapshot is null)
 {
     <div class="throughput-chart throughput-chart--empty">
         <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
@@ -10,10 +11,11 @@
 }
 else
 {
-    var recent = RecentTotals(ThroughputSnapshot);
+    var visibleTotals = WindowTotals(_snapshot);
 
-    <div class="throughput-chart" @ref="_chartElement">
-        @if (!HasActivity(ThroughputSnapshot))
+    <div class="throughput-chart">
+        <div class="throughput-chart__plot" @ref="_chartElement"></div>
+        @if (!HasActivity(_snapshot))
         {
             <div class="throughput-chart__empty">
                 <span class="material-symbols-outlined" aria-hidden="true">monitoring</span>
@@ -30,13 +32,15 @@ else
                     @onclick="@(() => ToggleSeries(series.Key))">
                 <span aria-hidden="true"></span>
                 <em>@series.Label</em>
-                <strong>@DashboardFormat.Count(series.Value(recent))</strong>
+                <strong>@DashboardFormat.Count(series.Value(visibleTotals))</strong>
             </button>
         }
     </div>
 }
 
 @code {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
+
     private static readonly ThroughputSeriesDefinition[] SeriesDefinitions =
     [
         new("queued", "Queued", "throughput-chart-legend__item--queued", "#515f74", static bucket => bucket.QueuedCount),
@@ -47,44 +51,108 @@ else
         new("failedAttempts", "Failed Attempts", "throughput-chart-legend__item--attempts", "#7c3aed", static bucket => bucket.FailedAttemptCount),
     ];
 
+    private readonly CancellationTokenSource _refreshCancellation = new();
     private readonly HashSet<string> _selectedSeriesKeys = new(StringComparer.Ordinal);
 
+    private DashboardThroughputSnapshot? _snapshot;
     private ElementReference _chartElement;
+    private PeriodicTimer? _refreshTimer;
+    private Task? _refreshTask;
     private bool _chartRendered;
+    private bool _disposed;
 
     [Parameter]
-    public object? Snapshot { get; set; }
+    public bool AutoRefreshEnabled { get; set; } = true;
 
-    private DashboardThroughputSnapshot? ThroughputSnapshot
-      => this.Snapshot as DashboardThroughputSnapshot;
+    [Parameter]
+    public Func<bool>? AutoRefreshEnabledProvider { get; set; }
+
+    private bool IsAutoRefreshEnabled
+      => this.AutoRefreshEnabledProvider?.Invoke() ?? this.AutoRefreshEnabled;
+
+    protected override void OnInitialized()
+      => this._snapshot = ThroughputReader.GetSnapshot();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (this.ThroughputSnapshot is null)
+        if (firstRender)
+        {
+            this.StartRefreshTimer();
+        }
+
+        if (this._snapshot is null)
         {
             return;
         }
 
-        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, CreateModel(this.ThroughputSnapshot, this._selectedSeriesKeys));
+        await Js.InvokeVoidAsync("shedduellerThroughputChart.render", this._chartElement, CreateModel(this._snapshot, this._selectedSeriesKeys));
         this._chartRendered = true;
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (!this._chartRendered)
+        this._disposed = true;
+        await this._refreshCancellation.CancelAsync().ConfigureAwait(false);
+        this._refreshTimer?.Dispose();
+
+        if (this._refreshTask is not null)
         {
-            return;
+            await this._refreshTask.ConfigureAwait(false);
         }
 
-        try
+        this._refreshCancellation.Dispose();
+
+        if (this._chartRendered)
         {
-            await Js.InvokeVoidAsync("shedduellerThroughputChart.destroy", this._chartElement);
-        }
-        catch (JSDisconnectedException)
-        {
+            try
+            {
+                await Js.InvokeVoidAsync("shedduellerThroughputChart.destroy", this._chartElement);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
         }
 
         GC.SuppressFinalize(this);
+    }
+
+    private void StartRefreshTimer()
+    {
+        this._refreshTimer = new PeriodicTimer(RefreshInterval);
+        this._refreshTask = this.RunRefreshTimerAsync(this._refreshTimer, this._refreshCancellation.Token);
+    }
+
+    private async Task RunRefreshTimerAsync(
+        PeriodicTimer timer,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (this.IsAutoRefreshEnabled)
+                {
+                    await this.RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RefreshSnapshotAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var snapshot = ThroughputReader.GetSnapshot();
+        await this.InvokeAsync(() =>
+        {
+            if (!this._disposed)
+            {
+                this._snapshot = snapshot;
+                this.StateHasChanged();
+            }
+        }).ConfigureAwait(false);
     }
 
     private static bool HasActivity(DashboardThroughputSnapshot snapshot)
@@ -123,17 +191,15 @@ else
         ? $"throughput-chart-legend__item {series.CssClass}"
         : $"throughput-chart-legend__item {series.CssClass} throughput-chart-legend__item--muted";
 
-    private static DashboardThroughputBucket RecentTotals(DashboardThroughputSnapshot snapshot)
+    private static DashboardThroughputBucket WindowTotals(DashboardThroughputSnapshot snapshot)
     {
-        var oldestIncludedUtc = snapshot.WindowEndUtc.AddMinutes(-1);
         var totals = snapshot.Buckets
-          .Where(bucket => bucket.StartedAtUtc > oldestIncludedUtc)
           .Aggregate(
             new DashboardThroughputTotals(),
             static (current, bucket) => current.Add(bucket));
 
         return new DashboardThroughputBucket(
-          snapshot.WindowEndUtc.AddMinutes(-1),
+          snapshot.WindowStartUtc,
           totals.QueuedCount,
           totals.StartedCount,
           totals.SucceededCount,
@@ -146,24 +212,25 @@ else
         DashboardThroughputSnapshot snapshot,
         IReadOnlySet<string> selectedSeriesKeys)
     {
-        var activeSeries = selectedSeriesKeys.Count == 0
-          ? SeriesDefinitions
-          : SeriesDefinitions
-            .Where(series => selectedSeriesKeys.Contains(series.Key))
-            .ToArray();
+        var allSelected = selectedSeriesKeys.Count == 0;
 
         return new ThroughputChartModel(
           (int)snapshot.BucketSize.TotalSeconds,
           snapshot.WindowStartUtc.ToUnixTimeSeconds(),
           snapshot.WindowEndUtc.ToUnixTimeSeconds(),
           snapshot.Buckets.Select(static bucket => bucket.StartedAtUtc.ToUnixTimeSeconds()).ToArray(),
-          activeSeries
-            .Select(series => new ThroughputChartSeriesModel(
-              series.Key,
-              series.Label,
-              series.Color,
-              snapshot.Buckets.Select(series.Value).ToArray()))
-            .ToArray());
+          allSelected || selectedSeriesKeys.Contains("queued"),
+          allSelected || selectedSeriesKeys.Contains("started"),
+          allSelected || selectedSeriesKeys.Contains("succeeded"),
+          allSelected || selectedSeriesKeys.Contains("failed"),
+          allSelected || selectedSeriesKeys.Contains("canceled"),
+          allSelected || selectedSeriesKeys.Contains("failedAttempts"),
+          snapshot.Buckets.Select(static bucket => bucket.QueuedCount).ToArray(),
+          snapshot.Buckets.Select(static bucket => bucket.StartedCount).ToArray(),
+          snapshot.Buckets.Select(static bucket => bucket.SucceededCount).ToArray(),
+          snapshot.Buckets.Select(static bucket => bucket.FailedCount).ToArray(),
+          snapshot.Buckets.Select(static bucket => bucket.CanceledCount).ToArray(),
+          snapshot.Buckets.Select(static bucket => bucket.FailedAttemptCount).ToArray());
     }
 
     private sealed record ThroughputChartModel(
@@ -171,13 +238,18 @@ else
         long WindowStartUnixSeconds,
         long WindowEndUnixSeconds,
         long[] Timestamps,
-        IReadOnlyList<ThroughputChartSeriesModel> Series);
-
-    private sealed record ThroughputChartSeriesModel(
-        string Key,
-        string Label,
-        string Color,
-        int[] Values);
+        bool QueuedVisible,
+        bool StartedVisible,
+        bool SucceededVisible,
+        bool FailedVisible,
+        bool CanceledVisible,
+        bool FailedAttemptsVisible,
+        int[] Queued,
+        int[] Started,
+        int[] Succeeded,
+        int[] Failed,
+        int[] Canceled,
+        int[] FailedAttempts);
 
     private sealed record ThroughputSeriesDefinition(
         string Key,

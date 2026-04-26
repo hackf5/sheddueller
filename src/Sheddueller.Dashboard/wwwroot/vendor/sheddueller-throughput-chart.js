@@ -1,5 +1,13 @@
 (function () {
   const charts = new WeakMap();
+  const seriesDefinitions = [
+    { label: "Queued", color: "#515f74", valuesKey: "Queued", visibleKey: "QueuedVisible" },
+    { label: "Started", color: "#1d4ed8", valuesKey: "Started", visibleKey: "StartedVisible" },
+    { label: "Succeeded", color: "#166534", valuesKey: "Succeeded", visibleKey: "SucceededVisible" },
+    { label: "Failed", color: "#ba1a1a", valuesKey: "Failed", visibleKey: "FailedVisible" },
+    { label: "Canceled", color: "#8a5a00", valuesKey: "Canceled", visibleKey: "CanceledVisible" },
+    { label: "Failed Attempts", color: "#7c3aed", valuesKey: "FailedAttempts", visibleKey: "FailedAttemptsVisible" },
+  ];
 
   function read(model, key) {
     const lower = key.charAt(0).toLowerCase() + key.slice(1);
@@ -35,19 +43,11 @@
 
   function renderUPlot(element, model) {
     const timestamps = read(model, "Timestamps") ?? [];
-    const modelSeries = chartSeries(model);
-    const seriesKeys = modelSeries.map((series) => series.key).join("|");
-    const data = [timestamps, ...modelSeries.map((series) => series.values)];
-    const scale = scaleInfo(timestamps, modelSeries);
+    const datasets = chartSeries(model);
+    const data = [timestamps, ...datasets.map((series) => series.values)];
+    const visibleSeries = datasets.filter((series) => series.visible);
+    const scale = scaleInfo(timestamps, visibleSeries);
     const timeScale = timeScaleRange(model, timestamps);
-    const existing = charts.get(element);
-    if (existing?.kind === "uplot" && existing.seriesKeys === seriesKeys) {
-      existing.chart.setSize(chartSize(element));
-      existing.chart.setData(data, false);
-      applyScales(existing.chart, timeScale, scale.max);
-      renderClipMarkers(element, scale.clipped, timestamps, existing.chart);
-      return;
-    }
 
     destroy(element);
     const options = {
@@ -75,13 +75,15 @@
       ],
       series: [
         {},
-        ...modelSeries.map((modelSeries) => series(modelSeries.label, modelSeries.color)),
+        ...datasets.map((dataset) => series(dataset.label, dataset.color, dataset.visible)),
       ],
     };
 
     const chart = new window.uPlot(options, data, element);
+    applySeriesVisibility(chart, datasets);
     applyScales(chart, timeScale, scale.max);
-    charts.set(element, { kind: "uplot", chart, seriesKeys });
+    charts.set(element, { kind: "uplot", chart });
+    updateDebugAttributes(element, model, timestamps, data);
     renderClipMarkers(element, scale.clipped, timestamps, chart);
   }
 
@@ -97,6 +99,7 @@
     }
 
     drawCanvas(existing.canvas, model);
+    updateDebugAttributes(element, model, read(model, "Timestamps") ?? [], []);
   }
 
   function drawCanvas(canvas, model) {
@@ -118,8 +121,9 @@
     const plotHeight = height - padding.top - padding.bottom;
     const timestamps = read(model, "Timestamps") ?? [];
     const datasets = chartSeries(model);
+    const visibleDatasets = datasets.filter((dataset) => dataset.visible);
     const pointCount = timestamps.length;
-    const scale = scaleInfo(timestamps, datasets);
+    const scale = scaleInfo(timestamps, visibleDatasets);
     const maxValue = scale.max;
 
     context.strokeStyle = gridColor();
@@ -142,7 +146,7 @@
       context.fillText(value.toLocaleString(), padding.left - 8, y);
     }
 
-    for (const dataset of datasets) {
+    for (const dataset of visibleDatasets) {
       context.strokeStyle = dataset.color;
       context.lineWidth = 1.5;
       context.beginPath();
@@ -163,9 +167,10 @@
     renderClipMarkers(canvas.parentElement, scale.clipped, timestamps);
   }
 
-  function series(label, stroke) {
+  function series(label, stroke, show) {
     return {
       label,
+      show,
       stroke,
       width: 1.5,
       points: { show: false },
@@ -185,6 +190,12 @@
     chart.setScale("y", { min: 0, max: yMax });
   }
 
+  function applySeriesVisibility(chart, series) {
+    for (let index = 0; index < series.length; index++) {
+      chart.setSeries(index + 1, { show: series[index].visible });
+    }
+  }
+
   function timeScaleRange(model, timestamps) {
     const min = read(model, "WindowStartUnixSeconds") ?? timestamps[0] ?? 0;
     const max = read(model, "WindowEndUnixSeconds") ?? timestamps[timestamps.length - 1] ?? min;
@@ -192,12 +203,20 @@
   }
 
   function chartSeries(model) {
-    return (read(model, "Series") ?? []).map((series) => ({
-      key: read(series, "Key"),
-      label: read(series, "Label"),
-      color: read(series, "Color"),
-      values: read(series, "Values") ?? [],
+    return seriesDefinitions.map((definition) => ({
+      label: definition.label,
+      color: definition.color,
+      visible: read(model, definition.visibleKey) !== false,
+      values: read(model, definition.valuesKey) ?? [],
     }));
+  }
+
+  function updateDebugAttributes(element, model, timestamps, data) {
+    const currentCount = Number.parseInt(element.dataset.renderCount ?? "0", 10);
+    element.dataset.renderCount = `${Number.isFinite(currentCount) ? currentCount + 1 : 1}`;
+    element.dataset.windowEnd = `${read(model, "WindowEndUnixSeconds") ?? ""}`;
+    element.dataset.pointCount = `${timestamps.length}`;
+    element.dataset.seriesCount = `${Math.max(0, data.length - 1)}`;
   }
 
   function scaleInfo(timestamps, series) {
