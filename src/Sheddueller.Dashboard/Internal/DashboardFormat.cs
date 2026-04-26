@@ -71,6 +71,22 @@ internal static class DashboardFormat
     public static DateTimeOffset? TerminalTimestamp(JobInspectionSummary job)
       => job.FailedAtUtc ?? job.CompletedAtUtc ?? job.CanceledAtUtc;
 
+    public static TimeSpan? RunTimeDuration(JobInspectionDetail detail)
+    {
+        var claimedAtUtc = detail.ClaimedAtUtc;
+        var terminalAtUtc = TerminalTimestamp(detail.Summary);
+        if (claimedAtUtc is null || terminalAtUtc is null)
+        {
+            return null;
+        }
+
+        var duration = terminalAtUtc.Value - claimedAtUtc.Value;
+        return duration < TimeSpan.Zero ? null : duration;
+    }
+
+    public static string RunTime(JobInspectionDetail detail)
+      => DashboardMetricsFormat.Duration(RunTimeDuration(detail));
+
     public static string ProgressText(
         JobProgressSnapshot? progress,
         string missingText = "No progress reported",

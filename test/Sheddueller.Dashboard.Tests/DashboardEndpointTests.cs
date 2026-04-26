@@ -407,6 +407,17 @@ public sealed class DashboardEndpointTests
           disabled: true);
     }
 
+    [Fact]
+    public async Task JobDetail_CompletedJob_RendersRunTime()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, $"/sheddueller/jobs/{StubJobInspectionReader.CompletedJobId:D}");
+
+        html.ShouldContain("Run Time:");
+        html.ShouldContain("4 m");
+        html.ShouldContain("2026-04-20 12:09:00 UTC");
+    }
+
     [Theory]
     [InlineData("a1543a1d-b7e0-4b43-b7ed-62249dc117be", "This job completed at 2026-04-20 12:09:00 UTC and cannot be canceled.")]
     [InlineData("b4f8131d-a097-4410-8f47-8d37387e1357", "This job failed at 2026-04-20 12:04:00 UTC and cannot be canceled.")]

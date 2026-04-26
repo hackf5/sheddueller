@@ -127,6 +127,13 @@
                         </div>
                         <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(GetStartedAt(_detail))</span>
                     </div>
+                    <div class="job-detail-timestamp-pair">
+                        <div>
+                            <span>Run Time:</span>
+                            <strong class="job-detail-inline-duration">@DashboardFormat.RunTime(_detail)</strong>
+                        </div>
+                        <span class="job-detail-mono job-detail-muted">@DashboardFormat.Utc(DashboardFormat.TerminalTimestamp(job))</span>
+                    </div>
                 </div>
 
                 <div class="job-detail-summary-block job-detail-summary-block--ruled">
@@ -621,6 +628,7 @@
     .job-detail-metadata-item strong,
     .job-detail-chip,
     .job-detail-invocation-call,
+    .job-detail-inline-duration,
     .job-detail-parameter pre,
     .job-detail-progress-percent,
     .job-detail-log-table,
