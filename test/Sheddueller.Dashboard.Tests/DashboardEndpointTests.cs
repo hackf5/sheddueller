@@ -105,6 +105,9 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Filter by handler substring");
         html.ShouldContain("Filter by tag substring");
         html.ShouldContain("Filter by concurrency group substring");
+        html.ShouldContain("Sort jobs");
+        html.ShouldContain("Operational Order");
+        html.ShouldContain("Newest First");
         html.ShouldContain("Clear Filters");
         html.ShouldNotContain("Expand query filters");
         html.ShouldNotContain("Execute Query");
@@ -122,6 +125,33 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         AssertShellRefresh(html);
         html.ShouldContain($"href=\"jobs/{StubJobInspectionReader.JobId:D}\"");
+        html.ShouldContain("<th>Queue</th>");
+        html.ShouldContain("Running");
+        html.ShouldContain("#1");
+    }
+
+    [Fact]
+    public async Task Jobs_ClaimedAndQueuedFilters_RendersClaimedBeforeQueued()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Queued&state=Claimed");
+
+        AssertStatusCheckbox(html, "Queued", isChecked: true);
+        AssertStatusCheckbox(html, "Claimed", isChecked: true);
+        AssertAppearsBefore(html, $"href=\"jobs/{StubJobInspectionReader.JobId:D}\"", $"href=\"jobs/{StubJobInspectionReader.QueuedJobId:D}\"");
+        html.ShouldContain("Running");
+        html.ShouldContain("#1");
+    }
+
+    [Fact]
+    public async Task Jobs_SortQuery_RendersSelectedSortAndPreservesQuickLinks()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Queued&sort=NewestFirst");
+
+        AssertSelectValue(html, "Sort jobs", "NewestFirst");
+        html.ShouldContain("href=\"jobs?state=Claimed&amp;sort=NewestFirst\"");
+        html.ShouldContain("href=\"jobs?state=Queued&amp;handler=StubService.Run&amp;sort=NewestFirst\"");
     }
 
     [Fact]
@@ -506,6 +536,38 @@ public sealed class DashboardEndpointTests
         label.ShouldNotContain("checked");
     }
 
+    private static void AssertSelectValue(
+        string html,
+        string ariaLabel,
+        string value)
+    {
+        var markerIndex = html.IndexOf(string.Create(CultureInfo.InvariantCulture, $"aria-label=\"{ariaLabel}\""), StringComparison.Ordinal);
+        markerIndex.ShouldBeGreaterThanOrEqualTo(0);
+
+        var startIndex = html.LastIndexOf("<select", markerIndex, StringComparison.Ordinal);
+        var endIndex = html.IndexOf("</select>", markerIndex, StringComparison.Ordinal);
+
+        startIndex.ShouldBeGreaterThanOrEqualTo(0);
+        endIndex.ShouldBeGreaterThan(startIndex);
+
+        var select = html[startIndex..(endIndex + "</select>".Length)];
+        var selectOpen = select[..select.IndexOf('>', StringComparison.Ordinal)];
+        if (selectOpen.Contains(string.Create(CultureInfo.InvariantCulture, $"value=\"{value}\""), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var optionMarker = string.Create(CultureInfo.InvariantCulture, $"value=\"{value}\"");
+        var optionMarkerIndex = select.IndexOf(optionMarker, StringComparison.Ordinal);
+        optionMarkerIndex.ShouldBeGreaterThanOrEqualTo(0);
+        var optionStartIndex = select.LastIndexOf("<option", optionMarkerIndex, StringComparison.Ordinal);
+        var optionEndIndex = select.IndexOf("</option>", optionMarkerIndex, StringComparison.Ordinal);
+        optionStartIndex.ShouldBeGreaterThanOrEqualTo(0);
+        optionEndIndex.ShouldBeGreaterThan(optionStartIndex);
+        var option = select[optionStartIndex..(optionEndIndex + "</option>".Length)];
+        option.ShouldContain("selected");
+    }
+
     private static void AssertCancelButton(
         string html,
         string expectedText,
@@ -738,7 +800,7 @@ public sealed class DashboardEndpointTests
         public ValueTask<JobInspectionPage> SearchJobsAsync(
             JobInspectionQuery query,
             CancellationToken cancellationToken = default)
-          => ValueTask.FromResult(new JobInspectionPage([Job], ContinuationToken: null, TotalCount: 1));
+          => ValueTask.FromResult(new JobInspectionPage([Job, QueuedJob], ContinuationToken: null, TotalCount: 2));
 
         public ValueTask<JobInspectionDetail?> GetJobAsync(
             Guid jobId,

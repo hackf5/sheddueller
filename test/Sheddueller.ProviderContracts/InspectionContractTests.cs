@@ -223,19 +223,69 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task SearchJobs_DefaultSort_OrdersClaimedThenQueuedByClaimOrder()
+    {
+        await using var context = await this.CreateContextAsync();
+        var firstLow = Guid.NewGuid();
+        var secondLow = Guid.NewGuid();
+        var high = Guid.NewGuid();
+        var running = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(firstLow, priority: 0));
+        await context.Store.EnqueueAsync(CreateRequest(secondLow, priority: 0));
+        await context.Store.EnqueueAsync(CreateRequest(high, priority: 10));
+        await context.Store.EnqueueAsync(CreateRequest(running, priority: 100));
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
+
+        var page = await context.Reader.SearchJobsAsync(new JobInspectionQuery(
+          States: [JobState.Queued, JobState.Claimed]));
+
+        page.Jobs.Select(job => job.JobId).ShouldBe([running, high, firstLow, secondLow]);
+        page.Jobs.Select(job => job.QueuePosition?.Kind).ShouldBe([
+            JobQueuePositionKind.Claimed,
+            JobQueuePositionKind.Claimable,
+            JobQueuePositionKind.Claimable,
+            JobQueuePositionKind.Claimable,
+        ]);
+        page.Jobs.Select(job => job.QueuePosition?.Position).ShouldBe([null, 1L, 2L, 3L]);
+    }
+
+    [Fact]
+    public async Task SearchJobs_NewestFirstSort_OrdersByNewestEnqueueSequence()
+    {
+        await using var context = await this.CreateContextAsync();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(first));
+        await context.Store.EnqueueAsync(CreateRequest(second));
+        await context.Store.EnqueueAsync(CreateRequest(third));
+
+        var page = await context.Reader.SearchJobsAsync(new JobInspectionQuery(
+          Sort: JobInspectionSort.NewestFirst));
+
+        page.Jobs.Select(job => job.JobId).ShouldBe([third, second, first]);
+    }
+
+    [Fact]
     public async Task SearchJobs_PagedQuery_ReturnsTotalMatchingCount()
     {
         await using var context = await this.CreateContextAsync();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
 
-        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "acme")]));
-        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "acme")]));
-        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "acme")]));
+        await context.Store.EnqueueAsync(CreateRequest(first, tags: [new JobTag("tenant", "acme")]));
+        await context.Store.EnqueueAsync(CreateRequest(second, tags: [new JobTag("tenant", "acme")]));
+        await context.Store.EnqueueAsync(CreateRequest(third, tags: [new JobTag("tenant", "acme")]));
         await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid(), tags: [new JobTag("tenant", "contoso")]));
 
         var firstPage = await context.Reader.SearchJobsAsync(new JobInspectionQuery(
           TagContains: "tenant:acme",
           PageSize: 2));
 
+        firstPage.Jobs.Select(job => job.JobId).ShouldBe([first, second]);
         firstPage.Jobs.Count.ShouldBe(2);
         firstPage.TotalCount.ShouldBe(3L);
         firstPage.ContinuationToken.ShouldNotBeNull();
@@ -245,6 +295,7 @@ public abstract class InspectionContractTests
           PageSize: 2,
           ContinuationToken: firstPage.ContinuationToken));
 
+        secondPage.Jobs.Select(job => job.JobId).ShouldBe([third]);
         secondPage.Jobs.Count.ShouldBe(1);
         secondPage.TotalCount.ShouldBe(3L);
         secondPage.ContinuationToken.ShouldBeNull();

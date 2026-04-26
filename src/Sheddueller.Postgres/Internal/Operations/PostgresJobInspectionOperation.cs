@@ -12,6 +12,7 @@ using Sheddueller.Storage;
 
 internal static class PostgresJobInspectionOperation
 {
+    private const string OperationalContinuationTokenPrefix = "op:";
     private const int SerializedArgumentDisplayByteLimit = 64 * 1024;
 
     private static readonly JsonSerializerOptions SerializedArgumentDisplayJsonOptions = new()
@@ -49,7 +50,6 @@ internal static class PostgresJobInspectionOperation
         ValidateJobQuery(query);
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
-        var afterSequence = DecodeContinuationToken(query.ContinuationToken);
         void configureFilters(NpgsqlCommand command, List<string> conditions)
         {
             if (query.States is { Count: > 0 } states)
@@ -93,35 +93,84 @@ internal static class PostgresJobInspectionOperation
         await using var command = connection.CreateCommand();
         var conditions = new List<string>();
         configureFilters(command, conditions);
-        if (afterSequence is { } sequence)
-        {
-            conditions.Add("job.enqueue_sequence < @after_sequence");
-            command.Parameters.AddWithValue("after_sequence", sequence);
-        }
-
         command.Parameters.AddWithValue("limit", query.PageSize + 1);
         var whereClause = CreateWhereClause(conditions);
-        command.CommandText =
-          $"""
-          {JobSelectSql(context)}
-          {whereClause}
-          order by job.enqueue_sequence desc
-          limit @limit;
-          """;
+        string? continuationToken;
 
-        var rows = await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
-        var pageRows = rows.Take(query.PageSize).ToArray();
-        var jobs = new List<JobInspectionSummary>(pageRows.Length);
-        foreach (var row in pageRows)
+        switch (query.Sort)
+        {
+            case JobInspectionSort.NewestFirst:
+                {
+                    if (DecodeNewestContinuationToken(query.ContinuationToken) is { } sequence)
+                    {
+                        conditions.Add("job.enqueue_sequence < @after_sequence");
+                        command.Parameters.AddWithValue("after_sequence", sequence);
+                        whereClause = CreateWhereClause(conditions);
+                    }
+
+                    command.CommandText =
+                      $"""
+                  {JobSelectSql(context)}
+                  {whereClause}
+                  order by job.enqueue_sequence desc
+                  limit @limit;
+                  """;
+
+                    var newestRows = await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
+                    var newestPageRows = newestRows.Take(query.PageSize).ToArray();
+                    var newestJobs = await CreateSummariesAsync(context, connection, newestPageRows, cancellationToken).ConfigureAwait(false);
+                    continuationToken = newestRows.Count > query.PageSize
+                      ? newestPageRows[^1].EnqueueSequence.ToString(CultureInfo.InvariantCulture)
+                      : null;
+
+                    return new JobInspectionPage(newestJobs, continuationToken, totalCount);
+                }
+
+            case JobInspectionSort.Operational:
+                {
+                    var offset = DecodeOperationalContinuationToken(query.ContinuationToken);
+                    command.Parameters.AddWithValue("offset", offset);
+                    command.CommandText =
+                      $"""
+                  with filtered_jobs as (
+                      {JobSelectSql(context)}
+                      {whereClause}
+                  )
+                  select *
+                  from filtered_jobs job
+                  order by {OperationalOrderBySql(context)}
+                  offset @offset
+                  limit @limit;
+                  """;
+
+                    var operationalRows = await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
+                    var operationalPageRows = operationalRows.Take(query.PageSize).ToArray();
+                    var operationalJobs = await CreateSummariesAsync(context, connection, operationalPageRows, cancellationToken).ConfigureAwait(false);
+                    continuationToken = operationalRows.Count > query.PageSize
+                      ? EncodeOperationalContinuationToken(offset + query.PageSize)
+                      : null;
+
+                    return new JobInspectionPage(operationalJobs, continuationToken, totalCount);
+                }
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(query), query.Sort, "Job inspection sort is not supported.");
+        }
+    }
+
+    private static async ValueTask<IReadOnlyList<JobInspectionSummary>> CreateSummariesAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        IReadOnlyList<PostgresJobInspectionRow> rows,
+        CancellationToken cancellationToken)
+    {
+        var jobs = new List<JobInspectionSummary>(rows.Count);
+        foreach (var row in rows)
         {
             jobs.Add(await CreateSummaryAsync(context, connection, row, cancellationToken).ConfigureAwait(false));
         }
 
-        var continuationToken = rows.Count > query.PageSize
-          ? pageRows[^1].EnqueueSequence.ToString(CultureInfo.InvariantCulture)
-          : null;
-
-        return new JobInspectionPage(jobs, continuationToken, totalCount);
+        return jobs;
     }
 
     public static async ValueTask<JobInspectionDetail?> GetJobAsync(
@@ -679,6 +728,37 @@ internal static class PostgresJobInspectionOperation
          from {context.Names.Jobs} job
          """;
 
+    private static string OperationalOrderBySql(PostgresOperationContext context)
+      => $"""
+         case job.state
+             when 'Claimed' then 0
+             when 'Queued' then 1
+             else 2
+         end asc,
+         case when job.state = 'Claimed' then job.claimed_at_utc end desc nulls last,
+         case when job.state = 'Claimed' then job.enqueue_sequence end desc,
+         case
+             when job.state <> 'Queued' then 0
+             when job.not_before_utc is not null
+                  and job.not_before_utc > transaction_timestamp()
+                  and job.failed_at_utc is not null then 2
+             when job.not_before_utc is not null
+                  and job.not_before_utc > transaction_timestamp() then 3
+             when exists (
+                 select 1
+                 from {context.Names.JobConcurrencyGroups} job_group
+                 left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
+                 where job_group.job_id = job.job_id
+                   and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+             ) then 1
+             else 0
+         end asc,
+         case when job.state = 'Queued' then job.priority end desc,
+         case when job.state = 'Queued' then job.enqueue_sequence end asc,
+         case when job.state in ('Completed', 'Failed', 'Canceled') then coalesce(job.completed_at_utc, job.failed_at_utc, job.canceled_at_utc) end desc nulls last,
+         job.enqueue_sequence desc
+         """;
+
     private static void ValidateJobQuery(JobInspectionQuery query)
     {
         if (query.PageSize <= 0)
@@ -697,7 +777,17 @@ internal static class PostgresJobInspectionOperation
             }
         }
 
-        _ = DecodeContinuationToken(query.ContinuationToken);
+        if (!Enum.IsDefined(query.Sort))
+        {
+            throw new ArgumentOutOfRangeException(nameof(query), query.Sort, "Job inspection sort is not supported.");
+        }
+
+        _ = query.Sort switch
+        {
+            JobInspectionSort.NewestFirst => DecodeNewestContinuationToken(query.ContinuationToken) ?? 0,
+            JobInspectionSort.Operational => DecodeOperationalContinuationToken(query.ContinuationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(query), query.Sort, "Job inspection sort is not supported."),
+        };
     }
 
     private static string? NormalizeContains(string? value)
@@ -720,7 +810,29 @@ internal static class PostgresJobInspectionOperation
         }
     }
 
-    private static long? DecodeContinuationToken(string? continuationToken)
+    private static string EncodeOperationalContinuationToken(long offset)
+      => string.Concat(OperationalContinuationTokenPrefix, offset.ToString(CultureInfo.InvariantCulture));
+
+    private static long DecodeOperationalContinuationToken(string? continuationToken)
+    {
+        if (continuationToken is null)
+        {
+            return 0;
+        }
+
+        var offsetToken = continuationToken.StartsWith(OperationalContinuationTokenPrefix, StringComparison.Ordinal)
+          ? continuationToken[OperationalContinuationTokenPrefix.Length..]
+          : continuationToken;
+
+        if (!long.TryParse(offsetToken, NumberStyles.None, CultureInfo.InvariantCulture, out var offset) || offset < 0)
+        {
+            throw new ArgumentException("Job inspection continuation token is invalid.", nameof(continuationToken));
+        }
+
+        return offset;
+    }
+
+    private static long? DecodeNewestContinuationToken(string? continuationToken)
     {
         if (continuationToken is null)
         {
