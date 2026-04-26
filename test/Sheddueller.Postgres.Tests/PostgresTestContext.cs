@@ -112,6 +112,7 @@ internal sealed class PostgresTestContext(
               failure_stack_trace,
               source_schedule_key,
               scheduled_fire_at_utc,
+              schedule_occurrence_kind,
               cancellation_requested_at_utc,
               cancellation_observed_at_utc,
               idempotency_key
@@ -158,9 +159,10 @@ internal sealed class PostgresTestContext(
           reader.IsDBNull(28) ? null : reader.GetString(28),
           reader.IsDBNull(29) ? null : reader.GetString(29),
           reader.IsDBNull(30) ? null : ToDateTimeOffset(reader.GetValue(30)),
-          reader.IsDBNull(31) ? null : ToDateTimeOffset(reader.GetValue(31)),
+          reader.IsDBNull(31) ? null : reader.GetString(31),
           reader.IsDBNull(32) ? null : ToDateTimeOffset(reader.GetValue(32)),
-          reader.IsDBNull(33) ? null : reader.GetString(33));
+          reader.IsDBNull(33) ? null : ToDateTimeOffset(reader.GetValue(33)),
+          reader.IsDBNull(34) ? null : reader.GetString(34));
     }
 
     public async ValueTask<PostgresScheduleRow> ReadScheduleAsync(string scheduleKey)
@@ -409,6 +411,7 @@ internal sealed record PostgresJobRow(
     string? FailureStackTrace,
     string? SourceScheduleKey,
     DateTimeOffset? ScheduledFireAtUtc,
+    string? ScheduleOccurrenceKind,
     DateTimeOffset? CancellationRequestedAtUtc,
     DateTimeOffset? CancellationObservedAtUtc,
     string? IdempotencyKey);

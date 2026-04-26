@@ -5,9 +5,14 @@ using Sheddueller.Storage;
 internal sealed class RecordingJobStore : IJobStore
 {
     private readonly List<EnqueueJobRequest> enqueuedRequests = [];
+    private readonly List<TriggerRecurringScheduleRequest> triggerRequests = [];
     private long nextSequence;
 
     public IReadOnlyList<EnqueueJobRequest> EnqueuedRequests => this.enqueuedRequests;
+
+    public IReadOnlyList<TriggerRecurringScheduleRequest> TriggerRequests => this.triggerRequests;
+
+    public RecurringScheduleTriggerResult TriggerResult { get; set; } = new(RecurringScheduleTriggerStatus.NotFound);
 
     public EnqueueJobRequest GetRequest(Guid jobId)
       => this.enqueuedRequests.Single(request => request.JobId == jobId);
@@ -104,6 +109,16 @@ internal sealed class RecordingJobStore : IJobStore
         UpsertRecurringScheduleRequest request,
         CancellationToken cancellationToken = default)
       => throw CreateUnsupportedException();
+
+    public ValueTask<RecurringScheduleTriggerResult> TriggerRecurringScheduleAsync(
+        TriggerRecurringScheduleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        this.triggerRequests.Add(request);
+
+        return ValueTask.FromResult(this.TriggerResult);
+    }
 
     public ValueTask<bool> DeleteRecurringScheduleAsync(
         string scheduleKey,

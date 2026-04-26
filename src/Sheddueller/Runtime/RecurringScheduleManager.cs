@@ -3,6 +3,8 @@ namespace Sheddueller.Runtime;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 
+using Microsoft.Extensions.Options;
+
 using Sheddueller.Enqueueing;
 using Sheddueller.Scheduling;
 using Sheddueller.Serialization;
@@ -11,6 +13,7 @@ using Sheddueller.Storage;
 internal sealed class RecurringScheduleManager(
     IJobStore store,
     IJobPayloadSerializer serializer,
+    IOptions<ShedduellerOptions> options,
     TimeProvider timeProvider,
     IShedduellerWakeSignal wakeSignal) : IRecurringScheduleManager
 {
@@ -45,6 +48,25 @@ internal sealed class RecurringScheduleManager(
         RecurringScheduleOptions? options = null,
         CancellationToken cancellationToken = default)
       => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+
+    public async ValueTask<RecurringScheduleTriggerResult> TriggerAsync(
+        string scheduleKey,
+        CancellationToken cancellationToken = default)
+    {
+        SubmissionValidator.ValidateScheduleKey(scheduleKey);
+
+        var result = await store.TriggerRecurringScheduleAsync(
+          new TriggerRecurringScheduleRequest(scheduleKey, options.Value.DefaultRetryPolicy),
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        if (result.Status == RecurringScheduleTriggerStatus.Enqueued)
+        {
+            wakeSignal.Notify();
+        }
+
+        return result;
+    }
 
     public ValueTask<bool> DeleteAsync(string scheduleKey, CancellationToken cancellationToken = default)
     {

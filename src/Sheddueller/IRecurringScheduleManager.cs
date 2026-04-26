@@ -78,6 +78,16 @@ public interface IRecurringScheduleManager
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Manually triggers a recurring schedule by cloning its current stored template into one queued job.
+    /// </summary>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>The trigger outcome, including the created job id when a job was enqueued.</returns>
+    ValueTask<RecurringScheduleTriggerResult> TriggerAsync(
+        string scheduleKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes a recurring schedule definition.
     /// </summary>
     /// <param name="scheduleKey">The stable unique key for the schedule.</param>

@@ -68,6 +68,12 @@ public sealed class CapturingRecurringScheduleManager(
       => this.CurrentOrDiscardingFake().CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<RecurringScheduleTriggerResult> TriggerAsync(
+      string scheduleKey,
+      CancellationToken cancellationToken = default)
+      => this.CurrentOrDiscardingFake().TriggerAsync(scheduleKey, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<bool> DeleteAsync(
       string scheduleKey,
       CancellationToken cancellationToken = default)

@@ -69,6 +69,7 @@ internal static class PostgresTestData
         IReadOnlyList<string>? groupKeys = null,
         RetryPolicy? retryPolicy = null,
         RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip,
+        IReadOnlyList<JobTag>? tags = null,
         JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
         IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
       => new(
@@ -83,6 +84,7 @@ internal static class PostgresTestData
         retryPolicy,
         overlapMode,
         DateTimeOffset.UtcNow,
+        Tags: tags,
         InvocationTargetKind: invocationTargetKind,
         MethodParameterBindings: methodParameterBindings);
 

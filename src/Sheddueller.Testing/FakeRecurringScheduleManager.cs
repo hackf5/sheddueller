@@ -16,6 +16,8 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
     private readonly IJobPayloadSerializer _serializer;
     private readonly TimeProvider _timeProvider;
     private readonly Dictionary<string, FakeRecurringSchedule> _schedules = new(StringComparer.Ordinal);
+    private readonly List<FakeTriggeredJob> _triggeredJobs = [];
+    private long _nextEnqueueSequence;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FakeRecurringScheduleManager"/> class.
@@ -64,6 +66,20 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
         }
     }
 
+    /// <summary>
+    /// Gets a snapshot of jobs created by manual schedule triggers.
+    /// </summary>
+    public IReadOnlyList<FakeTriggeredJob> TriggeredJobs
+    {
+        get
+        {
+            lock (this._syncRoot)
+            {
+                return Array.AsReadOnly([.. this._triggeredJobs]);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
       string scheduleKey,
@@ -99,6 +115,37 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       RecurringScheduleOptions? options = null,
       CancellationToken cancellationToken = default)
       => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<RecurringScheduleTriggerResult> TriggerAsync(
+      string scheduleKey,
+      CancellationToken cancellationToken = default)
+    {
+        SubmissionValidator.ValidateScheduleKey(scheduleKey);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (this._syncRoot)
+        {
+            if (!this._schedules.TryGetValue(scheduleKey, out var schedule))
+            {
+                return ValueTask.FromResult(new RecurringScheduleTriggerResult(RecurringScheduleTriggerStatus.NotFound));
+            }
+
+            if (schedule.OverlapMode == RecurringOverlapMode.Skip
+              && this._triggeredJobs.Any(job => string.Equals(job.SourceScheduleKey, scheduleKey, StringComparison.Ordinal)))
+            {
+                return ValueTask.FromResult(new RecurringScheduleTriggerResult(RecurringScheduleTriggerStatus.SkippedActiveOccurrence));
+            }
+
+            var triggeredJob = this.CreateTriggeredJob(schedule);
+            this._triggeredJobs.Add(triggeredJob);
+
+            return ValueTask.FromResult(new RecurringScheduleTriggerResult(
+              RecurringScheduleTriggerStatus.Enqueued,
+              triggeredJob.JobId,
+              triggeredJob.EnqueueSequence));
+        }
+    }
 
     /// <inheritdoc />
     public ValueTask<bool> DeleteAsync(
@@ -231,6 +278,8 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
         lock (this._syncRoot)
         {
             this._schedules.Clear();
+            this._triggeredJobs.Clear();
+            this._nextEnqueueSequence = 0;
         }
     }
 
@@ -324,6 +373,9 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
 
     private DateTimeOffset GetNextFireAtUtc(string cronExpression)
       => CronSchedule.GetNextOccurrenceAfter(cronExpression, this._timeProvider.GetUtcNow());
+
+    private FakeTriggeredJob CreateTriggeredJob(FakeRecurringSchedule schedule)
+      => new(Guid.NewGuid(), this._nextEnqueueSequence++, schedule);
 
     private static bool Matches(
       FakeRecurringSchedule schedule,

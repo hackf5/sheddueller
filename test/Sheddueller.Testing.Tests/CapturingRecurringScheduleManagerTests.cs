@@ -45,6 +45,23 @@ public sealed class CapturingRecurringScheduleManagerTests
     }
 
     [Fact]
+    public async Task Capture_Trigger_RecordsThroughInjectedInterface()
+    {
+        var capturingManager = CreateCapturingManager();
+
+        using var capture = capturingManager.Capture();
+
+        await ((IRecurringScheduleManager)capturingManager).CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("alpha", ct));
+        var result = await capturingManager.TriggerAsync("schedule-a");
+
+        result.Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        capture.Fake.TriggeredJobs.ShouldHaveSingleItem().SourceScheduleKey.ShouldBe("schedule-a");
+    }
+
+    [Fact]
     public async Task CreateOrUpdate_NoActiveCapture_SucceedsAndDiscardsRecording()
     {
         var capturingManager = CreateCapturingManager();
@@ -69,6 +86,7 @@ public sealed class CapturingRecurringScheduleManagerTests
         var capturingManager = CreateCapturingManager();
 
         (await capturingManager.DeleteAsync("schedule-a")).ShouldBeFalse();
+        (await capturingManager.TriggerAsync("schedule-a")).Status.ShouldBe(RecurringScheduleTriggerStatus.NotFound);
         (await capturingManager.PauseAsync("schedule-a")).ShouldBeFalse();
         (await capturingManager.ResumeAsync("schedule-a")).ShouldBeFalse();
         (await capturingManager.GetAsync("schedule-a")).ShouldBeNull();
