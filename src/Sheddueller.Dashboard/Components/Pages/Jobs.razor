@@ -367,7 +367,7 @@
 
     .jobs-table {
         width: 100%;
-        min-width: 1640px;
+        min-width: 1720px;
         border-collapse: collapse;
         table-layout: fixed;
         white-space: nowrap;
@@ -379,6 +379,10 @@
 
     .jobs-table__col--state {
         width: 144px;
+    }
+
+    .jobs-table__col--tags {
+        width: 380px;
     }
 
     .jobs-table__col--disposition {
@@ -485,12 +489,12 @@
         min-width: 0;
         align-items: center;
         gap: 4px;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .jobs-chip {
         display: inline-block;
-        max-width: 112px;
+        max-width: 180px;
         overflow: hidden;
         border: 1px solid var(--sd-outline-variant);
         border-radius: 2px;

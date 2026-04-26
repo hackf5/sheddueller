@@ -32,7 +32,11 @@ builder.Services.AddShedduellerWorker(sheddueller => sheddueller
       options.HeartbeatInterval = TimeSpan.FromSeconds(5);
       options.DefaultRetryPolicy = new RetryPolicy(3, RetryBackoffKind.Fixed, TimeSpan.FromSeconds(2));
   }));
-builder.Services.AddShedduellerDashboard(options => options.EventRetention = TimeSpan.FromDays(14));
+builder.Services.AddShedduellerDashboard(options =>
+{
+    options.EventRetention = TimeSpan.FromDays(14);
+    options.TagDisplayOrder = ["tenant", "listing", "domain", "workflow", "source", "demo"];
+});
 
 var app = builder.Build();
 
@@ -90,6 +94,26 @@ app.MapPost("/launch/delayed", async (IJobEnqueuer enqueuer, CancellationToken c
       new JobSubmission(NotBeforeUtc: notBeforeUtc),
       cancellationToken).ConfigureAwait(false);
     return RedirectWithMessage($"Queued delayed job {jobId:D} for {notBeforeUtc:O}.");
+});
+
+app.MapPost("/launch/many-tags", async (IJobEnqueuer enqueuer, CancellationToken cancellationToken) =>
+{
+    var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
+      (service, ct) => service.RunProgressAsync("many-tags-demo", Job.Context, ct),
+      new JobSubmission(
+        Priority: 15,
+        Tags:
+        [
+            new JobTag("tenant", "acme"),
+            new JobTag("listing", "villa-8842"),
+            new JobTag("domain", "pricing"),
+            new JobTag("workflow", "rate-refresh"),
+            new JobTag("source", "sample-host"),
+            new JobTag("demo", "many-tags"),
+            new JobTag("ceremony", "dashboard-overflow"),
+        ]),
+      cancellationToken).ConfigureAwait(false);
+    return RedirectWithMessage($"Queued many-tags demo job {jobId:D}.");
 });
 
 app.MapPost("/launch/blocking-batch", async (

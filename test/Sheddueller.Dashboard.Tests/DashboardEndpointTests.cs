@@ -135,6 +135,11 @@ public sealed class DashboardEndpointTests
 
         AssertAppearsBefore(html, "href=\"jobs?tag=domain%3Apayments\"", "href=\"jobs?tag=tenant%3Aacme\"");
         html.ShouldContain("jobs-chip--overflow");
+        html.ShouldContain("aria-haspopup=\"true\"");
+        html.ShouldContain("&#x2B;2");
+        html.ShouldContain("sd-chip-overflow__panel");
+        html.ShouldContain("href=\"jobs?tag=schedule%3Adaily_rollup\"");
+        html.ShouldContain("href=\"jobs?tag=source%3Astub\"");
         html.ShouldContain("aria-label=\"Additional tags: domain:payments, tenant:acme, schedule:daily_rollup, source:stub\"");
     }
 
