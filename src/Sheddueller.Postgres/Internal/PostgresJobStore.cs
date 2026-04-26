@@ -157,6 +157,15 @@ internal sealed class PostgresJobStore(
         return CreateOrUpdateRecurringScheduleOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
+    public ValueTask<RecurringScheduleTriggerResult> TriggerRecurringScheduleAsync(
+        TriggerRecurringScheduleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return TriggerRecurringScheduleOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
     public ValueTask<bool> DeleteRecurringScheduleAsync(
         string scheduleKey,
         CancellationToken cancellationToken = default)

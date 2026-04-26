@@ -120,6 +120,68 @@ public sealed class FakeRecurringScheduleManagerTests
     }
 
     [Fact]
+    public async Task Trigger_ExistingSchedule_RecordsTriggeredJobFromTemplate()
+    {
+        var fake = new FakeRecurringScheduleManager();
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("alpha", ct),
+          new RecurringScheduleOptions(
+            Priority: 7,
+            ConcurrencyGroupKeys: ["group-a"],
+            RetryPolicy: new RetryPolicy(3, RetryBackoffKind.Fixed, TimeSpan.FromSeconds(2)),
+            OverlapMode: RecurringOverlapMode.Allow,
+            Tags: [new JobTag("tenant", "acme")]));
+
+        var result = await fake.TriggerAsync("schedule-a");
+
+        result.Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        result.JobId.ShouldNotBeNull();
+        result.EnqueueSequence.ShouldBe(0);
+        fake.TriggeredJobs.Count.ShouldBe(1);
+        fake.TriggeredJobs[0].JobId.ShouldBe(result.JobId.Value);
+        fake.TriggeredJobs[0].SourceScheduleKey.ShouldBe("schedule-a");
+        fake.TriggeredJobs[0].Priority.ShouldBe(7);
+        fake.TriggeredJobs[0].ConcurrencyGroupKeys.ShouldBe(["group-a"]);
+        fake.TriggeredJobs[0].RetryPolicy.ShouldBe(new RetryPolicy(3, RetryBackoffKind.Fixed, TimeSpan.FromSeconds(2)));
+        fake.TriggeredJobs[0].Tags.ShouldBe([new JobTag("tenant", "acme")]);
+    }
+
+    [Fact]
+    public async Task Trigger_MissingPausedSkipAndAllowSchedules_ReturnsMatchingStatus()
+    {
+        var fake = new FakeRecurringScheduleManager();
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "skip-schedule",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("skip", ct));
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "allow-schedule",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("allow", ct),
+          new RecurringScheduleOptions(OverlapMode: RecurringOverlapMode.Allow));
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "paused-schedule",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("paused", ct));
+        await fake.PauseAsync("paused-schedule");
+
+        (await fake.TriggerAsync("missing")).Status.ShouldBe(RecurringScheduleTriggerStatus.NotFound);
+        (await fake.TriggerAsync("paused-schedule")).Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        (await fake.TriggerAsync("skip-schedule")).Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        (await fake.TriggerAsync("skip-schedule")).Status.ShouldBe(RecurringScheduleTriggerStatus.SkippedActiveOccurrence);
+        (await fake.TriggerAsync("allow-schedule")).Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        (await fake.TriggerAsync("allow-schedule")).Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        fake.TriggeredJobs.Select(job => job.SourceScheduleKey).ShouldBe([
+            "paused-schedule",
+            "skip-schedule",
+            "allow-schedule",
+            "allow-schedule",
+        ]);
+    }
+
+    [Fact]
     public async Task Delete_ExistingSchedule_RemovesScheduleFromMatches()
     {
         var fake = new FakeRecurringScheduleManager();

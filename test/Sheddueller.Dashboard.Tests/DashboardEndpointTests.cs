@@ -20,10 +20,12 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
+using SchedulesPage = Sheddueller.Dashboard.Components.Pages.Schedules;
+
 public sealed class DashboardEndpointTests
 {
     [Fact]
-    public async Task MapShedduellerDashboard_ApplicationBranch_RedirectsToCanonicalRoot()
+    public async Task MapShedduellerDashboard_MinimalHosting_RedirectsToCanonicalRoot()
     {
         await using var app = await CreateStartedDashboardAsync();
         var client = app.GetTestClient();
@@ -32,6 +34,29 @@ public sealed class DashboardEndpointTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         response.Headers.Location?.OriginalString.ShouldBe("/sheddueller/");
+    }
+
+    [Fact]
+    public async Task MapShedduellerDashboard_ApplicationBranch_RedirectsToCanonicalRoot()
+    {
+        await using var app = await CreateStartedDashboardAsync(mapWithWebApplication: false);
+        var client = app.GetTestClient();
+
+        var response = await client.GetAsync(new Uri("/sheddueller", UriKind.Relative));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.Location?.OriginalString.ShouldBe("/sheddueller/");
+    }
+
+    [Fact]
+    public async Task MapShedduellerDashboard_DefaultOptions_DoesNotPrerenderRouteContent()
+    {
+        await using var app = await CreateStartedDashboardAsync(prerender: false);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/");
+
+        html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        html.ShouldContain("_framework/blazor.web.js");
+        html.ShouldNotContain("Operational Control");
     }
 
     [Fact]
@@ -146,12 +171,24 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("tenant:acme");
         html.ShouldContain("schedule:nightly");
         html.ShouldContain("2026-04-20 12:03:00 UTC");
+        html.ShouldContain("Trigger Now etl_nightly_sync");
+        html.ShouldContain("Trigger Now cache_eviction_hourly");
         html.ShouldContain("Pause Schedule etl_nightly_sync");
         html.ShouldContain("Resume Schedule cache_eviction_hourly");
-        html.ShouldNotContain("Trigger Now etl_nightly_sync");
         html.ShouldContain("Load More Records");
         html.ShouldContain("Showing 1-3 of 3 schedules with more available");
         AssertShellRefresh(html);
+    }
+
+    [Fact]
+    public void Schedules_TriggerActionMessages_FormatSuccessSkippedAndMissingCases()
+    {
+        SchedulesPage.CreateTriggerSuccessMessage("etl_nightly_sync")
+          .ShouldBe("Schedule etl_nightly_sync triggered as job");
+        SchedulesPage.CreateTriggerSkippedMessage("etl_nightly_sync")
+          .ShouldBe("Schedule etl_nightly_sync already has an active occurrence.");
+        SchedulesPage.ScheduleNotFoundActionFailureMessage
+          .ShouldBe("Schedule action failed: Schedule was not found.");
     }
 
     [Fact]
@@ -351,7 +388,9 @@ public sealed class DashboardEndpointTests
           disabled: true);
     }
 
-    private static async Task<WebApplication> CreateStartedDashboardAsync()
+    private static async Task<WebApplication> CreateStartedDashboardAsync(
+        bool prerender = true,
+        bool mapWithWebApplication = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -363,10 +402,18 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
         builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
-        builder.Services.AddShedduellerDashboard();
+        builder.Services.AddShedduellerDashboard(options => options.Prerender = prerender);
 
         var app = builder.Build();
-        ((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+        if (mapWithWebApplication)
+        {
+            app.MapShedduellerDashboard("/sheddueller");
+        }
+        else
+        {
+            ((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+        }
+
         await app.StartAsync();
 
         return app;
@@ -833,6 +880,20 @@ public sealed class DashboardEndpointTests
             string scheduleKey,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
+
+        public ValueTask<RecurringScheduleTriggerResult> TriggerAsync(
+            string scheduleKey,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(string.Equals(scheduleKey, "etl_nightly_sync", StringComparison.Ordinal)
+              ? new RecurringScheduleTriggerResult(
+                RecurringScheduleTriggerStatus.Enqueued,
+                Guid.Parse("5a8f55df-9d29-47c1-8510-cebe102502bf"),
+                EnqueueSequence: 42)
+              : new RecurringScheduleTriggerResult(RecurringScheduleTriggerStatus.NotFound));
+        }
 
         public ValueTask<bool> PauseAsync(
             string scheduleKey,

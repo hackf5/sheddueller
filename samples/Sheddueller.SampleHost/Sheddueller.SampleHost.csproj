@@ -10,8 +10,4 @@
     <ProjectReference Include="..\..\src\Sheddueller.Postgres\Sheddueller.Postgres.csproj" />
     <ProjectReference Include="..\..\src\Sheddueller.Worker\Sheddueller.Worker.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Npgsql" />
-  </ItemGroup>
 </Project>

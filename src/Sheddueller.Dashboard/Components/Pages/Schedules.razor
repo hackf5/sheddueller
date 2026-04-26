@@ -44,6 +44,10 @@
         {
             <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
                 <span>@_actionMessage</span>
+                @if (_triggeredJobId is { } triggeredJobId)
+                {
+                    <a class="schedules-action-alert__job" href="@JobHref(triggeredJobId)">@triggeredJobId.ToString("D")</a>
+                }
             </DashboardInlineAlert>
         }
 
@@ -140,6 +144,11 @@
                                     </td>
                                     <td>
                                         <div class="schedules-actions">
+                                            <button class="schedules-icon-button" type="button" title="Trigger Now"
+                                                    aria-label="@TriggerLabel(schedule)"
+                                                    @onclick="@(() => TriggerNowAsync(schedule))" disabled="@IsActionDisabled">
+                                                <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>
+                                            </button>
                                             <button class="schedules-icon-button" type="button" title="@PauseResumeTitle(schedule)"
                                                     aria-label="@PauseResumeLabel(schedule)"
                                                     @onclick="@(() => PauseOrResumeAsync(schedule))" disabled="@IsActionDisabled">
@@ -169,6 +178,10 @@
     .schedules-actions {
         display: flex;
         align-items: center;
+    }
+
+    .schedules-actions {
+        gap: 4px;
     }
 
     .schedules-header {
@@ -234,7 +247,18 @@
         color: var(--sd-success);
     }
 
+    .schedules-inline-alert--warning {
+        border-color: var(--sd-warning);
+        background: var(--sd-warning-container);
+        color: var(--sd-warning);
+    }
+
+    .schedules-inline-alert--warning .material-symbols-outlined {
+        color: var(--sd-warning);
+    }
+
     .schedules-action-alert__job {
+        color: inherit;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         text-decoration: underline;
         text-underline-offset: 2px;
@@ -311,7 +335,7 @@
     }
 
     .schedules-table__col--actions {
-        width: 96px;
+        width: 112px;
     }
 
     .schedules-table thead {
@@ -504,24 +528,34 @@
 @code {
     private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(5);
     private const int DefaultPageSize = 25;
+    internal const string ScheduleNotFoundActionFailureMessage = "Schedule action failed: Schedule was not found.";
 
     private readonly DashboardScheduleFilters _filters = new();
     private readonly List<ScheduleInspectionSummary> _schedules = [];
     private ScheduleInspectionPage? _page;
     private string? _loadError;
     private string? _actionMessage;
-    private bool _actionSucceeded;
+    private Guid? _triggeredJobId;
+    private ScheduleActionSeverity _actionSeverity = ScheduleActionSeverity.Success;
     private bool _isLoading;
     private bool _isLoadingMore;
     private bool _isActionRunning;
 
     private string ActionAlertClass
-      => this._actionSucceeded
-        ? "schedules-inline-alert schedules-inline-alert--success"
-        : "schedules-inline-alert schedules-inline-alert--error";
+      => this._actionSeverity switch
+      {
+          ScheduleActionSeverity.Success => "schedules-inline-alert schedules-inline-alert--success",
+          ScheduleActionSeverity.Warning => "schedules-inline-alert schedules-inline-alert--warning",
+          _ => "schedules-inline-alert schedules-inline-alert--error",
+      };
 
     private string ActionAlertIcon
-      => this._actionSucceeded ? "check_circle" : "warning";
+      => this._actionSeverity switch
+      {
+          ScheduleActionSeverity.Success => "check_circle",
+          ScheduleActionSeverity.Warning => "info",
+          _ => "warning",
+      };
 
     private bool IsActionDisabled
       => this._isActionRunning || this._isLoading || this._isLoadingMore;
@@ -674,6 +708,48 @@
         }
     }
 
+    private async Task TriggerNowAsync(ScheduleInspectionSummary schedule)
+    {
+        if (this._isActionRunning)
+        {
+            return;
+        }
+
+        this._isActionRunning = true;
+        this.ClearActionAlert();
+
+        try
+        {
+            var result = await ScheduleManager.TriggerAsync(schedule.ScheduleKey);
+            switch (result.Status)
+            {
+                case RecurringScheduleTriggerStatus.Enqueued:
+                    this.SetActionSuccess(CreateTriggerSuccessMessage(schedule.ScheduleKey), result.JobId);
+                    await this.LiveRefresh.RefreshNowAsync();
+                    break;
+                case RecurringScheduleTriggerStatus.SkippedActiveOccurrence:
+                    this.SetActionWarning(CreateTriggerSkippedMessage(schedule.ScheduleKey));
+                    break;
+                case RecurringScheduleTriggerStatus.NotFound:
+                    this.SetActionFailure(ScheduleNotFoundActionFailureMessage);
+                    break;
+                default:
+                    this.SetActionFailure(string.Create(
+                      CultureInfo.InvariantCulture,
+                      $"Schedule action failed: Trigger returned unsupported status {result.Status}."));
+                    break;
+            }
+        }
+        catch (Exception exception)
+        {
+            this.SetActionFailure(string.Create(CultureInfo.InvariantCulture, $"Schedule action failed: {exception.Message}"));
+        }
+        finally
+        {
+            this._isActionRunning = false;
+        }
+    }
+
     private async Task RefreshCurrentQueryAsync(CancellationToken cancellationToken)
     {
         var visiblePageSize = Math.Max(DefaultPageSize, this._schedules.Count);
@@ -696,20 +772,32 @@ cancellationToken);
         this._loadError = null;
     }
 
-    private void SetActionSuccess(string message)
+    private void SetActionSuccess(string message, Guid? triggeredJobId = null)
     {
-        this._actionSucceeded = true;
+        this._actionSeverity = ScheduleActionSeverity.Success;
         this._actionMessage = message;
+        this._triggeredJobId = triggeredJobId;
+    }
+
+    private void SetActionWarning(string message)
+    {
+        this._actionSeverity = ScheduleActionSeverity.Warning;
+        this._actionMessage = message;
+        this._triggeredJobId = null;
     }
 
     private void SetActionFailure(string message)
     {
-        this._actionSucceeded = false;
+        this._actionSeverity = ScheduleActionSeverity.Error;
         this._actionMessage = message;
+        this._triggeredJobId = null;
     }
 
     private void ClearActionAlert()
-      => this._actionMessage = null;
+    {
+        this._actionMessage = null;
+        this._triggeredJobId = null;
+    }
 
     private static string FullHandler(ScheduleInspectionSummary schedule)
       => string.Concat(schedule.ServiceType, ".", schedule.MethodName);
@@ -758,4 +846,23 @@ cancellationToken);
 
     private static string PauseResumeLabel(ScheduleInspectionSummary schedule)
       => string.Create(CultureInfo.InvariantCulture, $"{PauseResumeTitle(schedule)} {schedule.ScheduleKey}");
+
+    private static string TriggerLabel(ScheduleInspectionSummary schedule)
+      => string.Create(CultureInfo.InvariantCulture, $"Trigger Now {schedule.ScheduleKey}");
+
+    internal static string CreateTriggerSuccessMessage(string scheduleKey)
+      => string.Create(CultureInfo.InvariantCulture, $"Schedule {scheduleKey} triggered as job");
+
+    internal static string CreateTriggerSkippedMessage(string scheduleKey)
+      => string.Create(CultureInfo.InvariantCulture, $"Schedule {scheduleKey} already has an active occurrence.");
+
+    private static string JobHref(Guid jobId)
+      => string.Create(CultureInfo.InvariantCulture, $"jobs/{jobId:D}");
+
+    private enum ScheduleActionSeverity
+    {
+        Success,
+        Warning,
+        Error,
+    }
 }

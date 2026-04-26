@@ -69,28 +69,37 @@ dotnet add package Sheddueller.Testing
 
 Register `AddSheddueller(...)` in processes that only submit work or manage schedules. Register `AddShedduellerWorker(...)` in processes that should also execute jobs.
 
+`WorkerOptions` below is an application options type; the callback can read any service registered with DI.
+
 ```csharp
-using Npgsql;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Sheddueller;
 using Sheddueller.Postgres;
 
-var dataSource = NpgsqlDataSource.Create(
-    builder.Configuration.GetConnectionString("Sheddueller")
-        ?? throw new InvalidOperationException("Missing Sheddueller connection string."));
-
-builder.Services.AddSingleton(dataSource);
+builder.Services.Configure<WorkerOptions>(
+    builder.Configuration.GetSection("Worker"));
 builder.Services.AddTransient<EmailJobs>();
 
 builder.Services.AddShedduellerWorker(sheddueller => sheddueller
-    .UsePostgres(postgres =>
+    .UsePostgres(
+        serviceProvider =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            return configuration.GetConnectionString("Sheddueller")
+                ?? throw new InvalidOperationException("Connection string 'ConnectionStrings:Sheddueller' is required.");
+        },
+        (serviceProvider, postgres) =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            postgres.SchemaName = configuration["Sheddueller:Postgres:SchemaName"] ?? "sheddueller";
+        })
+    .ConfigureOptions((serviceProvider, options) =>
     {
-        postgres.DataSource = dataSource;
-        postgres.SchemaName = "sheddueller";
-    })
-    .ConfigureOptions(options =>
-    {
+        var worker = serviceProvider.GetRequiredService<IOptions<WorkerOptions>>().Value;
         options.NodeId = Environment.MachineName;
-        options.MaxConcurrentExecutionsPerNode = 8;
+        options.MaxConcurrentExecutionsPerNode = worker.MaxConcurrentExecutions;
         options.DefaultRetryPolicy = new RetryPolicy(
             MaxAttempts: 3,
             BackoffKind: RetryBackoffKind.Exponential,
@@ -102,10 +111,12 @@ builder.Services.AddShedduellerWorker(sheddueller => sheddueller
 Schema migrations are explicit:
 
 ```csharp
-await app.Services.GetRequiredService<IPostgresMigrator>().ApplyAsync();
+await app.ApplyShedduellerPostgresMigrationsAsync();
 ```
 
 Run migrations during deployment or before starting workers against a new schema. Normal startup validates the configured provider; it does not silently create the schema.
+
+Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an application needs to share or own a prebuilt `NpgsqlDataSource`; in that mode, the application also owns disposal.
 
 ## Enqueue Jobs
 
@@ -164,7 +175,7 @@ builder.Services.AddShedduellerDashboard(options =>
 });
 
 app.UseAntiforgery();
-((IApplicationBuilder)app).MapShedduellerDashboard("/sheddueller");
+app.MapShedduellerDashboard("/sheddueller");
 ```
 
 The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process.

@@ -605,6 +605,138 @@ public abstract class JobStoreContractTests
         (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
     }
 
+    [Fact]
+    public async Task RecurringScheduleTrigger_MissingSchedule_ReturnsNotFound()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        var result = await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("missing", DefaultRetryPolicy: null));
+
+        result.Status.ShouldBe(RecurringScheduleTriggerStatus.NotFound);
+        result.JobId.ShouldBeNull();
+        result.EnqueueSequence.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RecurringScheduleTrigger_ExistingSchedule_ClonesTemplateIntoClaimableJob()
+    {
+        await using var context = await this.CreateContextAsync();
+        var retryPolicy = new RetryPolicy(4, RetryBackoffKind.Fixed, TimeSpan.FromSeconds(3));
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule(
+          "schedule-a",
+          priority: 7,
+          groupKeys: ["group-a"],
+          retryPolicy,
+          invocationTargetKind: JobInvocationTargetKind.Static,
+          methodParameterBindings:
+          [
+              new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+          ]));
+
+        var result = await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null));
+
+        result.Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        result.JobId.ShouldNotBeNull();
+        result.EnqueueSequence.ShouldNotBeNull();
+        result.EnqueueSequence.Value.ShouldBeGreaterThan(0);
+
+        var claimed = await ClaimAsync(context.Store);
+        claimed.JobId.ShouldBe(result.JobId.Value);
+        claimed.EnqueueSequence.ShouldBe(result.EnqueueSequence.Value);
+        claimed.SourceScheduleKey.ShouldBe("schedule-a");
+        claimed.ScheduledFireAtUtc.ShouldBeNull();
+        claimed.Priority.ShouldBe(7);
+        claimed.ConcurrencyGroupKeys.ShouldBe(["group-a"]);
+        claimed.MaxAttempts.ShouldBe(4);
+        claimed.RetryBackoffKind.ShouldBe(RetryBackoffKind.Fixed);
+        claimed.RetryBaseDelay.ShouldBe(TimeSpan.FromSeconds(3));
+        claimed.ServiceType.ShouldBe(typeof(JobStoreContractService).AssemblyQualifiedName);
+        claimed.MethodName.ShouldBe(nameof(JobStoreContractService.RunAsync));
+        claimed.MethodParameterTypes.ShouldBe([typeof(CancellationToken).AssemblyQualifiedName!]);
+        claimed.InvocationTargetKind.ShouldBe(JobInvocationTargetKind.Static);
+        claimed.MethodParameterBindings.ShouldBe([
+            new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+        ]);
+    }
+
+    [Fact]
+    public async Task RecurringScheduleTrigger_DefaultRetryPolicy_AppliesWhenScheduleHasNoRetry()
+    {
+        await using var context = await this.CreateContextAsync();
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a"));
+
+        await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest(
+          "schedule-a",
+          new RetryPolicy(3, RetryBackoffKind.Exponential, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(8))));
+
+        var claimed = await ClaimAsync(context.Store);
+        claimed.MaxAttempts.ShouldBe(3);
+        claimed.RetryBackoffKind.ShouldBe(RetryBackoffKind.Exponential);
+        claimed.RetryBaseDelay.ShouldBe(TimeSpan.FromSeconds(2));
+        claimed.RetryMaxDelay.ShouldBe(TimeSpan.FromSeconds(8));
+    }
+
+    [Fact]
+    public async Task RecurringScheduleTrigger_PausedSchedule_EnqueuesJob()
+    {
+        await using var context = await this.CreateContextAsync();
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a"));
+        await context.Store.PauseRecurringScheduleAsync("schedule-a", ContractClock);
+
+        var result = await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null));
+
+        result.Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
+    }
+
+    [Fact]
+    public async Task RecurringScheduleTrigger_SkipOverlap_ReturnsSkippedWhenEarlierOccurrenceIsNonTerminal()
+    {
+        await using var context = await this.CreateContextAsync();
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a", overlapMode: RecurringOverlapMode.Skip));
+
+        (await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null)))
+          .Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        var skipped = await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null));
+
+        skipped.Status.ShouldBe(RecurringScheduleTriggerStatus.SkippedActiveOccurrence);
+        skipped.JobId.ShouldBeNull();
+        skipped.EnqueueSequence.ShouldBeNull();
+        (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+    }
+
+    [Fact]
+    public async Task RecurringScheduleTrigger_AllowOverlap_EnqueuesMultipleNonTerminalOccurrences()
+    {
+        await using var context = await this.CreateContextAsync();
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a", overlapMode: RecurringOverlapMode.Allow));
+
+        (await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null)))
+          .Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+        (await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null)))
+          .Status.ShouldBe(RecurringScheduleTriggerStatus.Enqueued);
+
+        (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
+        (await ClaimAsync(context.Store)).SourceScheduleKey.ShouldBe("schedule-a");
+    }
+
+    [Fact]
+    public async Task RecurringScheduleTrigger_ExistingSchedule_DoesNotAdvanceScheduleOrChangePausedState()
+    {
+        await using var context = await this.CreateContextAsync();
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a"));
+        var before = await context.Store.GetRecurringScheduleAsync("schedule-a");
+        before.ShouldNotBeNull();
+
+        await context.Store.TriggerRecurringScheduleAsync(new TriggerRecurringScheduleRequest("schedule-a", DefaultRetryPolicy: null));
+
+        var after = await context.Store.GetRecurringScheduleAsync("schedule-a");
+        after.ShouldNotBeNull();
+        after.NextFireAtUtc.ShouldBe(before.NextFireAtUtc);
+        after.IsPaused.ShouldBe(before.IsPaused);
+    }
+
     protected static async ValueTask<ClaimedJob> ClaimAsync(
         IJobStore store,
         string nodeId = "node-1",
@@ -656,7 +788,9 @@ public abstract class JobStoreContractTests
         IReadOnlyList<string>? groupKeys = null,
         RetryPolicy? retryPolicy = null,
         RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip,
-        DateTimeOffset? upsertedAtUtc = null)
+        DateTimeOffset? upsertedAtUtc = null,
+        JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
       => new(
         scheduleKey,
         "* * * * *",
@@ -668,7 +802,9 @@ public abstract class JobStoreContractTests
         groupKeys ?? [],
         retryPolicy,
         overlapMode,
-        upsertedAtUtc ?? DateTimeOffset.UtcNow);
+        upsertedAtUtc ?? DateTimeOffset.UtcNow,
+        InvocationTargetKind: invocationTargetKind,
+        MethodParameterBindings: methodParameterBindings);
 
     protected static UpsertRecurringScheduleRequest CreateDueSchedule(
         string scheduleKey,

@@ -127,6 +127,11 @@ public sealed class RegistrationTests
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(RecurringScheduleUpsertResult.Created);
 
+        public ValueTask<RecurringScheduleTriggerResult> TriggerRecurringScheduleAsync(
+            TriggerRecurringScheduleRequest request,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(new RecurringScheduleTriggerResult(RecurringScheduleTriggerStatus.NotFound));
+
         public ValueTask<bool> DeleteRecurringScheduleAsync(
             string scheduleKey,
             CancellationToken cancellationToken = default)

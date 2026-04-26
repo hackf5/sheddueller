@@ -111,6 +111,13 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Manually clones a recurring schedule definition into one queued job.
+    /// </summary>
+    ValueTask<RecurringScheduleTriggerResult> TriggerRecurringScheduleAsync(
+        TriggerRecurringScheduleRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes a recurring schedule definition.
     /// </summary>
     ValueTask<bool> DeleteRecurringScheduleAsync(
