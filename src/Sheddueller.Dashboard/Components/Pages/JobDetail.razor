@@ -1,8 +1,10 @@
 @page "/jobs/{JobId:guid}"
 @inherits DashboardPageComponent
+@using Microsoft.JSInterop
 @inject IJobInspectionReader Reader
 @inject IJobManager JobManager
 @inject DashboardLiveUpdateStream LiveUpdates
+@inject IJSRuntime JsRuntime
 
 <div class="job-detail-page">
     <header class="job-detail-toolbar">
@@ -213,7 +215,8 @@
                     <section class="job-detail-panel job-detail-invocation-panel">
                         <h2>Invocation</h2>
 
-                        <pre class="job-detail-invocation-call"><code>@invocation.ReconstructedCall</code></pre>
+                        <pre class="job-detail-invocation-call language-csharp"><code class="language-csharp"
+                                                                                       @ref="_invocationCodeElement">@invocation.ReconstructedCall</code></pre>
 
                         <div class="job-detail-invocation-summary">
                             <div class="job-detail-metadata-item">
@@ -1020,6 +1023,27 @@
         overflow-wrap: anywhere;
     }
 
+    pre.job-detail-invocation-call[class*="language-"] {
+        overflow: auto;
+        margin: 0;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 13px;
+        line-height: 20px;
+        padding: 10px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    pre.job-detail-invocation-call[class*="language-"] > code[class*="language-"] {
+        display: block;
+        background: transparent;
+        font: inherit;
+        white-space: inherit;
+        overflow-wrap: inherit;
+    }
+
     .job-detail-parameter-list {
         display: flex;
         min-width: 0;
@@ -1480,10 +1504,12 @@
     private const int EventPageSize = 500;
 
     private readonly List<JobEvent> _events = [];
+    private ElementReference _invocationCodeElement;
     private JobInspectionDetail? _detail;
     private Guid? _loadedJobId;
     private string? _error;
     private string? _actionMessage;
+    private string? _highlightedInvocationCall;
     private JobDetailActionAlertKind _actionAlertKind;
     private bool _isLoading;
     private bool _isCancelRunning;
@@ -1556,6 +1582,7 @@
         this._loadedJobId = this.JobId;
         this._detail = null;
         this._events.Clear();
+        this._highlightedInvocationCall = null;
         this._error = null;
         this.ClearActionAlert();
         this._isCancelRunning = false;
@@ -1564,6 +1591,31 @@
         this._showProgressLogs = false;
 
         await this.LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _ = firstRender;
+
+        if (this._detail?.Invocation is not { } invocation ||
+            string.Equals(this._highlightedInvocationCall, invocation.ReconstructedCall, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            await JsRuntime.InvokeVoidAsync(
+                "ShedduellerDashboard.highlightCode",
+                this._invocationCodeElement);
+            this._highlightedInvocationCall = invocation.ReconstructedCall;
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException)
+        {
+        }
     }
 
     private protected override ValueTask DisposePageAsync()
