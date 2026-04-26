@@ -36,7 +36,7 @@ public abstract class InspectionContractTests
         var page = await context.Reader.SearchJobsAsync(new JobInspectionQuery(TagContains: "LISTING_ID:23"));
 
         page.Jobs.Select(job => job.JobId).ShouldBe([tagged]);
-        page.Jobs[0].Tags.ShouldBe([new JobTag("listing_id", "23"), new JobTag("tenant", "acme")], ignoreOrder: true);
+        page.Jobs[0].Tags.ShouldBe([new JobTag("listing_id", "23"), new JobTag("tenant", "acme")]);
     }
 
     [Fact]
@@ -318,10 +318,11 @@ public abstract class InspectionContractTests
 
         await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule(
           "hourly-cleanup",
-          tags: [new JobTag("area", "billing")]));
+          tags: [new JobTag("tenant", "acme"), new JobTag("area", "billing")]));
 
         var page = await context.ScheduleReader.SearchSchedulesAsync(new ScheduleInspectionQuery(Tag: new JobTag("area", "billing")));
         page.Schedules.ShouldHaveSingleItem().ScheduleKey.ShouldBe("hourly-cleanup");
+        page.Schedules[0].Tags.ShouldBe([new JobTag("tenant", "acme"), new JobTag("area", "billing")]);
         page.TotalCount.ShouldBe(1L);
 
         var scheduleKeyPage = await context.ScheduleReader.SearchSchedulesAsync(new ScheduleInspectionQuery(ScheduleKey: "CLEAN"));

@@ -33,7 +33,7 @@ public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixtu
           priority: 9,
           groupKeys: ["shared"],
           retryPolicy,
-          tags: [new JobTag("tenant", "acme")],
+          tags: [new JobTag("tenant", "acme"), new JobTag("domain", "payments")],
           invocationTargetKind: JobInvocationTargetKind.Static,
           methodParameterBindings:
           [
@@ -59,7 +59,7 @@ public sealed class TriggerRecurringScheduleOperationTests(PostgresFixture fixtu
         job.InvocationTargetKind.ShouldBe(nameof(JobInvocationTargetKind.Static));
         job.MethodParameterBindings.ShouldBe([nameof(JobMethodParameterBindingKind.CancellationToken)]);
         (await context.ReadJobGroupKeysAsync(jobId)).ShouldBe(["shared"]);
-        (await context.ReadJobTagsAsync(jobId)).ShouldBe([new JobTag("tenant", "acme")]);
+        (await context.ReadJobTagsAsync(jobId)).ShouldBe([new JobTag("tenant", "acme"), new JobTag("domain", "payments")]);
 
         var inspectionReader = context.Store.ShouldBeAssignableTo<IJobInspectionReader>();
         var inspected = await inspectionReader.GetJobAsync(jobId);

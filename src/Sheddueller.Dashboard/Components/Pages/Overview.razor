@@ -97,10 +97,9 @@
                                                    aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
                                             </td>
                                             <td>
-                                                <ChipList ClassPrefix="overview-chip" Values="DashboardFormat.Tags(job.Tags)"
-                                                          Title="@DashboardFormat.TagsTitle(job.Tags)"
-                                                          HrefFactory="TagFilterHref"
-                                                          LinkAriaLabelPrefix="Filter jobs by tag" />
+                                                <TagChipList ClassPrefix="overview-chip" Tags="job.Tags"
+                                                             HrefFactory="TagFilterHref"
+                                                             LinkAriaLabelPrefix="Filter jobs by tag" MaxVisible="2" />
                                             </td>
                                             <td>
                                                 <span class="overview-context overview-context--progress"
@@ -163,10 +162,9 @@
                                                    aria-label="@HandlerFilterTitle(job)">@DashboardFormat.ShortHandler(job)</a>
                                             </td>
                                             <td>
-                                                <ChipList ClassPrefix="overview-chip" Values="DashboardFormat.Tags(job.Tags)"
-                                                          Title="@DashboardFormat.TagsTitle(job.Tags)"
-                                                          HrefFactory="TagFilterHref"
-                                                          LinkAriaLabelPrefix="Filter jobs by tag" />
+                                                <TagChipList ClassPrefix="overview-chip" Tags="job.Tags"
+                                                             HrefFactory="TagFilterHref"
+                                                             LinkAriaLabelPrefix="Filter jobs by tag" MaxVisible="2" />
                                             </td>
                                             <td>
                                                 <span class="overview-context overview-context--error"

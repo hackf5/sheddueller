@@ -21,19 +21,21 @@ internal static class PostgresJobTags
           cancellationToken)
           .ConfigureAwait(false);
 
-        foreach (var tag in normalized)
+        for (var i = 0; i < normalized.Count; i++)
         {
+            var tag = normalized[i];
             await PostgresOperationContext.ExecuteCountAsync(
               connection,
               transaction,
               $"""
-              insert into {context.Names.JobTags} (job_id, name, value)
-              values (@job_id, @name, @value)
+              insert into {context.Names.JobTags} (job_id, ordinal, name, value)
+              values (@job_id, @ordinal, @name, @value)
               on conflict (job_id, name, value) do nothing;
               """,
               command =>
               {
                   command.Parameters.AddWithValue("job_id", jobId);
+                  command.Parameters.AddWithValue("ordinal", i);
                   command.Parameters.AddWithValue("name", tag.Name);
                   command.Parameters.AddWithValue("value", tag.Value);
               },
@@ -54,7 +56,7 @@ internal static class PostgresJobTags
           select name, value
           from {context.Names.JobTags}
           where job_id = @job_id
-          order by name asc, value asc;
+          order by ordinal asc, name asc, value asc;
           """;
         command.Parameters.AddWithValue("job_id", jobId);
 

@@ -30,6 +30,7 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.AddOptions<ShedduellerDashboardOptions>()
           .Configure(options => configure?.Invoke(options))
           .Validate(options => options.EventRetention > TimeSpan.Zero, "ShedduellerDashboardOptions.EventRetention must be positive.")
+          .Validate(DashboardTagOrder.IsValid, "ShedduellerDashboardOptions.TagDisplayOrder cannot contain null, empty, or duplicate tag names.")
           .ValidateOnStart();
 
         services.AddRazorComponents()

@@ -232,9 +232,30 @@ internal sealed class PostgresTestContext(
           select name, value
           from {this.Table("job_tags")}
           where job_id = @id
-          order by name asc, value asc;
+          order by ordinal asc, name asc, value asc;
           """);
         command.Parameters.AddWithValue("id", jobId);
+
+        var tags = new List<JobTag>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            tags.Add(new JobTag(reader.GetString(0), reader.GetString(1)));
+        }
+
+        return tags;
+    }
+
+    public async ValueTask<IReadOnlyList<JobTag>> ReadScheduleTagsAsync(string scheduleKey)
+    {
+        await using var command = this.DataSource.CreateCommand(
+          $"""
+          select name, value
+          from {this.Table("schedule_tags")}
+          where schedule_key = @id
+          order by ordinal asc, name asc, value asc;
+          """);
+        command.Parameters.AddWithValue("id", scheduleKey);
 
         var tags = new List<JobTag>();
         await using var reader = await command.ExecuteReaderAsync();

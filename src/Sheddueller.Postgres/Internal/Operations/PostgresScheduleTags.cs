@@ -21,19 +21,21 @@ internal static class PostgresScheduleTags
           cancellationToken)
           .ConfigureAwait(false);
 
-        foreach (var tag in normalized)
+        for (var i = 0; i < normalized.Count; i++)
         {
+            var tag = normalized[i];
             await PostgresOperationContext.ExecuteCountAsync(
               connection,
               transaction,
               $"""
-              insert into {context.Names.ScheduleTags} (schedule_key, name, value)
-              values (@schedule_key, @name, @value)
+              insert into {context.Names.ScheduleTags} (schedule_key, ordinal, name, value)
+              values (@schedule_key, @ordinal, @name, @value)
               on conflict (schedule_key, name, value) do nothing;
               """,
               command =>
               {
                   command.Parameters.AddWithValue("schedule_key", scheduleKey);
+                  command.Parameters.AddWithValue("ordinal", i);
                   command.Parameters.AddWithValue("name", tag.Name);
                   command.Parameters.AddWithValue("value", tag.Value);
               },
@@ -56,7 +58,7 @@ internal static class PostgresScheduleTags
           select name, value
           from {context.Names.ScheduleTags}
           where schedule_key = @schedule_key
-          order by name asc, value asc;
+          order by ordinal asc, name asc, value asc;
           """;
         command.Parameters.AddWithValue("schedule_key", scheduleKey);
 

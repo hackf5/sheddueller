@@ -195,9 +195,8 @@
 
                 <div class="job-detail-chip-section">
                     <span class="job-detail-label">Tags</span>
-                    <ChipList ClassPrefix="job-detail-chip" Values="DashboardFormat.Tags(job.Tags)"
-                              Title="@DashboardFormat.TagsTitle(job.Tags)" HrefFactory="TagFilterHref"
-                              LinkAriaLabelPrefix="Filter jobs by tag" />
+                    <TagChipList ClassPrefix="job-detail-chip" Tags="job.Tags" HrefFactory="TagFilterHref"
+                                 LinkAriaLabelPrefix="Filter jobs by tag" />
                 </div>
 
                 <div class="job-detail-chip-section">

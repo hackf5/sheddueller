@@ -73,6 +73,35 @@ public sealed class DashboardFormatTests
     }
 
     [Fact]
+    public void TagOrder_ConfiguredNames_PrioritizesConfiguredNamesAndPreservesOrdinalFallback()
+    {
+        var tags = new[]
+        {
+            new JobTag("source", "api"),
+            new JobTag("tenant", "acme"),
+            new JobTag("domain", "billing"),
+            new JobTag("job", "sync"),
+        };
+
+        DashboardTagOrder.Apply(tags, ["domain", "tenant"])
+          .ShouldBe(
+          [
+              new JobTag("domain", "billing"),
+              new JobTag("tenant", "acme"),
+              new JobTag("source", "api"),
+              new JobTag("job", "sync"),
+          ]);
+    }
+
+    [Fact]
+    public void TagOrder_OptionsValidation_RejectsEmptyAndDuplicateNames()
+    {
+        DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = [" tenant ", "domain"] }).ShouldBeTrue();
+        DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = ["tenant", " tenant "] }).ShouldBeFalse();
+        DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = ["tenant", " "] }).ShouldBeFalse();
+    }
+
+    [Fact]
     public void JobEvent_LogAndTimelineEvents_FormatsOperationalText()
     {
         var failed = new JobEvent(

@@ -5,8 +5,9 @@
     }
     else
     {
-        @foreach (var value in Values)
+        @for (var i = 0; i < VisibleCount; i++)
         {
+            var value = Values[i];
             @if (HrefFactory is null)
             {
                 <span class="@ChipClass" @key="value" title="@value">@value</span>
@@ -16,6 +17,10 @@
                 <a class="@ChipClass" @key="value" href="@HrefFactory(value)" title="@value"
                    aria-label="@GetLinkAriaLabel(value)">@value</a>
             }
+        }
+        @if (HiddenCount > 0)
+        {
+            <span class="@OverflowChipClass" title="@Title" aria-label="@OverflowAriaLabel">@OverflowText</span>
         }
     }
 </div>
@@ -39,6 +44,18 @@
     [Parameter]
     public string? LinkAriaLabelPrefix { get; set; }
 
+    [Parameter]
+    public int MaxVisible { get; set; } = int.MaxValue;
+
+    [Parameter]
+    public string OverflowAriaLabelPrefix { get; set; } = "Additional values";
+
+    private int VisibleCount
+      => Math.Clamp(this.MaxVisible, 0, this.Values.Count);
+
+    private int HiddenCount
+      => this.Values.Count - this.VisibleCount;
+
     private string ListClass
       => string.Concat(this.ClassPrefix, "-list");
 
@@ -47,6 +64,15 @@
 
     private string EmptyClass
       => string.Concat(this.ClassPrefix, "-empty");
+
+    private string OverflowChipClass
+      => string.Concat(this.ChipClass, " ", this.ChipClass, "--overflow");
+
+    private string OverflowAriaLabel
+      => string.Concat(this.OverflowAriaLabelPrefix, ": ", this.Title);
+
+    private string OverflowText
+      => string.Create(CultureInfo.InvariantCulture, $"+{this.HiddenCount}");
 
     private string? GetLinkAriaLabel(string value)
       => string.IsNullOrWhiteSpace(this.LinkAriaLabelPrefix)

@@ -17,4 +17,10 @@ public sealed class ShedduellerDashboardOptions
     /// Gets or sets how long job events are retained after their owning job reaches a terminal state.
     /// </summary>
     public TimeSpan EventRetention { get; set; } = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Gets or sets the dashboard display order for tag names.
+    /// Tags with names listed here are shown first in the configured order; all other tags keep their persisted order.
+    /// </summary>
+    public IReadOnlyList<string> TagDisplayOrder { get; set; } = [];
 }

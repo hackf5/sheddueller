@@ -106,7 +106,7 @@ public sealed class EnqueueJobOperationTests(PostgresFixture fixture) : IClassFi
             first,
             priority: 7,
             groupKeys: ["beta", "alpha", "alpha"],
-            tags: [new JobTag("tenant", "acme")]),
+            tags: [new JobTag("tenant", "acme"), new JobTag("domain", "payments"), new JobTag("tenant", "acme")]),
           PostgresTestData.CreateRequest(
             second,
             priority: 2,
@@ -125,7 +125,7 @@ public sealed class EnqueueJobOperationTests(PostgresFixture fixture) : IClassFi
         secondJob.EnqueueSequence.ShouldBe(results[1].EnqueueSequence);
         (await context.ReadJobGroupKeysAsync(first)).ShouldBe(["alpha", "beta"]);
         (await context.ReadJobGroupKeysAsync(second)).ShouldBe(["gamma"]);
-        (await context.ReadJobTagsAsync(first)).ShouldBe([new JobTag("tenant", "acme")]);
+        (await context.ReadJobTagsAsync(first)).ShouldBe([new JobTag("tenant", "acme"), new JobTag("domain", "payments")]);
         (await context.ReadJobTagsAsync(second)).ShouldBe([new JobTag("kind", "secondary")]);
         (await context.CountJobEventsAsync(first)).ShouldBe(1);
         (await context.CountJobEventsAsync(second)).ShouldBe(1);

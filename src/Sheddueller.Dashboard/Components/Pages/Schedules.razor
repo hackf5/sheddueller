@@ -134,8 +134,8 @@
                                             <ChipList ClassPrefix="schedules-chip" Values="schedule.ConcurrencyGroupKeys"
                                                       Title="@DashboardFormat.GroupKeysTitle(schedule.ConcurrencyGroupKeys)"
                                                       EmptyText="No groups" />
-                                            <ChipList ClassPrefix="schedules-chip" Values="DashboardFormat.Tags(schedule.Tags)"
-                                                      Title="@DashboardFormat.TagsTitle(schedule.Tags)" EmptyText="No tags" />
+                                            <TagChipList ClassPrefix="schedules-chip" Tags="schedule.Tags"
+                                                         EmptyText="No tags" MaxVisible="2" />
                                         </div>
                                     </td>
                                     <td>

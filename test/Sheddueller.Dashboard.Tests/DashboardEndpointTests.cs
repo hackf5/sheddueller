@@ -125,6 +125,20 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public async Task Jobs_TagDisplayOrder_ConfiguredNamesLeadCompactChips()
+    {
+        await using var app = await CreateStartedDashboardAsync(configureDashboard: options =>
+        {
+            options.TagDisplayOrder = ["domain", "tenant"];
+        });
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs");
+
+        AssertAppearsBefore(html, "href=\"jobs?tag=domain%3Apayments\"", "href=\"jobs?tag=tenant%3Aacme\"");
+        html.ShouldContain("jobs-chip--overflow");
+        html.ShouldContain("aria-label=\"Additional tags: domain:payments, tenant:acme, schedule:daily_rollup, source:stub\"");
+    }
+
+    [Fact]
     public async Task Jobs_QueryFilters_RendersControlsAndPreservingQuickLinks()
     {
         await using var app = await CreateStartedDashboardAsync();
@@ -398,7 +412,8 @@ public sealed class DashboardEndpointTests
 
     private static async Task<WebApplication> CreateStartedDashboardAsync(
         bool prerender = true,
-        bool mapWithWebApplication = true)
+        bool mapWithWebApplication = true,
+        Action<ShedduellerDashboardOptions>? configureDashboard = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -410,7 +425,11 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
         builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
-        builder.Services.AddShedduellerDashboard(options => options.Prerender = prerender);
+        builder.Services.AddShedduellerDashboard(options =>
+        {
+            options.Prerender = prerender;
+            configureDashboard?.Invoke(options);
+        });
 
         var app = builder.Build();
         if (mapWithWebApplication)
@@ -582,6 +601,8 @@ public sealed class DashboardEndpointTests
           [
               new JobTag("tenant", "acme"),
               new JobTag("schedule", "daily_rollup"),
+              new JobTag("domain", "payments"),
+              new JobTag("source", "stub"),
           ],
           ConcurrencyGroupKeys: ["tenant-acme", "daily-rollup"],
           SourceScheduleKey: "daily_rollup",

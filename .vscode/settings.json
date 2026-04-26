@@ -32,6 +32,8 @@
         "Antiforgery",
         "Cronos",
         "Npgsql",
+        "Prerender",
+        "prerendered",
         "Sheddueller",
         "Shouldly",
         "Upserted",
