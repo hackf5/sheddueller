@@ -455,10 +455,13 @@ internal static class PostgresJobInspectionOperation
               serializedValueJson[i]);
         }
 
+        var reconstructedCall = JobInvocationDisplayFormatter.Format(row.ServiceType, row.MethodName, parameters);
+
         return new JobInvocationInspection(
           targetKind,
           row.ServiceType,
           row.MethodName,
+          reconstructedCall,
           parameters,
           payload.ContentType,
           payload.Data.LongLength,

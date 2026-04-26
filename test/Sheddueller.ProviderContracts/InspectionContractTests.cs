@@ -104,6 +104,13 @@ public abstract class InspectionContractTests
         invocation.TargetKind.ShouldBe(JobInvocationTargetKind.Instance);
         invocation.ServiceType.ShouldBe(typeof(InspectionInvocationService).AssemblyQualifiedName);
         invocation.MethodName.ShouldBe(nameof(InspectionInvocationService.RunAsync));
+        invocation.ReconstructedCall.ShouldBe(string.Join(
+          Environment.NewLine,
+          "InspectionInvocationService.RunAsync(",
+          "    {\"name\":\"alpha\",\"count\":42},",
+          "    Job.Resolve<InspectionDependency>(),",
+          "    Job.Context,",
+          "    CancellationToken)"));
         invocation.SerializedArgumentsContentType.ShouldBe(SystemTextJsonJobPayloadSerializer.JsonContentType);
         invocation.SerializedArgumentsStatus.ShouldBe(JobSerializedArgumentsInspectionStatus.Displayable);
         invocation.Parameters.Select(parameter => parameter.Binding.Kind).ShouldBe([
@@ -135,6 +142,7 @@ public abstract class InspectionContractTests
 
         var invocation = detail.ShouldNotBeNull().Invocation.ShouldNotBeNull();
         invocation.SerializedArgumentsContentType.ShouldBe("application/x-test");
+        invocation.ReconstructedCall.ShouldContain("<serialized String>");
         invocation.SerializedArgumentsByteCount.ShouldBe(3);
         invocation.SerializedArgumentsStatus.ShouldBe(JobSerializedArgumentsInspectionStatus.UnsupportedContentType);
         invocation.SerializedArgumentsStatusMessage.ShouldNotBeNull().ShouldContain("unsupported content type");

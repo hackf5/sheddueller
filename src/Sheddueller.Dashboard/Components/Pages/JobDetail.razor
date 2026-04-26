@@ -213,6 +213,8 @@
                     <section class="job-detail-panel job-detail-invocation-panel">
                         <h2>Invocation</h2>
 
+                        <pre class="job-detail-invocation-call"><code>@invocation.ReconstructedCall</code></pre>
+
                         <div class="job-detail-invocation-summary">
                             <div class="job-detail-metadata-item">
                                 <span>Handler</span>
@@ -616,6 +618,7 @@
     .job-detail-mono,
     .job-detail-metadata-item strong,
     .job-detail-chip,
+    .job-detail-invocation-call,
     .job-detail-parameter pre,
     .job-detail-progress-percent,
     .job-detail-log-table,
@@ -1001,6 +1004,20 @@
         grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) minmax(160px, 1fr);
         gap: 12px;
         margin-top: 2px;
+    }
+
+    .job-detail-invocation-call {
+        overflow: auto;
+        margin: 0;
+        border: 1px solid var(--sd-outline-variant);
+        border-radius: 2px;
+        background: var(--sd-surface-container);
+        color: var(--sd-on-surface);
+        font-size: 13px;
+        line-height: 20px;
+        padding: 10px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
     }
 
     .job-detail-parameter-list {

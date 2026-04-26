@@ -9,6 +9,7 @@ public sealed record JobInvocationInspection(
     JobInvocationTargetKind TargetKind,
     string ServiceType,
     string MethodName,
+    string ReconstructedCall,
     IReadOnlyList<JobInvocationParameterInspection> Parameters,
     string SerializedArgumentsContentType,
     long SerializedArgumentsByteCount,

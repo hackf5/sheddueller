@@ -309,9 +309,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?tag=tenant%3Aacme\"");
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         html.ShouldContain("Invocation");
-        html.ShouldContain("StubPayload");
-        html.ShouldContain("tenantId");
-        html.ShouldContain("acme");
+        html.ShouldContain("StubService.Run(");
+        html.ShouldContain("permanent-failure");
         html.ShouldContain("Job.Resolve");
         html.ShouldContain("StubDependency");
         html.ShouldContain("Job.Context");
@@ -538,17 +537,19 @@ public sealed class DashboardEndpointTests
           JobInvocationTargetKind.Instance,
           "Sheddueller.Dashboard.Tests.DashboardEndpointTests.StubService",
           "Run",
+          string.Join(
+            Environment.NewLine,
+            "StubService.Run(",
+            "    \"permanent-failure\",",
+            "    Job.Resolve<StubDependency>(),",
+            "    Job.Context,",
+            "    CancellationToken)"),
           [
               new JobInvocationParameterInspection(
                 0,
-                "Sheddueller.Dashboard.Tests.DashboardEndpointTests.StubPayload",
+                typeof(string).AssemblyQualifiedName!,
                 new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
-                string.Join(
-                  Environment.NewLine,
-                  "{",
-                  "  \"tenantId\": \"acme\",",
-                  "  \"chunk\": 4",
-                  "}")),
+                "\"permanent-failure\""),
               new JobInvocationParameterInspection(
                 1,
                 "Sheddueller.Dashboard.Tests.DashboardEndpointTests.StubDependency",
