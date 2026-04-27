@@ -120,24 +120,26 @@ Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an applicat
 
 ## Enqueue Jobs
 
-Job methods return `Task` or `ValueTask` and receive the scheduler-owned `CancellationToken`. Use `Job.Context` when a handler needs durable logs, progress events, the job id, or the attempt number.
+Job methods return `Task` or `ValueTask` and receive the scheduler-owned `CancellationToken`. Use constructor-injected `ILogger<T>` for durable job logs, `Job.Context` when a handler needs the job id or attempt number, and scheduler-supplied `IProgress<decimal>` for durable progress updates.
 
 ```csharp
-public sealed class EmailJobs
+using Microsoft.Extensions.Logging;
+
+public sealed class EmailJobs(ILogger<EmailJobs> logger)
 {
     public async Task SendWelcomeAsync(
         Guid userId,
-        IJobContext job,
+        IProgress<decimal> progress,
         CancellationToken cancellationToken)
     {
-        await job.LogAsync(JobLogLevel.Information, "Sending welcome email.", cancellationToken: cancellationToken);
+        logger.LogInformation("Sending welcome email for user {UserId}.", userId);
         await SendEmailAsync(userId, cancellationToken);
-        await job.ReportProgressAsync(100, "Welcome email sent.", cancellationToken);
+        progress.Report(100);
     }
 }
 
 var jobId = await enqueuer.EnqueueAsync<EmailJobs>(
-    (jobs, ct) => jobs.SendWelcomeAsync(userId, Job.Context, ct),
+    (jobs, ct, progress) => jobs.SendWelcomeAsync(userId, progress, ct),
     new JobSubmission(
         Priority: 10,
         ConcurrencyGroupKeys: ["email"],
@@ -145,6 +147,17 @@ var jobId = await enqueuer.EnqueueAsync<EmailJobs>(
         Tags: [new JobTag("email", "send-welcome")]),
     cancellationToken);
 ```
+
+Sheddueller captures job logs by registering a Microsoft `ILoggerProvider`. If the application uses Serilog as the host logger and still wants Sheddueller's provider to receive log events, enable provider forwarding:
+
+```csharp
+builder.Host.UseSerilog(
+    (_, _, loggerConfiguration) => loggerConfiguration.WriteTo.Logger(Log.Logger),
+    preserveStaticLogger: true,
+    writeToProviders: true);
+```
+
+Because Sheddueller's capture is a Microsoft `ILoggerProvider`, Microsoft logging filters still apply. Configure `Logging`/`ILoggingBuilder` filters alongside any Serilog filtering rules if you want to control which job logs are stored by Sheddueller.
 
 Use `NotBeforeUtc` for delayed jobs. Use `JobIdempotencyKind.MethodAndArguments` to reuse an existing queued job with the same target method and serialized arguments.
 
@@ -156,7 +169,7 @@ Recurring schedules are keyed definitions. Calling `CreateOrUpdateAsync` at star
 await schedules.CreateOrUpdateAsync<EmailJobs>(
     "email:daily-digest",
     "0 2 * * *",
-    (jobs, ct) => jobs.SendDailyDigestAsync(Job.Context, ct),
+    (jobs, ct, progress) => jobs.SendDailyDigestAsync(progress, ct),
     new RecurringScheduleOptions(
         Priority: 5,
         ConcurrencyGroupKeys: ["email"],
@@ -191,7 +204,7 @@ var capture = provider.GetRequiredService<CapturingJobEnqueuer>().Capture();
 await subject.DoSomethingThatEnqueuesAsync();
 
 var matches = await capture.Fake.MatchAsync<EmailJobs>(
-    (jobs, ct) => jobs.SendWelcomeAsync(userId, Job.Context, ct));
+    (jobs, ct, progress) => jobs.SendWelcomeAsync(userId, progress, ct));
 ```
 
 The same package includes `FakeJobEnqueuer`, `FakeRecurringScheduleManager`, and async-context-aware capture services for dependency-injected tests.

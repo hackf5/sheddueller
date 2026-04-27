@@ -80,6 +80,30 @@ public sealed class FakeJobEnqueuerTests
     }
 
     [Fact]
+    public async Task Enqueue_ProgressAwareServiceMethod_RecordsJobAndMatchesByExpression()
+    {
+        var fake = new FakeJobEnqueuer();
+        var payload = new SamplePayload("alpha", 42);
+
+        var jobId = await fake.EnqueueAsync<TestJobService>(
+          (s, ct, progress) => s.HandleWithProgressAsync(payload, progress, ct));
+
+        var match = await fake.MatchAsync<TestJobService>(
+          (s, ct, progress) => s.HandleWithProgressAsync(new SamplePayload("alpha", 42), progress, ct));
+
+        match.Count.ShouldBe(1);
+        match[0].JobId.ShouldBe(jobId);
+        match[0].MethodName.ShouldBe(nameof(TestJobService.HandleWithProgressAsync));
+        match[0].MethodParameterTypes.ShouldBe([typeof(SamplePayload), typeof(IProgress<decimal>), typeof(CancellationToken)]);
+        match[0].MethodParameterBindings.ShouldBe([
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+        ]);
+        match[0].SerializableArguments.ShouldBe([payload]);
+    }
+
+    [Fact]
     public async Task EnqueueMany_MixedJobs_RecordsBatchMetadataAndReturnsIdsInInputOrder()
     {
         var fake = new FakeJobEnqueuer();
@@ -174,6 +198,9 @@ public sealed class FakeJobEnqueuerTests
           => Task.CompletedTask;
 
         public Task HandleStringAsync(string value, CancellationToken cancellationToken)
+          => Task.CompletedTask;
+
+        public Task HandleWithProgressAsync(SamplePayload payload, IProgress<decimal> progress, CancellationToken cancellationToken)
           => Task.CompletedTask;
 
         public Task NoTokenAsync()

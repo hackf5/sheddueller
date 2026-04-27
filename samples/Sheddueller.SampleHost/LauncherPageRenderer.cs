@@ -67,7 +67,7 @@ internal static class LauncherPageRenderer
         builder.AppendLine("      </div>");
         builder.AppendLine("      <div class=\"card-grid\">");
         AppendActionCard(builder, "/launch/quick-success", "Quick success", "Immediate completion for happy-path rows.", "Enqueue job");
-        AppendActionCard(builder, "/launch/progress", "Progress + logs", "Emits durable logs and progress snapshots over a few seconds.", "Enqueue job");
+        AppendActionCard(builder, "/launch/progress", "Progress + logs", "Emits captured ILogger logs and progress snapshots over a few seconds.", "Enqueue job");
         AppendActionCard(builder, "/launch/retry-then-succeed", "Retry then succeed", "Fails twice, then succeeds so retry history is visible.", "Enqueue job");
         AppendActionCard(builder, "/launch/permanent-failure", "Permanent failure", "Fails terminally without retries.", "Enqueue job");
         AppendActionCard(builder, "/launch/delayed", "Delayed job", "Queues a short delayed job to exercise delayed state and not-before time.", "Enqueue job");

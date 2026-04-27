@@ -1014,6 +1014,22 @@ public sealed class DashboardEndpointTests
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
+        public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+            string scheduleKey,
+            string cronExpression,
+            Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+            RecurringScheduleOptions? options = null,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
+        public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+            string scheduleKey,
+            string cronExpression,
+            Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
+            RecurringScheduleOptions? options = null,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
         public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
             string scheduleKey,
             string cronExpression,
@@ -1026,6 +1042,22 @@ public sealed class DashboardEndpointTests
             string scheduleKey,
             string cronExpression,
             Expression<Func<CancellationToken, ValueTask>> work,
+            RecurringScheduleOptions? options = null,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
+        public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+            string scheduleKey,
+            string cronExpression,
+            Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+            RecurringScheduleOptions? options = null,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
+        public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+            string scheduleKey,
+            string cronExpression,
+            Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
             RecurringScheduleOptions? options = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();

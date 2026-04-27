@@ -19,21 +19,4 @@ public interface IJobContext
     /// Gets the scheduler-owned execution cancellation token.
     /// </summary>
     CancellationToken CancellationToken { get; }
-
-    /// <summary>
-    /// Writes a durable job log event.
-    /// </summary>
-    ValueTask LogAsync(
-        JobLogLevel level,
-        string message,
-        IReadOnlyDictionary<string, string>? fields = null,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Writes a durable job progress event.
-    /// </summary>
-    ValueTask ReportProgressAsync(
-        double? percent,
-        string? message = null,
-        CancellationToken cancellationToken = default);
 }

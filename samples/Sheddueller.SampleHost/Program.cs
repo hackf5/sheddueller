@@ -62,7 +62,7 @@ app.MapPost("/launch/quick-success", async (IJobEnqueuer enqueuer, CancellationT
 app.MapPost("/launch/progress", async (IJobEnqueuer enqueuer, CancellationToken cancellationToken) =>
 {
     var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
-      (service, ct) => service.RunProgressAsync("progress-demo", Job.Context, ct),
+      (service, ct, progress) => service.RunProgressAsync("progress-demo", progress, ct),
       cancellationToken: cancellationToken).ConfigureAwait(false);
     return RedirectWithMessage($"Queued progress demo job {jobId:D}.");
 });
@@ -71,7 +71,7 @@ app.MapPost("/launch/retry-then-succeed", async (IJobEnqueuer enqueuer, Cancella
 {
     var runKey = $"retry-demo:{Guid.NewGuid():N}";
     var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
-      (service, ct) => service.RunRetryUntilSuccessAsync(runKey, 2, Job.Context, ct),
+      (service, ct, progress) => service.RunRetryUntilSuccessAsync(runKey, 2, progress, ct),
       new JobSubmission(RetryPolicy: new RetryPolicy(4, RetryBackoffKind.Fixed, TimeSpan.FromSeconds(2))),
       cancellationToken).ConfigureAwait(false);
     return RedirectWithMessage($"Queued retry demo job {jobId:D}. It will fail twice before succeeding.");
@@ -80,7 +80,7 @@ app.MapPost("/launch/retry-then-succeed", async (IJobEnqueuer enqueuer, Cancella
 app.MapPost("/launch/permanent-failure", async (IJobEnqueuer enqueuer, CancellationToken cancellationToken) =>
 {
     var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
-      (service, ct) => service.RunAlwaysFailAsync("permanent-failure", Job.Context, ct),
+      (service, ct) => service.RunAlwaysFailAsync("permanent-failure", ct),
       new JobSubmission(RetryPolicy: new RetryPolicy(1, RetryBackoffKind.Fixed, TimeSpan.FromSeconds(1))),
       cancellationToken).ConfigureAwait(false);
     return RedirectWithMessage($"Queued permanent failure job {jobId:D}.");
@@ -99,7 +99,7 @@ app.MapPost("/launch/delayed", async (IJobEnqueuer enqueuer, CancellationToken c
 app.MapPost("/launch/many-tags", async (IJobEnqueuer enqueuer, CancellationToken cancellationToken) =>
 {
     var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
-      (service, ct) => service.RunProgressAsync("many-tags-demo", Job.Context, ct),
+      (service, ct, progress) => service.RunProgressAsync("many-tags-demo", progress, ct),
       new JobSubmission(
         Priority: 15,
         Tags:
@@ -129,7 +129,7 @@ app.MapPost("/launch/blocking-batch", async (
     {
         var label = $"blocking-{index}";
         var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
-          (service, ct) => service.RunGroupHoldAsync(label, Job.Context, ct),
+          (service, ct, progress) => service.RunGroupHoldAsync(label, progress, ct),
           new JobSubmission(Priority: 25, ConcurrencyGroupKeys: [GroupKey]),
           cancellationToken).ConfigureAwait(false);
         jobIds.Add(jobId);
@@ -152,7 +152,7 @@ app.MapPost("/launch/idempotent", async (
     if (!await HasNonTerminalJobsInGroupAsync(inspectionReader, GroupKey, cancellationToken).ConfigureAwait(false))
     {
         _ = await enqueuer.EnqueueAsync<DemoJobService>(
-          (service, ct) => service.RunIdempotentDemoAsync("idempotent-demo-slot-holder", Job.Context, ct),
+          (service, ct, progress) => service.RunIdempotentDemoAsync("idempotent-demo-slot-holder", progress, ct),
           new JobSubmission(
             Priority: 50,
             ConcurrencyGroupKeys: [GroupKey],
@@ -161,7 +161,7 @@ app.MapPost("/launch/idempotent", async (
     }
 
     var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
-      (service, ct) => service.RunIdempotentDemoAsync(WorkLabel, Job.Context, ct),
+      (service, ct, progress) => service.RunIdempotentDemoAsync(WorkLabel, progress, ct),
       new JobSubmission(
         Priority: 25,
         ConcurrencyGroupKeys: [GroupKey],
@@ -177,7 +177,7 @@ app.MapPost("/launch/recurring", async (IRecurringScheduleManager scheduleManage
     var result = await scheduleManager.CreateOrUpdateAsync<DemoJobService>(
       "demo:recurring",
       "* * * * *",
-      (service, ct) => service.RunRecurringAsync(Job.Context, ct),
+      (service, ct, progress) => service.RunRecurringAsync(progress, ct),
       new RecurringScheduleOptions(Priority: 10, OverlapMode: RecurringOverlapMode.Skip),
       cancellationToken).ConfigureAwait(false);
     return RedirectWithMessage($"Recurring schedule 'demo:recurring' is {result}. The next occurrence will fire on the next minute boundary.");

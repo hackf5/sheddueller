@@ -67,6 +67,60 @@ public sealed class JobEnqueuerTests
     }
 
     [Fact]
+    public async Task Enqueue_ProgressAwareMethod_PersistsMethodIdentityWithoutSerializingProgress()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var payload = new SamplePayload("alpha", 42);
+
+        var jobId = await enqueuer.EnqueueAsync<EnqueueTestService>(
+          (service, cancellationToken, progress) => service.HandleWithProgressAsync(payload, progress, cancellationToken));
+
+        var request = store.GetRequest(jobId);
+        request.MethodParameterTypes.ShouldBe([
+          typeof(SamplePayload).AssemblyQualifiedName!,
+          typeof(IProgress<decimal>).AssemblyQualifiedName!,
+          typeof(CancellationToken).AssemblyQualifiedName!,
+        ]);
+        request.MethodParameterBindings.ShouldBe([
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+        ]);
+
+        var arguments = await provider.GetRequiredService<IJobPayloadSerializer>()
+          .DeserializeAsync(request.SerializedArguments, [typeof(SamplePayload)]);
+
+        arguments.ShouldBe([payload]);
+    }
+
+    [Fact]
+    public async Task Enqueue_StaticProgressAwareMethod_PersistsStaticInvocationMetadata()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+
+        var jobId = await enqueuer.EnqueueAsync(
+          (cancellationToken, progress) => EnqueueTestService.StaticWithProgressAsync(progress, cancellationToken));
+
+        var request = store.GetRequest(jobId);
+        request.ServiceType.ShouldBe(typeof(EnqueueTestService).AssemblyQualifiedName);
+        request.MethodName.ShouldBe(nameof(EnqueueTestService.StaticWithProgressAsync));
+        request.InvocationTargetKind.ShouldBe(JobInvocationTargetKind.Static);
+        request.MethodParameterBindings.ShouldBe([
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+        ]);
+
+        var arguments = await provider.GetRequiredService<IJobPayloadSerializer>()
+          .DeserializeAsync(request.SerializedArguments, []);
+
+        arguments.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Enqueue_StaticMethodCall_PersistsStaticInvocationMetadata()
     {
         using var provider = CreateProvider();
@@ -225,6 +279,27 @@ public sealed class JobEnqueuerTests
         thirdRequest.ServiceType.ShouldBe(typeof(EnqueueTestService).AssemblyQualifiedName);
         thirdRequest.MethodName.ShouldBe(nameof(EnqueueTestService.StaticWithPayloadAsync));
         thirdRequest.InvocationTargetKind.ShouldBe(JobInvocationTargetKind.Static);
+    }
+
+    [Fact]
+    public async Task EnqueueMany_ProgressAwareMethod_PersistsProgressBinding()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var payload = new SamplePayload("alpha", 42);
+
+        var jobIds = await enqueuer.EnqueueManyAsync([
+          JobEnqueueItem.Create<EnqueueTestService>(
+            (service, cancellationToken, progress) => service.HandleWithProgressAsync(payload, progress, cancellationToken)),
+        ]);
+
+        var request = store.GetRequest(jobIds[0]);
+        request.MethodParameterBindings.ShouldBe([
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+        ]);
     }
 
     [Fact]
@@ -393,6 +468,24 @@ public sealed class JobEnqueuerTests
             (service, cancellationToken) => service.HandleObjectAsync(Job.Context, cancellationToken)).AsTask());
 
         await Should.ThrowAsync<ArgumentException>(
+          () => enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken, progress) => service.HandleAsync(payload, cancellationToken)).AsTask());
+
+        await Should.ThrowAsync<ArgumentException>(
+          () => enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken, progress) => service.HandleObjectAsync(progress, cancellationToken)).AsTask());
+
+        var capturedProgress = new Progress<decimal>();
+        await Should.ThrowAsync<ArgumentException>(
+          () => enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleWithProgressAsync(payload, capturedProgress, cancellationToken)).AsTask());
+
+        var capturedIntProgress = new Progress<int>();
+        await Should.ThrowAsync<ArgumentException>(
+          () => enqueuer.EnqueueAsync<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleIntProgressAsync(capturedIntProgress, cancellationToken)).AsTask());
+
+        await Should.ThrowAsync<ArgumentException>(
           () => enqueuer.EnqueueAsync(
             cancellationToken => new EnqueueTestService().HandleStringAsync("new-target", cancellationToken)).AsTask());
 
@@ -449,6 +542,16 @@ public sealed class JobEnqueuerTests
             return Task.CompletedTask;
         }
 
+        public Task HandleWithProgressAsync(SamplePayload payload, IProgress<decimal> progress, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task HandleIntProgressAsync(IProgress<int> progress, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
         public Task HandleObjectAsync(object value, CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
@@ -478,6 +581,11 @@ public sealed class JobEnqueuerTests
         {
             return Task.CompletedTask;
         }
+
+        public static Task StaticWithProgressAsync(IProgress<decimal> progress, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class SecondEnqueueTestService
@@ -497,18 +605,5 @@ public sealed class JobEnqueuerTests
         public int AttemptNumber => 0;
 
         public CancellationToken CancellationToken => CancellationToken.None;
-
-        public ValueTask LogAsync(
-            JobLogLevel level,
-            string message,
-            IReadOnlyDictionary<string, string>? fields = null,
-            CancellationToken cancellationToken = default)
-          => ValueTask.CompletedTask;
-
-        public ValueTask ReportProgressAsync(
-            double? percent,
-            string? message = null,
-            CancellationToken cancellationToken = default)
-          => ValueTask.CompletedTask;
     }
 }

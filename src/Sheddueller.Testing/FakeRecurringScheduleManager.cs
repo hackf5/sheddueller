@@ -99,10 +99,46 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+      string scheduleKey,
+      string cronExpression,
+      Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+      RecurringScheduleOptions? options = null,
+      CancellationToken cancellationToken = default)
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+      string scheduleKey,
+      string cronExpression,
+      Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+      RecurringScheduleOptions? options = null,
+      CancellationToken cancellationToken = default)
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
       string scheduleKey,
       string cronExpression,
       Expression<Func<TService, CancellationToken, Task>> work,
+      RecurringScheduleOptions? options = null,
+      CancellationToken cancellationToken = default)
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+      string scheduleKey,
+      string cronExpression,
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+      RecurringScheduleOptions? options = null,
+      CancellationToken cancellationToken = default)
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+      string scheduleKey,
+      string cronExpression,
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       RecurringScheduleOptions? options = null,
       CancellationToken cancellationToken = default)
       => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, JobExpressionParser.Parse(work), options, cancellationToken);
@@ -253,6 +289,24 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
       => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
 
     /// <summary>
+    /// Finds recorded recurring schedules that match a Task-returning job method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync(
+      string scheduleKey,
+      Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Finds recorded recurring schedules that match a ValueTask-returning job method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync(
+      string scheduleKey,
+      Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
     /// Finds recorded recurring schedules that match a Task-returning service method call.
     /// </summary>
     public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
@@ -267,6 +321,24 @@ public sealed class FakeRecurringScheduleManager : IRecurringScheduleManager
     public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
       string scheduleKey,
       Expression<Func<TService, CancellationToken, ValueTask>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Finds recorded recurring schedules that match a Task-returning service method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
+      string scheduleKey,
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Finds recorded recurring schedules that match a ValueTask-returning service method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeRecurringScheduleMatch> MatchAsync<TService>(
+      string scheduleKey,
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       CancellationToken cancellationToken = default)
       => await this.MatchCoreAsync(scheduleKey, JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
 

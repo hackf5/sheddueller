@@ -25,7 +25,8 @@ public sealed class RegistrationTests
         provider.GetRequiredService<IJobEnqueuer>().ShouldNotBeNull();
         provider.GetRequiredService<IJobStore>().ShouldBeSameAs(provider.GetRequiredService<RecordingJobStore>());
         provider.GetRequiredService<IShedduellerNodeIdProvider>().ShouldNotBeNull();
-        provider.GetServices<IHostedService>().Count().ShouldBe(2);
+        provider.GetServices<IHostedService>().Count().ShouldBe(3);
+        provider.GetServices<IHostedService>().ShouldContain(service => service.GetType() == typeof(ShedduellerJobLogEventDispatcher));
         provider.GetServices<IHostedService>().ShouldContain(service => service.GetType() == typeof(ShedduellerWorker));
     }
 

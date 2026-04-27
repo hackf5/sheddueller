@@ -43,6 +43,20 @@ public sealed class CapturingJobEnqueuer(IJobPayloadSerializer serializer) : IJo
       => this.CurrentOrDiscardingFake().EnqueueAsync(work, submission, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<Guid> EnqueueAsync(
+      Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.CurrentOrDiscardingFake().EnqueueAsync(work, submission, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<Guid> EnqueueAsync(
+      Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.CurrentOrDiscardingFake().EnqueueAsync(work, submission, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, Task>> work,
       JobSubmission? submission = null,
@@ -52,6 +66,20 @@ public sealed class CapturingJobEnqueuer(IJobPayloadSerializer serializer) : IJo
     /// <inheritdoc />
     public ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, ValueTask>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.CurrentOrDiscardingFake().EnqueueAsync(work, submission, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<Guid> EnqueueAsync<TService>(
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+      => this.CurrentOrDiscardingFake().EnqueueAsync(work, submission, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<Guid> EnqueueAsync<TService>(
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
       => this.CurrentOrDiscardingFake().EnqueueAsync(work, submission, cancellationToken);

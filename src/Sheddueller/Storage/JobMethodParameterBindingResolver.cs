@@ -47,6 +47,7 @@ internal static class JobMethodParameterBindingResolver
       {
           Type type when type == typeof(CancellationToken) => new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
           Type type when type == typeof(IJobContext) => new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext),
+          Type type when type == typeof(IProgress<decimal>) => new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter),
           _ => new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
       };
 
@@ -55,5 +56,7 @@ internal static class JobMethodParameterBindingResolver
         ? new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken)
         : string.Equals(parameterType, typeof(IJobContext).AssemblyQualifiedName, StringComparison.Ordinal)
           ? new JobMethodParameterBinding(JobMethodParameterBindingKind.JobContext)
-          : new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized);
+          : string.Equals(parameterType, typeof(IProgress<decimal>).AssemblyQualifiedName, StringComparison.Ordinal)
+            ? new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter)
+            : new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized);
 }

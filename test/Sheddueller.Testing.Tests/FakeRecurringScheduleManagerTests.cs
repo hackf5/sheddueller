@@ -3,6 +3,7 @@ namespace Sheddueller.Testing.Tests;
 using Microsoft.Extensions.Time.Testing;
 
 using Sheddueller.Serialization;
+using Sheddueller.Storage;
 
 using Shouldly;
 
@@ -58,7 +59,31 @@ public sealed class FakeRecurringScheduleManagerTests
           (s, ct) => s.HandleAsync(new SamplePayload("alpha", 42), ct))).ShouldBeEmpty();
         (await fake.MatchAsync<TestScheduleService>(
           "schedule-a",
-          (s, ct) => s.HandleAsync(new SamplePayload("alpha", 43), ct))).ShouldBeEmpty();
+            (s, ct) => s.HandleAsync(new SamplePayload("alpha", 43), ct))).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CreateOrUpdate_ProgressAwareServiceMethod_RecordsScheduleAndMatchesByExpression()
+    {
+        var fake = new FakeRecurringScheduleManager();
+        var payload = new SamplePayload("alpha", 42);
+
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (s, ct, progress) => s.HandleWithProgressAsync(payload, progress, ct));
+
+        var match = await fake.MatchAsync<TestScheduleService>(
+          "schedule-a",
+          (s, ct, progress) => s.HandleWithProgressAsync(new SamplePayload("alpha", 42), progress, ct));
+
+        match.Count.ShouldBe(1);
+        match[0].MethodParameterTypes.ShouldBe([typeof(SamplePayload), typeof(IProgress<decimal>), typeof(CancellationToken)]);
+        match[0].MethodParameterBindings.ShouldBe([
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.Serialized),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter),
+          new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken),
+        ]);
     }
 
     [Fact]
@@ -235,6 +260,9 @@ public sealed class FakeRecurringScheduleManagerTests
           => Task.CompletedTask;
 
         public Task HandleStringAsync(string value, CancellationToken cancellationToken)
+          => Task.CompletedTask;
+
+        public Task HandleWithProgressAsync(SamplePayload payload, IProgress<decimal> progress, CancellationToken cancellationToken)
           => Task.CompletedTask;
     }
 
