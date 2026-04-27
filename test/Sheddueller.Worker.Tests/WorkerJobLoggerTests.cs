@@ -21,7 +21,10 @@ public sealed class WorkerJobLoggerTests
         var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
-        await using var provider = CreateProvider<LoggingJob>(store, eventSink);
+        await using var provider = CreateProvider<LoggingJob>(
+          store,
+          eventSink,
+          configureOptions: options => options.EnableJobLogCapture = true);
         var outsideLogger = provider.GetRequiredService<ILogger<LoggingJob>>();
         OutsideLog(outsideLogger, null);
         var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
@@ -29,7 +32,8 @@ public sealed class WorkerJobLoggerTests
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
         await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
 
-        var request = eventSink.Requests.ShouldHaveSingleItem();
+        eventSink.Requests.Any(request => HasEventId(request, "41")).ShouldBeFalse();
+        var request = eventSink.Requests.Single(request => HasEventId(request, "42"));
         request.JobId.ShouldBe(job.JobId);
         request.Kind.ShouldBe(JobEventKind.Log);
         request.AttemptNumber.ShouldBe(job.AttemptCount);
@@ -62,6 +66,27 @@ public sealed class WorkerJobLoggerTests
     }
 
     [Fact]
+    public async Task JobExecution_LogCaptureDisabledByDefault_DoesNotRecordDurableLogEventButKeepsExternalScope()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
+        var store = new SingleClaimJobStore(job);
+        var eventSink = new RecordingJobEventSink();
+        using var logs = new ScopeRecordingLoggerProvider();
+        await using var provider = CreateProvider<LoggingJob>(store, eventSink, loggerProvider: logs);
+        var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
+
+        await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
+        await StopHostedServicesAsync(hostedServices, cancellationTokenSource.Token);
+
+        eventSink.Requests.ShouldBeEmpty();
+        var entry = logs.Entries.Single(log => log.EventId.Id == 42);
+        entry.ScopeProperties["ShedduellerJobId"].ShouldBe(job.JobId);
+        entry.ScopeProperties["ShedduellerAttemptNumber"].ShouldBe(job.AttemptCount);
+        entry.ScopeProperties["ShedduellerNodeId"].ShouldBe("worker-logger");
+    }
+
+    [Fact]
     public async Task JobExecution_FireAndForgetLoggerAfterCompletion_DoesNotRecordDurableLogEvent()
     {
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -69,7 +94,11 @@ public sealed class WorkerJobLoggerTests
         var store = new SingleClaimJobStore(job);
         var eventSink = new RecordingJobEventSink();
         var coordinator = new LateLogCoordinator();
-        await using var provider = CreateProvider<LateLoggingJob>(store, eventSink, coordinator);
+        await using var provider = CreateProvider<LateLoggingJob>(
+          store,
+          eventSink,
+          coordinator,
+          configureOptions: options => options.EnableJobLogCapture = true);
         var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
 
         await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
@@ -86,7 +115,10 @@ public sealed class WorkerJobLoggerTests
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
-        await using var provider = CreateProvider<LoggingJob>(store, new ThrowingJobEventSink());
+        await using var provider = CreateProvider<LoggingJob>(
+          store,
+          new ThrowingJobEventSink(),
+          configureOptions: options => options.EnableJobLogCapture = true);
         var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
 
         var completed = await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
@@ -101,7 +133,10 @@ public sealed class WorkerJobLoggerTests
         using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var job = CreateClaimedJob<ThrowingFormatterJob>(nameof(ThrowingFormatterJob.RunAsync));
         var store = new SingleClaimJobStore(job);
-        await using var provider = CreateProvider<ThrowingFormatterJob>(store, new RecordingJobEventSink());
+        await using var provider = CreateProvider<ThrowingFormatterJob>(
+          store,
+          new RecordingJobEventSink(),
+          configureOptions: options => options.EnableJobLogCapture = true);
         var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
 
         var completed = await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
@@ -117,7 +152,10 @@ public sealed class WorkerJobLoggerTests
         var job = CreateClaimedJob<LoggingJob>(nameof(LoggingJob.RunAsync));
         var store = new SingleClaimJobStore(job);
         var eventSink = new BlockingJobEventSink();
-        await using var provider = CreateProvider<LoggingJob>(store, eventSink);
+        await using var provider = CreateProvider<LoggingJob>(
+          store,
+          eventSink,
+          configureOptions: options => options.EnableJobLogCapture = true);
         var hostedServices = await StartHostedServicesAsync(provider, cancellationTokenSource.Token);
 
         var completed = await store.Completed.Task.WaitAsync(cancellationTokenSource.Token);
@@ -131,7 +169,8 @@ public sealed class WorkerJobLoggerTests
         SingleClaimJobStore store,
         IJobEventSink eventSink,
         LateLogCoordinator? coordinator = null,
-        ILoggerProvider? loggerProvider = null)
+        ILoggerProvider? loggerProvider = null,
+        Action<ShedduellerOptions>? configureOptions = null)
       where TJob : class
     {
         var services = new ServiceCollection();
@@ -158,10 +197,16 @@ public sealed class WorkerJobLoggerTests
             options.IdlePollingInterval = TimeSpan.FromMilliseconds(10);
             options.HeartbeatInterval = TimeSpan.FromSeconds(5);
             options.LeaseDuration = TimeSpan.FromSeconds(30);
+            configureOptions?.Invoke(options);
         }));
 
         return services.BuildServiceProvider();
     }
+
+    private static bool HasEventId(AppendJobEventRequest request, string eventId)
+      => request.Fields is not null
+        && request.Fields.TryGetValue("EventId", out var actualEventId)
+        && string.Equals(actualEventId, eventId, StringComparison.Ordinal);
 
     private static async Task<IReadOnlyList<IHostedService>> StartHostedServicesAsync(
         ServiceProvider provider,

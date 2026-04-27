@@ -46,6 +46,11 @@ public sealed class ShedduellerOptions
     public RetryPolicy? DefaultRetryPolicy { get; set; }
 
     /// <summary>
+    /// Gets or sets whether Microsoft ILogger messages written during job execution are captured as durable job log events.
+    /// </summary>
+    public bool EnableJobLogCapture { get; set; }
+
+    /// <summary>
     /// Gets the effective stale worker node threshold.
     /// </summary>
     public TimeSpan EffectiveStaleNodeThreshold
