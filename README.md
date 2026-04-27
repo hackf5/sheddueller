@@ -159,6 +159,8 @@ builder.Host.UseSerilog(
 
 Because Sheddueller's capture is a Microsoft `ILoggerProvider`, Microsoft logging filters still apply. Configure `Logging`/`ILoggingBuilder` filters alongside any Serilog filtering rules if you want to control which job logs are stored by Sheddueller.
 
+Set `ShedduellerOptions.EnableJobLogCapture = true` to enable durable capture of `ILogger<T>` job logs. This is disabled by default. The worker still opens the job logging scope, so external providers can continue receiving `ShedduellerJobId`, `ShedduellerAttemptNumber`, and `ShedduellerNodeId`.
+
 Use `NotBeforeUtc` for delayed jobs. Use `JobIdempotencyKind.MethodAndArguments` to reuse an existing queued job with the same target method and serialized arguments.
 
 ## Recurring Schedules

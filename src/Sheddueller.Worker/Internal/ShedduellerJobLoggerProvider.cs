@@ -4,13 +4,17 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
+using Sheddueller;
 using Sheddueller.Storage;
 
-internal sealed class ShedduellerJobLoggerProvider(ShedduellerJobLogEventQueue eventQueue) : ILoggerProvider
+internal sealed class ShedduellerJobLoggerProvider(
+    ShedduellerJobLogEventQueue eventQueue,
+    IOptions<ShedduellerOptions> options) : ILoggerProvider
 {
     public ILogger CreateLogger(string categoryName)
-      => new JobLogger(eventQueue, categoryName);
+      => new JobLogger(eventQueue, options.Value.EnableJobLogCapture, categoryName);
 
     public void Dispose()
     {
@@ -18,6 +22,7 @@ internal sealed class ShedduellerJobLoggerProvider(ShedduellerJobLogEventQueue e
 
     private sealed class JobLogger(
         ShedduellerJobLogEventQueue eventQueue,
+        bool enableJobLogCapture,
         string categoryName) : ILogger
     {
         public IDisposable BeginScope<TState>(TState state)
@@ -25,7 +30,8 @@ internal sealed class ShedduellerJobLoggerProvider(ShedduellerJobLogEventQueue e
           => NullScope.Instance;
 
         public bool IsEnabled(LogLevel logLevel)
-          => logLevel != LogLevel.None && JobLogCaptureContext.Active is not null;
+          => logLevel != LogLevel.None
+            && enableJobLogCapture;
 
         [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Captured job logging is best-effort and must not fail jobs.")]
         public void Log<TState>(
@@ -35,7 +41,7 @@ internal sealed class ShedduellerJobLoggerProvider(ShedduellerJobLogEventQueue e
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.None)
+            if (logLevel == LogLevel.None || !enableJobLogCapture)
             {
                 return;
             }
