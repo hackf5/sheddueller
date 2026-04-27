@@ -175,11 +175,14 @@ internal sealed class ShedduellerWorker(
         var serializableParameterTypes = methodParameterTypes
           .Where((_, index) => parameterBindings[index].Kind == JobMethodParameterBindingKind.Serialized)
           .ToArray();
-        var jobContext = new JobContext(job.JobId, job.AttemptCount, this._jobEventSink, this._jobContextLogger, executionToken);
+        var jobContext = new JobContext(job.JobId, job.AttemptCount, executionToken);
 
         var scope = this._scopeFactory.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
         {
+            using var loggingScope = this._logger.BeginScope(CreateJobLoggingScope(job, this._nodeIdProvider.NodeId));
+            using var logCapture = JobLogCaptureContext.Begin(job.JobId, job.AttemptCount);
+
             var (target, bindingFlags) = job.InvocationTargetKind switch
             {
                 JobInvocationTargetKind.Static => (
@@ -241,6 +244,16 @@ internal sealed class ShedduellerWorker(
             }
         }
     }
+
+    private static Dictionary<string, object?> CreateJobLoggingScope(
+        ClaimedJob job,
+        string nodeId)
+      => new(StringComparer.Ordinal)
+      {
+          ["ShedduellerJobId"] = job.JobId,
+          ["ShedduellerAttemptNumber"] = job.AttemptCount,
+          ["ShedduellerNodeId"] = nodeId,
+      };
 
     private static object?[] BuildInvocationArguments(
         IServiceProvider serviceProvider,

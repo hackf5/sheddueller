@@ -4,6 +4,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 using Sheddueller;
 using Sheddueller.Runtime;
@@ -28,6 +29,9 @@ public static class ShedduellerWorkerServiceCollectionExtensions
 
         services.AddSheddueller(configure);
         services.TryAddSingleton<IShedduellerNodeIdProvider, ShedduellerNodeIdProvider>();
+        services.TryAddSingleton<ShedduellerJobLogEventQueue>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider, ShedduellerJobLoggerProvider>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerJobLogEventDispatcher>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerStartupValidator, ShedduellerWorkerStartupValidator>());
         TryAddStartupValidationHostedService(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerWorker>());

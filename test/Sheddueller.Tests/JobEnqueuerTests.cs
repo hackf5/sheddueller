@@ -605,12 +605,5 @@ public sealed class JobEnqueuerTests
         public int AttemptNumber => 0;
 
         public CancellationToken CancellationToken => CancellationToken.None;
-
-        public ValueTask LogAsync(
-            JobLogLevel level,
-            string message,
-            IReadOnlyDictionary<string, string>? fields = null,
-            CancellationToken cancellationToken = default)
-          => ValueTask.CompletedTask;
     }
 }

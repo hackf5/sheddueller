@@ -1,16 +1,8 @@
 namespace Sheddueller.Runtime;
 
-using System.Diagnostics.CodeAnalysis;
-
-using Microsoft.Extensions.Logging;
-
-using Sheddueller.Storage;
-
 internal sealed class JobContext(
     Guid jobId,
     int attemptNumber,
-    IJobEventSink eventSink,
-    ILogger<JobContext> logger,
     CancellationToken cancellationToken) : IJobContext
 {
     public Guid JobId { get; } = jobId;
@@ -18,60 +10,4 @@ internal sealed class JobContext(
     public int AttemptNumber { get; } = attemptNumber;
 
     public CancellationToken CancellationToken { get; } = cancellationToken;
-
-    public async ValueTask LogAsync(
-        JobLogLevel level,
-        string message,
-        IReadOnlyDictionary<string, string>? fields = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(message);
-        ValidateFields(fields);
-
-        await this.AppendBestEffortAsync(
-          new AppendJobEventRequest(this.JobId, JobEventKind.Log, this.AttemptNumber, level, message, Fields: fields),
-          cancellationToken)
-          .ConfigureAwait(false);
-    }
-
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Job-context telemetry is best-effort by v4 design.")]
-    private async ValueTask AppendBestEffortAsync(
-        AppendJobEventRequest request,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await eventSink.AppendAsync(request, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            logger.JobEventAppendFailed(exception, request.JobId);
-            // Best-effort telemetry must not fail the owning job.
-        }
-    }
-
-    private static void ValidateFields(IReadOnlyDictionary<string, string>? fields)
-    {
-        if (fields is null)
-        {
-            return;
-        }
-
-        foreach (var (key, value) in fields)
-        {
-            if (key is null)
-            {
-                throw new ArgumentException("Job log field names cannot be null.", nameof(fields));
-            }
-
-            if (value is null)
-            {
-                throw new ArgumentException("Job log field values cannot be null.", nameof(fields));
-            }
-        }
-    }
 }
