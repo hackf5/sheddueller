@@ -24,4 +24,9 @@ public enum JobMethodParameterBindingKind
     /// The parameter value is resolved from dependency injection at execution time.
     /// </summary>
     Service = 3,
+
+    /// <summary>
+    /// The parameter value is the scheduler-owned job progress reporter.
+    /// </summary>
+    ProgressReporter = 4,
 }

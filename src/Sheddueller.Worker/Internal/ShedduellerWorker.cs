@@ -203,12 +203,18 @@ internal sealed class ShedduellerWorker(
                 .GetRequiredService<IJobPayloadSerializer>()
                 .DeserializeAsync(job.SerializedArguments, serializableParameterTypes, executionToken)
                 .ConfigureAwait(false);
+            var progressReporter = new DecimalJobProgressReporter(
+              job.JobId,
+              job.AttemptCount,
+              this._jobEventSink,
+              this._jobContextLogger);
             var invocationArguments = BuildInvocationArguments(
               scope.ServiceProvider,
               methodParameterTypes,
               parameterBindings,
               deserializedArguments,
               jobContext,
+              progressReporter,
               executionToken);
             object? result;
 
@@ -242,6 +248,7 @@ internal sealed class ShedduellerWorker(
         IReadOnlyList<JobMethodParameterBinding> parameterBindings,
         IReadOnlyList<object?> deserializedArguments,
         IJobContext jobContext,
+        DecimalJobProgressReporter progressReporter,
         CancellationToken executionToken)
     {
         if (methodParameterTypes.Length != parameterBindings.Count)
@@ -264,6 +271,10 @@ internal sealed class ShedduellerWorker(
                     invocationArguments[i] = jobContext;
                     continue;
 
+                case JobMethodParameterBindingKind.ProgressReporter:
+                    invocationArguments[i] = GetProgressReporter(methodParameterTypes[i], progressReporter);
+                    continue;
+
                 case JobMethodParameterBindingKind.Service:
                     invocationArguments[i] = ResolveBoundService(serviceProvider, methodParameterTypes[i], parameterBindings[i]);
                     continue;
@@ -284,6 +295,18 @@ internal sealed class ShedduellerWorker(
         }
 
         return invocationArguments;
+    }
+
+    private static DecimalJobProgressReporter GetProgressReporter(
+        Type parameterType,
+        DecimalJobProgressReporter progressReporter)
+    {
+        if (parameterType != typeof(IProgress<decimal>))
+        {
+            throw new InvalidOperationException($"Progress reporter parameter type '{parameterType}' is not supported.");
+        }
+
+        return progressReporter;
     }
 
     private static object ResolveBoundService(
@@ -309,6 +332,32 @@ internal sealed class ShedduellerWorker(
         Type[] methodParameterTypes,
         IReadOnlyList<JobMethodParameterBinding>? parameterBindings)
       => JobMethodParameterBindingResolver.Normalize(methodParameterTypes, parameterBindings);
+
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Job progress telemetry is best-effort by v4 design.")]
+    private sealed class DecimalJobProgressReporter(
+        Guid jobId,
+        int attemptNumber,
+        IJobEventSink eventSink,
+        ILogger logger) : IProgress<decimal>
+    {
+        public void Report(decimal value)
+        {
+            var request = new AppendJobEventRequest(
+              jobId,
+              JobEventKind.Progress,
+              attemptNumber,
+              ProgressPercent: (double)Math.Clamp(value, 0, 100));
+
+            try
+            {
+                eventSink.AppendAsync(request).AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                logger.JobEventAppendFailed(exception, jobId);
+            }
+        }
+    }
 
     private void TrackRunningJob(Task executionTask)
     {

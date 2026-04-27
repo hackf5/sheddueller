@@ -47,7 +47,7 @@ The sample applies PostgreSQL schema migrations automatically on startup and reg
 ## Launcher Scenarios
 
 - `Quick success`: immediate completion
-- `Progress + logs`: emits durable logs and progress updates
+- `Progress + logs`: emits durable logs and `IProgress<decimal>` progress updates
 - `Retry then succeed`: fails twice, then succeeds
 - `Permanent failure`: terminal failure without retries
 - `Delayed job`: waits 30 seconds before becoming claimable

@@ -55,6 +55,7 @@ internal static class JobInvocationDisplayFormatter
           JobMethodParameterBindingKind.Serialized => FormatSerializedArgument(parameter),
           JobMethodParameterBindingKind.CancellationToken => "CancellationToken",
           JobMethodParameterBindingKind.JobContext => "Job.Context",
+          JobMethodParameterBindingKind.ProgressReporter => "IProgress<Decimal>",
           JobMethodParameterBindingKind.Service => string.Create(
             CultureInfo.InvariantCulture,
             $"Job.Resolve<{ShortTypeName(parameter.Binding.ServiceType ?? parameter.ParameterType)}>()"),

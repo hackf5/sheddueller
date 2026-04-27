@@ -37,6 +37,30 @@ public interface IJobEnqueuer
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Enqueues a Task-returning job method call with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <param name="work">The method-call expression to persist as a job.</param>
+    /// <param name="submission">Optional queueing, retry, idempotency, and metadata settings.</param>
+    /// <param name="cancellationToken">A token for canceling the enqueue operation.</param>
+    /// <returns>The identifier of the queued job, or the existing queued job when generated idempotency matches.</returns>
+    ValueTask<Guid> EnqueueAsync(
+        Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+        JobSubmission? submission = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enqueues a ValueTask-returning job method call with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <param name="work">The method-call expression to persist as a job.</param>
+    /// <param name="submission">Optional queueing, retry, idempotency, and metadata settings.</param>
+    /// <param name="cancellationToken">A token for canceling the enqueue operation.</param>
+    /// <returns>The identifier of the queued job, or the existing queued job when generated idempotency matches.</returns>
+    ValueTask<Guid> EnqueueAsync(
+        Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+        JobSubmission? submission = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Enqueues a Task-returning service method call.
     /// </summary>
     /// <typeparam name="TService">The service type resolved from dependency injection when the job executes.</typeparam>
@@ -59,6 +83,32 @@ public interface IJobEnqueuer
     /// <returns>The identifier of the queued job, or the existing queued job when generated idempotency matches.</returns>
     ValueTask<Guid> EnqueueAsync<TService>(
         Expression<Func<TService, CancellationToken, ValueTask>> work,
+        JobSubmission? submission = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enqueues a Task-returning service method call with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <typeparam name="TService">The service type resolved from dependency injection when the job executes.</typeparam>
+    /// <param name="work">The method-call expression to persist as a job.</param>
+    /// <param name="submission">Optional queueing, retry, idempotency, and metadata settings.</param>
+    /// <param name="cancellationToken">A token for canceling the enqueue operation.</param>
+    /// <returns>The identifier of the queued job, or the existing queued job when generated idempotency matches.</returns>
+    ValueTask<Guid> EnqueueAsync<TService>(
+        Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+        JobSubmission? submission = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enqueues a ValueTask-returning service method call with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <typeparam name="TService">The service type resolved from dependency injection when the job executes.</typeparam>
+    /// <param name="work">The method-call expression to persist as a job.</param>
+    /// <param name="submission">Optional queueing, retry, idempotency, and metadata settings.</param>
+    /// <param name="cancellationToken">A token for canceling the enqueue operation.</param>
+    /// <returns>The identifier of the queued job, or the existing queued job when generated idempotency matches.</returns>
+    ValueTask<Guid> EnqueueAsync<TService>(
+        Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
         JobSubmission? submission = null,
         CancellationToken cancellationToken = default);
 

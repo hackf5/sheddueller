@@ -83,6 +83,40 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
     }
 
     /// <inheritdoc />
+    public async ValueTask<Guid> EnqueueAsync(
+      Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+    {
+        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+
+        lock (this._syncRoot)
+        {
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            this._jobs.Add(recordedJob);
+
+            return recordedJob.JobId;
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<Guid> EnqueueAsync(
+      Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+    {
+        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+
+        lock (this._syncRoot)
+        {
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            this._jobs.Add(recordedJob);
+
+            return recordedJob.JobId;
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, Task>> work,
       JobSubmission? submission = null,
@@ -102,6 +136,40 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
     /// <inheritdoc />
     public async ValueTask<Guid> EnqueueAsync<TService>(
       Expression<Func<TService, CancellationToken, ValueTask>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+    {
+        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+
+        lock (this._syncRoot)
+        {
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            this._jobs.Add(recordedJob);
+
+            return recordedJob.JobId;
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<Guid> EnqueueAsync<TService>(
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+      JobSubmission? submission = null,
+      CancellationToken cancellationToken = default)
+    {
+        var preparedJob = await this.PrepareJobAsync(JobExpressionParser.Parse(work), submission, cancellationToken).ConfigureAwait(false);
+
+        lock (this._syncRoot)
+        {
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            this._jobs.Add(recordedJob);
+
+            return recordedJob.JobId;
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<Guid> EnqueueAsync<TService>(
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       JobSubmission? submission = null,
       CancellationToken cancellationToken = default)
     {
@@ -175,6 +243,22 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
       => await this.MatchCoreAsync(JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
 
     /// <summary>
+    /// Finds recorded jobs that match a Task-returning job method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeJobMatch> MatchAsync(
+      Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Finds recorded jobs that match a ValueTask-returning job method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeJobMatch> MatchAsync(
+      Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
     /// Finds recorded jobs that match a Task-returning service method call.
     /// </summary>
     public async ValueTask<FakeJobMatch> MatchAsync<TService>(
@@ -187,6 +271,22 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
     /// </summary>
     public async ValueTask<FakeJobMatch> MatchAsync<TService>(
       Expression<Func<TService, CancellationToken, ValueTask>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Finds recorded jobs that match a Task-returning service method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeJobMatch> MatchAsync<TService>(
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+      CancellationToken cancellationToken = default)
+      => await this.MatchCoreAsync(JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Finds recorded jobs that match a ValueTask-returning service method call with scheduler-supplied progress reporting.
+    /// </summary>
+    public async ValueTask<FakeJobMatch> MatchAsync<TService>(
+      Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
       CancellationToken cancellationToken = default)
       => await this.MatchCoreAsync(JobExpressionParser.Parse(work), cancellationToken).ConfigureAwait(false);
 

@@ -34,27 +34,6 @@ internal sealed class JobContext(
           .ConfigureAwait(false);
     }
 
-    public async ValueTask ReportProgressAsync(
-        double? percent,
-        string? message = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (percent is < 0 or > 100)
-        {
-            throw new ArgumentOutOfRangeException(nameof(percent), percent, "Progress percent must be between 0 and 100.");
-        }
-
-        await this.AppendBestEffortAsync(
-          new AppendJobEventRequest(
-            this.JobId,
-            JobEventKind.Progress,
-            this.AttemptNumber,
-            Message: message,
-            ProgressPercent: percent),
-          cancellationToken)
-          .ConfigureAwait(false);
-    }
-
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Job-context telemetry is best-effort by v4 design.")]
     private async ValueTask AppendBestEffortAsync(
         AppendJobEventRequest request,

@@ -10,32 +10,67 @@ internal static class JobExpressionParser
     {
         ArgumentNullException.ThrowIfNull(work);
 
-        return Parse(serviceType: null, work);
+        return Parse(serviceType: null, work, includesProgressReporter: false);
+    }
+
+    public static ParsedJob Parse<TResult>(Expression<Func<CancellationToken, IProgress<decimal>, TResult>> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        return Parse(serviceType: null, work, includesProgressReporter: true);
     }
 
     public static ParsedJob Parse<TService, TResult>(Expression<Func<TService, CancellationToken, TResult>> work)
     {
         ArgumentNullException.ThrowIfNull(work);
 
-        return Parse(typeof(TService), work);
+        return Parse(typeof(TService), work, includesProgressReporter: false);
+    }
+
+    public static ParsedJob Parse<TService, TResult>(Expression<Func<TService, CancellationToken, IProgress<decimal>, TResult>> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        return Parse(typeof(TService), work, includesProgressReporter: true);
     }
 
     public static ParsedJob Parse(Type? serviceType, LambdaExpression work)
     {
         ArgumentNullException.ThrowIfNull(work);
 
-        if (serviceType is null && (work.Parameters.Count != 1 || work.Parameters[0].Type != typeof(CancellationToken)))
+        return Parse(serviceType, work, IncludesProgressReporter(serviceType, work));
+    }
+
+    private static ParsedJob Parse(
+        Type? serviceType,
+        LambdaExpression work,
+        bool includesProgressReporter)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (serviceType is null && !ValidateStaticExpressionParameters(work, includesProgressReporter))
         {
-            throw new ArgumentException("Submitted work must accept the scheduler cancellation token.", nameof(work));
+            throw new ArgumentException(
+              includesProgressReporter
+                ? "Submitted work must accept the scheduler cancellation token and progress reporter."
+                : "Submitted work must accept the scheduler cancellation token.",
+              nameof(work));
         }
 
-        if (serviceType is not null && (work.Parameters.Count != 2 || work.Parameters[1].Type != typeof(CancellationToken)))
+        if (serviceType is not null && !ValidateServiceExpressionParameters(work, includesProgressReporter))
         {
-            throw new ArgumentException("Submitted work must accept a service instance and scheduler cancellation token.", nameof(work));
+            throw new ArgumentException(
+              includesProgressReporter
+                ? "Submitted work must accept a service instance, scheduler cancellation token, and progress reporter."
+                : "Submitted work must accept a service instance and scheduler cancellation token.",
+              nameof(work));
         }
 
         var serviceParameter = serviceType is null ? null : work.Parameters[0];
         var cancellationTokenParameter = serviceType is null ? work.Parameters[0] : work.Parameters[1];
+        var progressReporterParameter = includesProgressReporter
+          ? serviceType is null ? work.Parameters[1] : work.Parameters[2]
+          : null;
         var body = StripConvert(work.Body);
 
         if (body is not MethodCallExpression methodCall)
@@ -55,6 +90,7 @@ internal static class JobExpressionParser
         var serializableParameterTypes = new List<Type>();
         var parameterBindings = new List<JobMethodParameterBinding>();
         var forwardedCancellationToken = false;
+        var forwardedProgressReporter = false;
 
         for (var i = 0; i < methodParameters.Length; i++)
         {
@@ -78,6 +114,25 @@ internal static class JobExpressionParser
                 forwardedCancellationToken = true;
                 parameterBindings.Add(new JobMethodParameterBinding(JobMethodParameterBindingKind.CancellationToken));
                 continue;
+            }
+
+            if (parameter.ParameterType == typeof(IProgress<decimal>))
+            {
+                if (progressReporterParameter is null || !IsSameParameter(argument, progressReporterParameter))
+                {
+                    throw new ArgumentException(
+                      "IProgress<decimal> target method parameters must receive the scheduler-owned progress reporter.",
+                      nameof(work));
+                }
+
+                forwardedProgressReporter = true;
+                parameterBindings.Add(new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter));
+                continue;
+            }
+
+            if (IsAnyProgressReporterType(parameter.ParameterType))
+            {
+                throw new ArgumentException("Only IProgress<decimal> is supported for scheduler-owned progress reporting.", nameof(work));
             }
 
             if (parameter.ParameterType == typeof(IJobContext))
@@ -113,9 +168,14 @@ internal static class JobExpressionParser
             }
 
             if ((serviceParameter is not null && ReferencesParameter(argument, serviceParameter))
-                || ReferencesParameter(argument, cancellationTokenParameter))
+                || ReferencesParameter(argument, cancellationTokenParameter)
+                || (progressReporterParameter is not null && ReferencesParameter(argument, progressReporterParameter)))
             {
-                throw new ArgumentException("Only the target service instance and scheduler cancellation token may be runtime-bound.", nameof(work));
+                throw new ArgumentException(
+                  progressReporterParameter is null
+                    ? "Only the target service instance and scheduler cancellation token may be runtime-bound."
+                    : "Only the target service instance, scheduler cancellation token, and progress reporter may be runtime-bound.",
+                  nameof(work));
             }
 
             ValidateSerializableParameterType(parameter.ParameterType, nameof(work));
@@ -130,6 +190,11 @@ internal static class JobExpressionParser
         if (!forwardedCancellationToken)
         {
             throw new ArgumentException("Submitted work must forward the scheduler-owned CancellationToken.", nameof(work));
+        }
+
+        if (progressReporterParameter is not null && !forwardedProgressReporter)
+        {
+            throw new ArgumentException("Submitted work must forward the scheduler-owned progress reporter.", nameof(work));
         }
 
         return new ParsedJob(
@@ -209,6 +274,37 @@ internal static class JobExpressionParser
     private static bool IsCompatibleServiceType(Type serviceType, Type targetType)
       => serviceType.IsAssignableTo(targetType) || targetType.IsAssignableTo(serviceType);
 
+    private static bool ValidateStaticExpressionParameters(
+        LambdaExpression work,
+        bool includesProgressReporter)
+      => includesProgressReporter
+        ? work.Parameters.Count == 2
+          && work.Parameters[0].Type == typeof(CancellationToken)
+          && work.Parameters[1].Type == typeof(IProgress<decimal>)
+        : work.Parameters.Count == 1
+          && work.Parameters[0].Type == typeof(CancellationToken);
+
+    private static bool ValidateServiceExpressionParameters(
+        LambdaExpression work,
+        bool includesProgressReporter)
+      => includesProgressReporter
+        ? work.Parameters.Count == 3
+          && work.Parameters[1].Type == typeof(CancellationToken)
+          && work.Parameters[2].Type == typeof(IProgress<decimal>)
+        : work.Parameters.Count == 2
+          && work.Parameters[1].Type == typeof(CancellationToken);
+
+    private static bool IncludesProgressReporter(
+        Type? serviceType,
+        LambdaExpression work)
+      => serviceType is null
+        ? work.Parameters.Count == 2
+          && work.Parameters[0].Type == typeof(CancellationToken)
+          && work.Parameters[1].Type == typeof(IProgress<decimal>)
+        : work.Parameters.Count == 3
+          && work.Parameters[1].Type == typeof(CancellationToken)
+          && work.Parameters[2].Type == typeof(IProgress<decimal>);
+
     private static object? EvaluateArgument(Expression argument)
     {
         var converted = Expression.Convert(argument, typeof(object));
@@ -280,6 +376,7 @@ internal static class JobExpressionParser
     {
         if (typeof(CancellationToken).IsAssignableFrom(type)
             || typeof(IJobContext).IsAssignableFrom(type)
+            || IsAnyProgressReporterType(type)
             || typeof(Delegate).IsAssignableFrom(type)
             || typeof(Stream).IsAssignableFrom(type))
         {
@@ -289,11 +386,18 @@ internal static class JobExpressionParser
 
     private static void ValidateSerializableArgumentValue(object? value, string parameterName)
     {
-        if (value is CancellationToken or IJobContext or Delegate or Stream)
+        if (value is CancellationToken or IJobContext or Delegate or Stream
+            || (value is not null && IsAnyProgressReporterType(value.GetType())))
         {
             throw new ArgumentException($"Argument value of type '{value.GetType()}' is not supported for serialized job arguments.", parameterName);
         }
     }
+
+    private static bool IsAnyProgressReporterType(Type type)
+      => IsProgressReporterInterface(type) || type.GetInterfaces().Any(IsProgressReporterInterface);
+
+    private static bool IsProgressReporterInterface(Type type)
+      => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IProgress<>);
 
     private sealed class ParameterReferenceVisitor(ParameterExpression parameter) : ExpressionVisitor
     {

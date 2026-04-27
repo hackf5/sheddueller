@@ -120,7 +120,7 @@ Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an applicat
 
 ## Enqueue Jobs
 
-Job methods return `Task` or `ValueTask` and receive the scheduler-owned `CancellationToken`. Use `Job.Context` when a handler needs durable logs, progress events, the job id, or the attempt number.
+Job methods return `Task` or `ValueTask` and receive the scheduler-owned `CancellationToken`. Use `Job.Context` when a handler needs durable logs, the job id, or the attempt number. Use scheduler-supplied `IProgress<decimal>` for durable progress updates.
 
 ```csharp
 public sealed class EmailJobs
@@ -128,16 +128,17 @@ public sealed class EmailJobs
     public async Task SendWelcomeAsync(
         Guid userId,
         IJobContext job,
+        IProgress<decimal> progress,
         CancellationToken cancellationToken)
     {
         await job.LogAsync(JobLogLevel.Information, "Sending welcome email.", cancellationToken: cancellationToken);
         await SendEmailAsync(userId, cancellationToken);
-        await job.ReportProgressAsync(100, "Welcome email sent.", cancellationToken);
+        progress.Report(100);
     }
 }
 
 var jobId = await enqueuer.EnqueueAsync<EmailJobs>(
-    (jobs, ct) => jobs.SendWelcomeAsync(userId, Job.Context, ct),
+    (jobs, ct, progress) => jobs.SendWelcomeAsync(userId, Job.Context, progress, ct),
     new JobSubmission(
         Priority: 10,
         ConcurrencyGroupKeys: ["email"],
@@ -156,7 +157,7 @@ Recurring schedules are keyed definitions. Calling `CreateOrUpdateAsync` at star
 await schedules.CreateOrUpdateAsync<EmailJobs>(
     "email:daily-digest",
     "0 2 * * *",
-    (jobs, ct) => jobs.SendDailyDigestAsync(Job.Context, ct),
+    (jobs, ct, progress) => jobs.SendDailyDigestAsync(Job.Context, progress, ct),
     new RecurringScheduleOptions(
         Priority: 5,
         ConcurrencyGroupKeys: ["email"],
@@ -191,7 +192,7 @@ var capture = provider.GetRequiredService<CapturingJobEnqueuer>().Capture();
 await subject.DoSomethingThatEnqueuesAsync();
 
 var matches = await capture.Fake.MatchAsync<EmailJobs>(
-    (jobs, ct) => jobs.SendWelcomeAsync(userId, Job.Context, ct));
+    (jobs, ct, progress) => jobs.SendWelcomeAsync(userId, Job.Context, progress, ct));
 ```
 
 The same package includes `FakeJobEnqueuer`, `FakeRecurringScheduleManager`, and async-context-aware capture services for dependency-injected tests.

@@ -58,6 +58,22 @@ public sealed class JobInvocationDisplayFormatterTests
           "    CancellationToken)"));
     }
 
+    [Fact]
+    public void Format_ProgressReporterBinding_DisplaysClrProgressMarker()
+    {
+        var call = JobInvocationDisplayFormatter.Format(
+          typeof(NestedService).AssemblyQualifiedName!,
+          "Run",
+          [
+              new JobInvocationParameterInspection(
+                0,
+                typeof(IProgress<decimal>).AssemblyQualifiedName!,
+                new JobMethodParameterBinding(JobMethodParameterBindingKind.ProgressReporter)),
+          ]);
+
+        call.ShouldBe("NestedService.Run(IProgress<Decimal>)");
+    }
+
     private sealed class NestedService
     {
     }
