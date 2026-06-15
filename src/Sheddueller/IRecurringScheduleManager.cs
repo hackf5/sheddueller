@@ -18,6 +18,7 @@ public interface IRecurringScheduleManager
     /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
     /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
     /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
     /// <param name="cancellationToken">A token for canceling the storage operation.</param>
     /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
     ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
@@ -25,6 +26,42 @@ public interface IRecurringScheduleManager
         string cronExpression,
         Expression<Func<CancellationToken, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates or replaces a Task-returning recurring schedule definition.
+    /// </summary>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a ValueTask-returning recurring schedule definition.
+    /// </summary>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, ValueTask>> work,
+        RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -40,7 +77,26 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<CancellationToken, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a Task-returning recurring schedule definition with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -56,7 +112,26 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a ValueTask-returning recurring schedule definition with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -72,7 +147,27 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a Task-returning recurring schedule definition.
+    /// </summary>
+    /// <typeparam name="TService">The service type resolved from dependency injection when an occurrence runs.</typeparam>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -89,7 +184,27 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a ValueTask-returning recurring schedule definition.
+    /// </summary>
+    /// <typeparam name="TService">The service type resolved from dependency injection when an occurrence runs.</typeparam>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -106,7 +221,27 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a Task-returning recurring schedule definition with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <typeparam name="TService">The service type resolved from dependency injection when an occurrence runs.</typeparam>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -123,7 +258,27 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
+
+    /// <summary>
+    /// Creates or replaces a ValueTask-returning recurring schedule definition with scheduler-supplied progress reporting.
+    /// </summary>
+    /// <typeparam name="TService">The service type resolved from dependency injection when an occurrence runs.</typeparam>
+    /// <param name="scheduleKey">The stable unique key for the schedule.</param>
+    /// <param name="cronExpression">A standard five-field cron expression evaluated in UTC.</param>
+    /// <param name="work">The method-call expression to materialize when an occurrence is due.</param>
+    /// <param name="options">Options applied to jobs created by the schedule.</param>
+    /// <param name="updateOptions">Controls which existing schedule fields are overwritten.</param>
+    /// <param name="cancellationToken">A token for canceling the storage operation.</param>
+    /// <returns>Whether the schedule was created, changed, or already matched the submitted definition.</returns>
+    ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -140,8 +295,9 @@ public interface IRecurringScheduleManager
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
-        RecurringScheduleOptions? options = null,
-        CancellationToken cancellationToken = default);
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken) =>
+        this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     /// <summary>
     /// Manually triggers a recurring schedule by cloning its current stored template into one queued job.

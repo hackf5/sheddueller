@@ -24,64 +24,136 @@ internal sealed class RecurringScheduleManager(
         string cronExpression,
         Expression<Func<CancellationToken, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
         string scheduleKey,
         string cronExpression,
         Expression<Func<CancellationToken, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
         string scheduleKey,
         string cronExpression,
         Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
         string scheduleKey,
         string cronExpression,
         Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
         string scheduleKey,
         string cronExpression,
         Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
         RecurringScheduleOptions? options = null,
+        RecurringScheduleUpdateOptions? updateOptions = null,
         CancellationToken cancellationToken = default)
-      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, cancellationToken);
+      => this.CreateOrUpdateCoreAsync(scheduleKey, cronExpression, work, options, updateOptions, cancellationToken);
+
+    public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateAsync<TService>(
+        string scheduleKey,
+        string cronExpression,
+        Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
+        RecurringScheduleOptions? options,
+        CancellationToken cancellationToken)
+      => this.CreateOrUpdateAsync(scheduleKey, cronExpression, work, options, updateOptions: null, cancellationToken);
 
     public async ValueTask<RecurringScheduleTriggerResult> TriggerAsync(
         string scheduleKey,
@@ -152,6 +224,7 @@ internal sealed class RecurringScheduleManager(
         string cronExpression,
         Expression<Func<TService, CancellationToken, TResult>> work,
         RecurringScheduleOptions? options,
+        RecurringScheduleUpdateOptions? updateOptions,
         CancellationToken cancellationToken)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
@@ -163,6 +236,7 @@ internal sealed class RecurringScheduleManager(
           cronExpression,
           JobExpressionParser.Parse(work),
           options,
+          updateOptions,
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -172,6 +246,7 @@ internal sealed class RecurringScheduleManager(
         string cronExpression,
         Expression<Func<TService, CancellationToken, IProgress<decimal>, TResult>> work,
         RecurringScheduleOptions? options,
+        RecurringScheduleUpdateOptions? updateOptions,
         CancellationToken cancellationToken)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
@@ -183,6 +258,7 @@ internal sealed class RecurringScheduleManager(
           cronExpression,
           JobExpressionParser.Parse(work),
           options,
+          updateOptions,
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -192,6 +268,7 @@ internal sealed class RecurringScheduleManager(
         string cronExpression,
         Expression<Func<CancellationToken, TResult>> work,
         RecurringScheduleOptions? options,
+        RecurringScheduleUpdateOptions? updateOptions,
         CancellationToken cancellationToken)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
@@ -203,6 +280,7 @@ internal sealed class RecurringScheduleManager(
           cronExpression,
           JobExpressionParser.Parse(work),
           options,
+          updateOptions,
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -212,6 +290,7 @@ internal sealed class RecurringScheduleManager(
         string cronExpression,
         Expression<Func<CancellationToken, IProgress<decimal>, TResult>> work,
         RecurringScheduleOptions? options,
+        RecurringScheduleUpdateOptions? updateOptions,
         CancellationToken cancellationToken)
     {
         SubmissionValidator.ValidateScheduleKey(scheduleKey);
@@ -223,6 +302,7 @@ internal sealed class RecurringScheduleManager(
           cronExpression,
           JobExpressionParser.Parse(work),
           options,
+          updateOptions,
           cancellationToken)
           .ConfigureAwait(false);
     }
@@ -232,6 +312,7 @@ internal sealed class RecurringScheduleManager(
         string cronExpression,
         ParsedJob parsedTask,
         RecurringScheduleOptions? options,
+        RecurringScheduleUpdateOptions? updateOptions,
         CancellationToken cancellationToken)
     {
         var groups = SubmissionValidator.NormalizeConcurrencyGroupKeys(options?.ConcurrencyGroupKeys);
@@ -256,7 +337,8 @@ internal sealed class RecurringScheduleManager(
           timeProvider.GetUtcNow(),
           tags,
           parsedTask.InvocationTargetKind,
-          parsedTask.MethodParameterBindings);
+          parsedTask.MethodParameterBindings,
+          updateOptions ?? RecurringScheduleUpdateOptions.Default);
 
         var result = await store.CreateOrUpdateRecurringScheduleAsync(request, cancellationToken).ConfigureAwait(false);
         wakeSignal.Notify();

@@ -11,6 +11,31 @@ using Shouldly;
 public sealed class RecurringScheduleManagerTests
 {
     [Fact]
+    public async Task CreateOrUpdate_UpdateOptions_PassesUpdateOptionsToStore()
+    {
+        var store = new RecordingJobStore();
+        var wakeSignal = new RecordingWakeSignal();
+        var manager = CreateManager(store, wakeSignal);
+        var updateOptions = new RecurringScheduleUpdateOptions(
+          OverwriteCronExpression: false,
+          OverwritePausedState: false);
+
+        var result = await manager.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (service, cancellationToken) => service.ExecuteAsync("feed-1", "job-1", cancellationToken),
+          new RecurringScheduleOptions(Priority: 7),
+          updateOptions);
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Created);
+        var request = store.RecurringScheduleRequests.ShouldHaveSingleItem();
+        request.ScheduleKey.ShouldBe("schedule-a");
+        request.Priority.ShouldBe(7);
+        request.UpdateOptions.ShouldBe(updateOptions);
+        wakeSignal.NotifyCount.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Trigger_InvalidScheduleKey_ThrowsWithoutCallingStore()
     {
         var store = new RecordingJobStore();
@@ -88,5 +113,11 @@ public sealed class RecurringScheduleManagerTests
 
         public ValueTask WaitAsync(TimeSpan timeout, CancellationToken cancellationToken)
           => ValueTask.CompletedTask;
+    }
+
+    private sealed class TestScheduleService
+    {
+        public Task ExecuteAsync(string feedId, string jobKey, CancellationToken cancellationToken)
+          => Task.CompletedTask;
     }
 }

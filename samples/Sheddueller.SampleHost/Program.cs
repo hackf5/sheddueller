@@ -179,7 +179,7 @@ app.MapPost("/launch/recurring", async (IRecurringScheduleManager scheduleManage
       "* * * * *",
       (service, ct, progress) => service.RunRecurringAsync(progress, ct),
       new RecurringScheduleOptions(Priority: 10, OverlapMode: RecurringOverlapMode.Skip),
-      cancellationToken).ConfigureAwait(false);
+      cancellationToken: cancellationToken).ConfigureAwait(false);
     return RedirectWithMessage($"Recurring schedule 'demo:recurring' is {result}. The next occurrence will fire on the next minute boundary.");
 });
 

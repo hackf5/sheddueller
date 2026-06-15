@@ -71,7 +71,8 @@ internal static class PostgresTestData
         RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip,
         IReadOnlyList<JobTag>? tags = null,
         JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
-        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null,
+        RecurringScheduleUpdateOptions? updateOptions = null)
       => new(
         scheduleKey,
         "* * * * *",
@@ -86,7 +87,8 @@ internal static class PostgresTestData
         DateTimeOffset.UtcNow,
         Tags: tags,
         InvocationTargetKind: invocationTargetKind,
-        MethodParameterBindings: methodParameterBindings);
+        MethodParameterBindings: methodParameterBindings,
+        UpdateOptions: updateOptions);
 
     public static JobFailureInfo CreateFailure()
       => new("TestException", "failed", "stack");
