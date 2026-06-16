@@ -555,6 +555,50 @@ public abstract class JobStoreContractTests
     }
 
     [Fact]
+    public async Task RecurringSchedule_UpdateOptions_CanPreserveCronExpression()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a", priority: 1));
+        var result = await context.Store.CreateOrUpdateRecurringScheduleAsync(
+          CreateSchedule(
+            "schedule-a",
+            priority: 5,
+            updateOptions: new RecurringScheduleUpdateOptions(OverwriteCronExpression: false))
+          with
+          {
+              CronExpression = "*/5 * * * *",
+          });
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Updated);
+        var schedule = await context.Store.GetRecurringScheduleAsync("schedule-a");
+        schedule.ShouldNotBeNull();
+        schedule.CronExpression.ShouldBe("* * * * *");
+        schedule.Priority.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task RecurringSchedule_UpdateOptions_CanPreservePausedState()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule("schedule-a", priority: 1));
+        await context.Store.PauseRecurringScheduleAsync("schedule-a", ContractClock);
+
+        var result = await context.Store.CreateOrUpdateRecurringScheduleAsync(CreateSchedule(
+          "schedule-a",
+          priority: 5,
+          updateOptions: new RecurringScheduleUpdateOptions(OverwritePausedState: false)));
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Updated);
+        var schedule = await context.Store.GetRecurringScheduleAsync("schedule-a");
+        schedule.ShouldNotBeNull();
+        schedule.IsPaused.ShouldBeTrue();
+        schedule.NextFireAtUtc.ShouldBeNull();
+        schedule.Priority.ShouldBe(5);
+    }
+
+    [Fact]
     public async Task RecurringSchedule_DueOccurrence_MaterializesClaimableJob()
     {
         await using var context = await this.CreateContextAsync();
@@ -790,7 +834,8 @@ public abstract class JobStoreContractTests
         RecurringOverlapMode overlapMode = RecurringOverlapMode.Skip,
         DateTimeOffset? upsertedAtUtc = null,
         JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
-        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null,
+        RecurringScheduleUpdateOptions? updateOptions = null)
       => new(
         scheduleKey,
         "* * * * *",
@@ -804,7 +849,8 @@ public abstract class JobStoreContractTests
         overlapMode,
         upsertedAtUtc ?? DateTimeOffset.UtcNow,
         InvocationTargetKind: invocationTargetKind,
-        MethodParameterBindings: methodParameterBindings);
+        MethodParameterBindings: methodParameterBindings,
+        UpdateOptions: updateOptions);
 
     protected static UpsertRecurringScheduleRequest CreateDueSchedule(
         string scheduleKey,

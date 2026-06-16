@@ -19,4 +19,5 @@ public sealed record UpsertRecurringScheduleRequest(
     DateTimeOffset UpsertedAtUtc,
     IReadOnlyList<JobTag>? Tags = null,
     JobInvocationTargetKind InvocationTargetKind = JobInvocationTargetKind.Instance,
-    IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings = null);
+    IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings = null,
+    RecurringScheduleUpdateOptions? UpdateOptions = null);

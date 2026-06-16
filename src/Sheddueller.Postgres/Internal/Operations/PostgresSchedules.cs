@@ -102,7 +102,7 @@ internal static class PostgresSchedules
           values (
               @schedule_key,
               @cron_expression,
-              false,
+              @is_paused,
               @overlap_mode,
               @priority,
               @service_type,
@@ -121,7 +121,7 @@ internal static class PostgresSchedules
               transaction_timestamp(),
               transaction_timestamp());
           """,
-          command => AddScheduleParameters(command, request, retry, nextFireAtUtc),
+          command => AddScheduleParameters(command, request, retry, isPaused: false, nextFireAtUtc),
           cancellationToken)
           .ConfigureAwait(false);
         await ReplaceScheduleGroupsAsync(context, connection, transaction, request.ScheduleKey, request.ConcurrencyGroupKeys, cancellationToken)
@@ -136,6 +136,7 @@ internal static class PostgresSchedules
         NpgsqlTransaction transaction,
         UpsertRecurringScheduleRequest request,
         PostgresRetryPolicy retry,
+        bool isPaused,
         DateTimeOffset? nextFireAtUtc,
         CancellationToken cancellationToken)
     {
@@ -145,6 +146,7 @@ internal static class PostgresSchedules
           $"""
           update {context.Names.RecurringSchedules}
           set cron_expression = @cron_expression,
+              is_paused = @is_paused,
               overlap_mode = @overlap_mode,
               priority = @priority,
               service_type = @service_type,
@@ -163,7 +165,7 @@ internal static class PostgresSchedules
               updated_at_utc = transaction_timestamp()
           where schedule_key = @schedule_key;
           """,
-          command => AddScheduleParameters(command, request, retry, nextFireAtUtc),
+          command => AddScheduleParameters(command, request, retry, isPaused, nextFireAtUtc),
           cancellationToken)
           .ConfigureAwait(false);
         await PostgresOperationContext.ExecuteCountAsync(
@@ -476,10 +478,12 @@ internal static class PostgresSchedules
         NpgsqlCommand command,
         UpsertRecurringScheduleRequest request,
         PostgresRetryPolicy retry,
+        bool isPaused,
         DateTimeOffset? nextFireAtUtc)
     {
         command.Parameters.AddWithValue("schedule_key", request.ScheduleKey);
         command.Parameters.AddWithValue("cron_expression", request.CronExpression);
+        command.Parameters.AddWithValue("is_paused", isPaused);
         command.Parameters.AddWithValue("overlap_mode", PostgresConversion.ToText(request.OverlapMode));
         command.Parameters.AddWithValue("priority", request.Priority);
         command.Parameters.AddWithValue("service_type", request.ServiceType);

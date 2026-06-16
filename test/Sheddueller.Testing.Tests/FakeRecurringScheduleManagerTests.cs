@@ -111,6 +111,53 @@ public sealed class FakeRecurringScheduleManagerTests
     }
 
     [Fact]
+    public async Task CreateOrUpdate_UpdateOptionsCanPreserveCronExpression()
+    {
+        var fake = new FakeRecurringScheduleManager();
+
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("alpha", ct),
+          new RecurringScheduleOptions(Priority: 1));
+        var result = await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "*/5 * * * *",
+          (s, ct) => s.HandleStringAsync("alpha", ct),
+          new RecurringScheduleOptions(Priority: 5),
+          new RecurringScheduleUpdateOptions(OverwriteCronExpression: false));
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Updated);
+        fake.Schedules[0].CronExpression.ShouldBe("* * * * *");
+        fake.Schedules[0].Priority.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdate_UpdateOptionsCanPreservePausedState()
+    {
+        var fake = new FakeRecurringScheduleManager();
+
+        await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("alpha", ct),
+          new RecurringScheduleOptions(Priority: 1));
+        await fake.PauseAsync("schedule-a");
+
+        var result = await fake.CreateOrUpdateAsync<TestScheduleService>(
+          "schedule-a",
+          "* * * * *",
+          (s, ct) => s.HandleStringAsync("alpha", ct),
+          new RecurringScheduleOptions(Priority: 5),
+          new RecurringScheduleUpdateOptions(OverwritePausedState: false));
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Updated);
+        fake.Schedules[0].IsPaused.ShouldBeTrue();
+        fake.Schedules[0].NextFireAtUtc.ShouldBeNull();
+        fake.Schedules[0].Priority.ShouldBe(5);
+    }
+
+    [Fact]
     public async Task PauseResumeDeleteGetAndList_ExistingSchedule_UpdatesCurrentState()
     {
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 4, 19, 10, 30, 0, TimeSpan.Zero));

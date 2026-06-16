@@ -1003,6 +1003,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<TService, CancellationToken, Task>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1011,6 +1012,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<TService, CancellationToken, ValueTask>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1019,6 +1021,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<TService, CancellationToken, IProgress<decimal>, Task>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1027,6 +1030,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<TService, CancellationToken, IProgress<decimal>, ValueTask>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1035,6 +1039,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<CancellationToken, Task>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1043,6 +1048,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<CancellationToken, ValueTask>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1051,6 +1057,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<CancellationToken, IProgress<decimal>, Task>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
@@ -1059,6 +1066,7 @@ public sealed class DashboardEndpointTests
             string cronExpression,
             Expression<Func<CancellationToken, IProgress<decimal>, ValueTask>> work,
             RecurringScheduleOptions? options = null,
+            RecurringScheduleUpdateOptions? updateOptions = null,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 

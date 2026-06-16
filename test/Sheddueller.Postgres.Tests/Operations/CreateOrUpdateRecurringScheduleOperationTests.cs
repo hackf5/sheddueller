@@ -91,7 +91,7 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
     }
 
     [Fact]
-    public async Task CreateOrUpdateRecurringSchedule_UpdatePausedSchedule_PreservesPausedStateAndNullNextFire()
+    public async Task CreateOrUpdateRecurringSchedule_UpdatePausedSchedule_DefaultUpdateOptionsResumesSchedule()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
         await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule("schedule-a", priority: 1));
@@ -101,8 +101,49 @@ public sealed class CreateOrUpdateRecurringScheduleOperationTests(PostgresFixtur
 
         result.ShouldBe(RecurringScheduleUpsertResult.Updated);
         var schedule = await context.ReadScheduleAsync("schedule-a");
+        schedule.IsPaused.ShouldBeFalse();
+        schedule.NextFireAtUtc.ShouldNotBeNull();
+        schedule.Priority.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateRecurringSchedule_UpdateOptionsCanPreservePausedStateAndNullNextFire()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule("schedule-a", priority: 1));
+        await context.Store.PauseRecurringScheduleAsync("schedule-a", DateTimeOffset.UtcNow);
+
+        var result = await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule(
+          "schedule-a",
+          priority: 2,
+          updateOptions: new RecurringScheduleUpdateOptions(OverwritePausedState: false)));
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Updated);
+        var schedule = await context.ReadScheduleAsync("schedule-a");
         schedule.IsPaused.ShouldBeTrue();
         schedule.NextFireAtUtc.ShouldBeNull();
+        schedule.Priority.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task CreateOrUpdateRecurringSchedule_UpdateOptionsCanPreserveCronExpression()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Store.CreateOrUpdateRecurringScheduleAsync(PostgresTestData.CreateSchedule("schedule-a", priority: 1));
+
+        var result = await context.Store.CreateOrUpdateRecurringScheduleAsync(
+          PostgresTestData.CreateSchedule(
+            "schedule-a",
+            priority: 2,
+            updateOptions: new RecurringScheduleUpdateOptions(OverwriteCronExpression: false))
+          with
+          {
+              CronExpression = "*/5 * * * *",
+          });
+
+        result.ShouldBe(RecurringScheduleUpsertResult.Updated);
+        var schedule = await context.ReadScheduleAsync("schedule-a");
+        schedule.CronExpression.ShouldBe("* * * * *");
         schedule.Priority.ShouldBe(2);
     }
 }
