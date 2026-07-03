@@ -40,6 +40,8 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.TryAddSingleton<DashboardLiveUpdateStream>();
         services.TryAddSingleton<DashboardThroughputStore>();
         services.TryAddSingleton<IDashboardThroughputReader>(serviceProvider => serviceProvider.GetRequiredService<DashboardThroughputStore>());
+        services.TryAddSingleton<DashboardMetricsSnapshotCache>();
+        services.TryAddSingleton<IDashboardMetricsReader>(serviceProvider => serviceProvider.GetRequiredService<DashboardMetricsSnapshotCache>());
         services.Replace(ServiceDescriptor.Singleton<IJobEventNotifier, SignalRJobEventNotifier>());
         TryAddStartupValidationHostedService(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardThroughputHostedService>());

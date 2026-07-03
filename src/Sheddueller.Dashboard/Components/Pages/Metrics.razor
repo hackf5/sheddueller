@@ -1,6 +1,6 @@
 @page "/metrics"
 @inherits DashboardPageComponent
-@inject IMetricsInspectionReader Reader
+@inject IDashboardMetricsReader Reader
 
 <div class="metrics-page">
     <header class="metrics-header">
@@ -975,7 +975,7 @@
             </style>
 
 @code {
-    private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PageRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan[] DefaultMetricWindows = [TimeSpan.FromMinutes(5), TimeSpan.FromHours(1),
 TimeSpan.FromHours(24)];
 

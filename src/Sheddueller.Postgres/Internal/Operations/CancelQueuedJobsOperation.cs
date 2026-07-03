@@ -20,6 +20,13 @@ internal static class CancelQueuedJobsOperation
         if (canceledJobs.Count > 0)
         {
             await InsertLifecycleEventsAsync(context, connection, transaction, canceledJobs, cancellationToken).ConfigureAwait(false);
+            await PostgresMetricsRollups.RecordCanceledJobsAsync(
+              context,
+              connection,
+              transaction,
+              [.. canceledJobs.Select(static job => job.JobId)],
+              cancellationToken)
+              .ConfigureAwait(false);
             await NotifyLifecycleEventsAsync(context, connection, transaction, canceledJobs, cancellationToken).ConfigureAwait(false);
         }
 

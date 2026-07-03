@@ -669,6 +669,71 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task Metrics_RollingActivity_ReturnsRolledUpRatesAndPercentiles()
+    {
+        await using var context = await this.CreateContextAsync();
+        var completed = Guid.NewGuid();
+        var failed = Guid.NewGuid();
+        var canceled = Guid.NewGuid();
+        var scheduled = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(completed));
+        var completedClaim = await ClaimAsync(context.Store);
+        await context.Store.MarkCompletedAsync(new CompleteJobRequest(
+          completed,
+          "node-1",
+          completedClaim.LeaseToken,
+          DateTimeOffset.UtcNow));
+
+        await context.Store.EnqueueAsync(CreateRequest(failed));
+        var failedClaim = await ClaimAsync(context.Store);
+        await context.Store.MarkFailedAsync(new FailJobRequest(
+          failed,
+          "node-1",
+          failedClaim.LeaseToken,
+          DateTimeOffset.UtcNow,
+          CreateFailure()));
+
+        await context.Store.EnqueueAsync(CreateRequest(canceled));
+        (await context.Store.CancelAsync(new CancelJobRequest(canceled, DateTimeOffset.UtcNow)))
+          .ShouldBe(JobCancellationResult.Canceled);
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          scheduled,
+          sourceScheduleKey: "nightly",
+          scheduledFireAtUtc: DateTimeOffset.UtcNow.AddSeconds(-2),
+          scheduleOccurrenceKind: ScheduleOccurrenceKind.Automatic));
+
+        var metrics = await context.MetricsReader.GetMetricsAsync(new MetricsInspectionQuery([TimeSpan.FromMinutes(5)]));
+        var window = metrics.Windows.ShouldHaveSingleItem();
+
+        window.EnqueueRatePerMinute.ShouldBeGreaterThan(0);
+        window.ClaimRatePerMinute.ShouldBeGreaterThan(0);
+        window.SuccessRatePerMinute.ShouldBeGreaterThan(0);
+        window.FailureRatePerMinute.ShouldBeGreaterThan(0);
+        window.CancellationRatePerMinute.ShouldBeGreaterThan(0);
+        window.RetryRatePerMinute.ShouldBeGreaterThan(0);
+        window.P50QueueLatency.ShouldNotBeNull();
+        window.P95ExecutionDuration.ShouldNotBeNull();
+        window.P95ScheduleFireLag.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Metrics_BulkQueuedCancellation_ReturnsRolledUpCancellationRate()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid()));
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid()));
+
+        (await context.Store.CancelQueuedJobsAsync(new CancelQueuedJobsRequest(DateTimeOffset.UtcNow))).ShouldBe(2);
+
+        var metrics = await context.MetricsReader.GetMetricsAsync(new MetricsInspectionQuery([TimeSpan.FromMinutes(5)]));
+
+        metrics.Windows.ShouldHaveSingleItem().CancellationRatePerMinute.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
     public async Task NodeSearch_MultipleClaimedJobsAcrossNodes_ReturnsPerNodeClaimedCounts()
     {
         await using var context = await this.CreateContextAsync();
@@ -828,7 +893,10 @@ public abstract class InspectionContractTests
         IReadOnlyList<string>? methodParameterTypes = null,
         SerializedJobPayload? serializedArguments = null,
         JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
-        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null,
+        string? sourceScheduleKey = null,
+        DateTimeOffset? scheduledFireAtUtc = null,
+        ScheduleOccurrenceKind? scheduleOccurrenceKind = null)
       => new(
         jobId,
         priority,
@@ -842,7 +910,10 @@ public abstract class InspectionContractTests
         maxAttempts,
         retryBackoffKind,
         retryBaseDelay,
+        SourceScheduleKey: sourceScheduleKey,
+        ScheduledFireAtUtc: scheduledFireAtUtc,
         Tags: tags,
+        ScheduleOccurrenceKind: scheduleOccurrenceKind,
         InvocationTargetKind: invocationTargetKind,
         MethodParameterBindings: methodParameterBindings);
 

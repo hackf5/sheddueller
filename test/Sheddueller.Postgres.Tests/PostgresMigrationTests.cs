@@ -139,6 +139,42 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_FreshSchema_CreatesMetricsRollupTables()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await AssertTableExistsAsync(context, "metrics_buckets");
+        await AssertTableExistsAsync(context, "metrics_histogram_bins");
+        await AssertTableExistsAsync(context, "metrics_rollup_state");
+
+        (await ScalarAsync<long>(
+          context,
+          $"select count(*) from {context.Table("metrics_buckets")};"))
+          .ShouldBe(0L);
+        (await ScalarAsync<long>(
+          context,
+          $"select count(*) from {context.Table("metrics_histogram_bins")};"))
+          .ShouldBe(0L);
+        (await ScalarAsync<long>(
+          context,
+          $"select count(*) from {context.Table("metrics_rollup_state")};"))
+          .ShouldBe(1L);
+
+        var indexDefinition = await ScalarAsync<string>(
+          context,
+          """
+          select indexdef
+          from pg_indexes
+          where schemaname = @schema_name
+            and indexname = 'idx_metrics_histogram_bins_metric_bucket';
+          """);
+
+        indexDefinition.ShouldContain("metric");
+        indexDefinition.ShouldContain("bucket_started_at_utc");
+        indexDefinition.ShouldContain("bin_index");
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
@@ -198,6 +234,22 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
                 and column_name = 'ordinal'
                 and data_type = 'integer'
                 and is_nullable = 'NO'
+          );
+          """,
+          command => command.Parameters.AddWithValue("table_name", tableName)))
+        .ShouldBeTrue();
+
+    private static async Task AssertTableExistsAsync(
+        PostgresTestContext context,
+        string tableName)
+      => (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.tables
+              where table_schema = @schema_name
+                and table_name = @table_name
           );
           """,
           command => command.Parameters.AddWithValue("table_name", tableName)))

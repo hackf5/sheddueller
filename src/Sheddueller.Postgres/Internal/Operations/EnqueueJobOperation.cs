@@ -59,6 +59,8 @@ internal static class EnqueueJobOperation
         await InsertStagedGroupsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await InsertStagedTagsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await InsertStagedEventsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
+        await PostgresMetricsRollups.RecordStagedQueuedJobsAsync(context, connection, transaction, cancellationToken)
+          .ConfigureAwait(false);
 
         await NotifyStagedEventsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await context.NotifyAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
