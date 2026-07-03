@@ -120,7 +120,7 @@ internal static class TryClaimNextJobOperation
                 from {context.Names.JobConcurrencyGroups} job_group
                 join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                 where job_group.job_id = job.job_id
-                  and concurrency_group.in_use_count >= coalesce(concurrency_group.configured_limit, 1)
+                  and concurrency_group.in_use_count >= concurrency_group.effective_limit
             )
           order by job.priority desc, job.enqueue_sequence asc
           for update of job skip locked

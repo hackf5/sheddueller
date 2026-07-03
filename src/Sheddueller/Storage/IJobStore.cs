@@ -69,6 +69,13 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Cancels all queued jobs.
+    /// </summary>
+    ValueTask<int> CancelQueuedJobsAsync(
+        CancelQueuedJobsRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the cooperative cancellation request timestamp for a currently claimed job.
     /// </summary>
     ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
@@ -90,14 +97,28 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Persists a configured concurrency-group limit.
+    /// Persists a live override concurrency-group limit.
     /// </summary>
     ValueTask SetConcurrencyLimitAsync(
         SetConcurrencyLimitRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the configured concurrency-group limit, if one exists.
+    /// Persists a code-defined concurrency-group default limit without clearing a live override.
+    /// </summary>
+    ValueTask SetConcurrencyDefaultLimitAsync(
+        SetConcurrencyDefaultLimitRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears a live override concurrency-group limit.
+    /// </summary>
+    ValueTask ClearConcurrencyLimitOverrideAsync(
+        ClearConcurrencyLimitOverrideRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the live override concurrency-group limit, if one exists.
     /// </summary>
     ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
         string groupKey,

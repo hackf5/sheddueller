@@ -22,6 +22,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
+using JobsPage = Sheddueller.Dashboard.Components.Pages.Jobs;
 using SchedulesPage = Sheddueller.Dashboard.Components.Pages.Schedules;
 
 public sealed class DashboardEndpointTests
@@ -112,6 +113,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Operational Order");
         html.ShouldContain("Newest First");
         html.ShouldContain("Clear Filters");
+        html.ShouldContain("Clear Queued");
+        html.ShouldContain("Cancel all queued, delayed, and retry-waiting jobs. Type delete to confirm.");
         html.ShouldNotContain("Expand query filters");
         html.ShouldNotContain("Execute Query");
         html.ShouldNotContain("Query Parameters");
@@ -245,6 +248,13 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public void Jobs_ClearQueuedActionMessage_FormatsCanceledCount()
+    {
+        JobsPage.CreateClearQueuedSuccessMessage(1234)
+          .ShouldBe("Canceled 1,234 queued job(s).");
+    }
+
+    [Fact]
     public async Task ConcurrencyGroups_KnownData_RendersRegistry()
     {
         await using var app = await CreateStartedDashboardAsync();
@@ -268,6 +278,12 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("api_sync_workers");
         html.ShouldContain("bg_maintenance");
         html.ShouldContain("db_vacuum_ops");
+        html.ShouldContain("Limit Source");
+        html.ShouldContain("Override");
+        html.ShouldContain("Code default");
+        html.ShouldContain("Built-in default");
+        html.ShouldNotContain("Edit Limit");
+        html.ShouldNotContain("Reset Override");
         html.ShouldContain("Saturated");
         html.ShouldContain("High Load");
         html.ShouldContain("Nominal");
@@ -276,6 +292,19 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Load More Records");
         html.ShouldContain("Showing 1-4 of 4 groups with more available");
         AssertShellRefresh(html);
+    }
+
+    [Fact]
+    public async Task ConcurrencyGroups_WithManager_RendersLimitEditActions()
+    {
+        await using var app = await CreateStartedDashboardAsync(registerConcurrencyGroupManager: true);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/concurrency-groups");
+
+        html.ShouldContain("Actions");
+        html.ShouldContain("Edit Limit");
+        html.ShouldContain("Reset Override");
+        html.ShouldContain("aria-label=\"Edit limit for concurrency group pool_etl_heavy\"");
+        html.ShouldContain("aria-label=\"Reset limit override for concurrency group pool_etl_heavy\"");
     }
 
     [Fact]
@@ -314,6 +343,19 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public async Task Nodes_HealthSummary_RendersFromNodeCountsWithoutMetricsData()
+    {
+        await using var app = await CreateStartedDashboardAsync(registerMetricsReader: false);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/nodes");
+
+        html.ShouldContain("Total Nodes");
+        html.ShouldContain("<strong>3</strong>");
+        html.ShouldContain("cluster-wide");
+        html.ShouldContain("33.3%");
+        html.ShouldContain("Showing 1-3 of 3 nodes");
+    }
+
+    [Fact]
     public async Task Metrics_KnownData_RendersRollingHealth()
     {
         await using var app = await CreateStartedDashboardAsync();
@@ -344,6 +386,42 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("1.2 s");
         html.ShouldContain("2 saturated");
         AssertShellRefresh(html);
+    }
+
+    [Fact]
+    public async Task Settings_KnownData_RendersCleanupControls()
+    {
+        await using var app = await CreateStartedDashboardAsync(registerCleanupSettingsStore: true);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/settings");
+
+        html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        html.ShouldContain("Settings");
+        html.ShouldContain("Persisted cluster cleanup controls.");
+        html.ShouldContain("Terminal Jobs");
+        html.ShouldContain("Cleanup enabled");
+        html.ShouldContain("Completed retention");
+        html.ShouldContain("Failed retention");
+        html.ShouldContain("Canceled retention");
+        html.ShouldContain("Job Events");
+        html.ShouldContain("Event retention");
+        html.ShouldContain("Metrics");
+        html.ShouldContain("Metrics retention");
+        html.ShouldContain("Save Settings");
+        html.ShouldContain("Reload");
+        html.ShouldContain("value=\"48\"");
+        html.ShouldContain("value=\"72\"");
+        html.ShouldContain("value=\"250\"");
+    }
+
+    [Fact]
+    public async Task Settings_UnsupportedProvider_RendersUnavailableState()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/settings");
+
+        html.ShouldContain("Settings");
+        html.ShouldContain("Persisted settings unavailable");
+        html.ShouldContain("does not expose dashboard-editable cleanup settings");
     }
 
     [Fact]
@@ -469,7 +547,10 @@ public sealed class DashboardEndpointTests
     private static async Task<WebApplication> CreateStartedDashboardAsync(
         bool prerender = true,
         bool mapWithWebApplication = true,
-        Action<ShedduellerDashboardOptions>? configureDashboard = null)
+        Action<ShedduellerDashboardOptions>? configureDashboard = null,
+        bool registerMetricsReader = true,
+        bool registerCleanupSettingsStore = false,
+        bool registerConcurrencyGroupManager = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -479,8 +560,22 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IScheduleInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<StubScheduleInspectionReader>());
         builder.Services.AddSingleton<IRecurringScheduleManager>(serviceProvider => serviceProvider.GetRequiredService<StubScheduleInspectionReader>());
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
+        if (registerConcurrencyGroupManager)
+        {
+            builder.Services.AddSingleton<IConcurrencyGroupManager, StubConcurrencyGroupManager>();
+        }
+
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
-        builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
+        if (registerMetricsReader)
+        {
+            builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
+        }
+
+        if (registerCleanupSettingsStore)
+        {
+            builder.Services.AddSingleton<IShedduellerCleanupConfigurationStore, StubCleanupConfigurationStore>();
+        }
+
         builder.Services.AddSingleton<IDashboardThroughputReader, StubDashboardThroughputReader>();
         builder.Services.AddShedduellerDashboard(options =>
         {
@@ -621,6 +716,66 @@ public sealed class DashboardEndpointTests
         endIndex.ShouldBeGreaterThan(startIndex);
 
         return html[startIndex..(endIndex + "</button>".Length)];
+    }
+
+    private sealed class StubCleanupConfigurationStore : IShedduellerCleanupConfigurationStore
+    {
+        private ShedduellerCleanupConfiguration _configuration = new(
+          new JobRetentionCleanupConfiguration(
+            Enabled: true,
+            CompletedRetention: null,
+            FailedRetention: TimeSpan.FromHours(48),
+            CanceledRetention: TimeSpan.FromHours(72),
+            CleanupInterval: TimeSpan.FromMinutes(15),
+            BatchSize: 250),
+          new JobEventCleanupConfiguration(TimeSpan.FromHours(12), TimeSpan.FromMinutes(20)),
+          new MetricsCleanupConfiguration(TimeSpan.FromHours(168), TimeSpan.FromMinutes(30)));
+
+        public ValueTask<ShedduellerCleanupConfiguration> GetCleanupConfigurationAsync(
+            ShedduellerCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration);
+        }
+
+        public ValueTask<JobRetentionCleanupConfiguration> GetJobRetentionCleanupConfigurationAsync(
+            JobRetentionCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration.JobRetention);
+        }
+
+        public ValueTask<JobEventCleanupConfiguration> GetJobEventCleanupConfigurationAsync(
+            JobEventCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration.JobEvents);
+        }
+
+        public ValueTask<MetricsCleanupConfiguration> GetMetricsCleanupConfigurationAsync(
+            MetricsCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration.Metrics);
+        }
+
+        public ValueTask SetCleanupConfigurationAsync(
+            ShedduellerCleanupConfiguration configuration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            this._configuration = configuration;
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class StubJobInspectionReader : IJobInspectionReader
@@ -908,6 +1063,13 @@ public sealed class DashboardEndpointTests
 
             return ValueTask.FromResult(JobCancellationResult.NotFound);
         }
+
+        public ValueTask<int> CancelQueuedJobsAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(2);
+        }
     }
 
     private sealed class StubScheduleInspectionReader : IScheduleInspectionReader, IRecurringScheduleManager
@@ -1125,18 +1287,25 @@ public sealed class DashboardEndpointTests
               CurrentOccupancy: 50,
               BlockedJobCount: 12,
               IsSaturated: true,
-              UpdatedAtUtc),
+              UpdatedAtUtc)
+            {
+                DefaultLimit = 25,
+                OverrideLimit = 50,
+            },
             new(
               "api_sync_workers",
               EffectiveLimit: 100,
               CurrentOccupancy: 85,
               BlockedJobCount: 0,
               IsSaturated: false,
-              UpdatedAtUtc.AddMinutes(-1)),
+              UpdatedAtUtc.AddMinutes(-1))
+            {
+                DefaultLimit = 100,
+            },
             new(
               "bg_maintenance",
-              EffectiveLimit: 10,
-              CurrentOccupancy: 2,
+              EffectiveLimit: 1,
+              CurrentOccupancy: 0,
               BlockedJobCount: 0,
               IsSaturated: false,
               UpdatedAtUtc.AddMinutes(-5)),
@@ -1173,6 +1342,31 @@ public sealed class DashboardEndpointTests
             string groupKey,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult<ConcurrencyGroupInspectionDetail?>(null);
+    }
+
+    private sealed class StubConcurrencyGroupManager : IConcurrencyGroupManager
+    {
+        public ValueTask SetLimitAsync(
+            string groupKey,
+            int limit,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask SetDefaultLimitAsync(
+            string groupKey,
+            int limit,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask ClearLimitOverrideAsync(
+            string groupKey,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask<int?> GetConfiguredLimitAsync(
+            string groupKey,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult<int?>(null);
     }
 
     private sealed class StubNodeInspectionReader : INodeInspectionReader

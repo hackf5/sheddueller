@@ -174,11 +174,28 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create table if not exists {this._names.ConcurrencyGroups} (
               group_key text primary key,
               configured_limit integer null,
+              default_limit integer null,
+              effective_limit integer generated always as (coalesce(configured_limit, default_limit, 1)) stored,
               in_use_count integer not null,
               updated_at_utc timestamptz not null,
               constraint concurrency_groups_configured_limit_check check (configured_limit is null or configured_limit > 0),
+              constraint concurrency_groups_default_limit_check check (default_limit is null or default_limit > 0),
               constraint concurrency_groups_in_use_count_check check (in_use_count >= 0)
           );
+
+          alter table {this._names.ConcurrencyGroups}
+              add column if not exists default_limit integer null;
+
+          alter table {this._names.ConcurrencyGroups}
+              add column if not exists effective_limit integer generated always as (coalesce(configured_limit, default_limit, 1)) stored;
+
+          alter table {this._names.ConcurrencyGroups}
+              drop constraint if exists concurrency_groups_configured_limit_check,
+              add constraint concurrency_groups_configured_limit_check check (configured_limit is null or configured_limit > 0),
+              drop constraint if exists concurrency_groups_default_limit_check,
+              add constraint concurrency_groups_default_limit_check check (default_limit is null or default_limit > 0),
+              drop constraint if exists concurrency_groups_in_use_count_check,
+              add constraint concurrency_groups_in_use_count_check check (in_use_count >= 0);
 
           create table if not exists {this._names.RecurringSchedules} (
               schedule_key text primary key,
@@ -288,6 +305,50 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               constraint worker_nodes_current_execution_count_check check (current_execution_count >= 0)
           );
 
+          create table if not exists {this._names.MetricsBuckets} (
+              bucket_started_at_utc timestamptz primary key,
+              enqueued_count bigint not null default 0,
+              claimed_started_count bigint not null default 0,
+              succeeded_count bigint not null default 0,
+              failed_count bigint not null default 0,
+              canceled_count bigint not null default 0,
+              retry_event_count bigint not null default 0,
+              constraint metrics_buckets_enqueued_count_check check (enqueued_count >= 0),
+              constraint metrics_buckets_claimed_started_count_check check (claimed_started_count >= 0),
+              constraint metrics_buckets_succeeded_count_check check (succeeded_count >= 0),
+              constraint metrics_buckets_failed_count_check check (failed_count >= 0),
+              constraint metrics_buckets_canceled_count_check check (canceled_count >= 0),
+              constraint metrics_buckets_retry_event_count_check check (retry_event_count >= 0)
+          );
+
+          create table if not exists {this._names.MetricsHistogramBins} (
+              bucket_started_at_utc timestamptz not null references {this._names.MetricsBuckets}(bucket_started_at_utc) on delete cascade,
+              metric text not null,
+              bin_index integer not null,
+              sample_count bigint not null,
+              primary key (bucket_started_at_utc, metric, bin_index),
+              constraint metrics_histogram_bins_metric_check check (metric in ('queue_latency', 'execution_duration', 'schedule_fire_lag')),
+              constraint metrics_histogram_bins_bin_index_check check (bin_index >= 0),
+              constraint metrics_histogram_bins_sample_count_check check (sample_count > 0)
+          );
+
+          create table if not exists {this._names.MetricsRollupState} (
+              singleton_id smallint primary key,
+              last_cleanup_at_utc timestamptz null,
+              constraint metrics_rollup_state_singleton_id_check check (singleton_id = 1)
+          );
+
+          insert into {this._names.MetricsRollupState} (singleton_id, last_cleanup_at_utc)
+          values (1, null)
+          on conflict (singleton_id) do nothing;
+
+          create table if not exists {this._names.Settings} (
+              setting_key text primary key,
+              value jsonb not null,
+              updated_at_utc timestamptz not null,
+              constraint settings_setting_key_check check (length(setting_key) > 0)
+          );
+
           create index if not exists idx_jobs_claim_scan
               on {this._names.Jobs} (priority desc, enqueue_sequence asc)
               where state = 'Queued';
@@ -300,6 +361,10 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               on {this._names.Jobs} (lease_expires_at_utc)
               where state = 'Claimed';
 
+          create index if not exists idx_jobs_claimed_by_node
+              on {this._names.Jobs} (claimed_by_node_id, enqueue_sequence)
+              where state = 'Claimed' and claimed_by_node_id is not null;
+
           create index if not exists idx_jobs_source_schedule_nonterminal
               on {this._names.Jobs} (source_schedule_key)
               where state in ('Queued', 'Claimed');
@@ -307,9 +372,6 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create unique index if not exists idx_jobs_queued_idempotency_key
               on {this._names.Jobs} (idempotency_key)
               where state = 'Queued' and idempotency_key is not null;
-
-          create index if not exists idx_jobs_inspection_newest
-              on {this._names.Jobs} (enqueue_sequence desc);
 
           create index if not exists idx_jobs_inspection_state_newest
               on {this._names.Jobs} (state, enqueue_sequence desc);
@@ -351,12 +413,13 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create unique index if not exists idx_schedule_tags_schedule_key_ordinal
               on {this._names.ScheduleTags} (schedule_key, ordinal);
 
-          create index if not exists idx_job_events_job_sequence
-              on {this._names.JobEvents} (job_id, event_sequence);
-
           create index if not exists idx_job_events_progress
               on {this._names.JobEvents} (job_id, event_sequence desc)
               where kind = 'Progress';
+
+          drop index if exists {this._names.Schema}.idx_jobs_inspection_newest;
+
+          drop index if exists {this._names.Schema}.idx_job_events_job_sequence;
 
           create index if not exists idx_recurring_schedules_due
               on {this._names.RecurringSchedules} (next_fire_at_utc, schedule_key)
@@ -367,6 +430,9 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
 
           create index if not exists idx_worker_nodes_last_heartbeat
               on {this._names.WorkerNodes} (last_heartbeat_at_utc);
+
+          create index if not exists idx_metrics_histogram_bins_metric_bucket
+              on {this._names.MetricsHistogramBins} (metric, bucket_started_at_utc, bin_index);
           """,
           cancellationToken)
           .ConfigureAwait(false);

@@ -28,7 +28,14 @@ internal static class MarkJobFailedOperation
         }
 
         await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
-        var lifecycleMessage = await PostgresClaimedJobs.ApplyFailedAttemptAsync(context, connection, transaction, job, request.Failure, cancellationToken)
+        var lifecycleMessage = await PostgresClaimedJobs.ApplyFailedAttemptAsync(
+          context,
+          connection,
+          transaction,
+          job,
+          request.FailedAtUtc,
+          request.Failure,
+          cancellationToken)
           .ConfigureAwait(false);
         await PostgresJobEvents.AppendAndNotifyInTransactionAsync(
           context,

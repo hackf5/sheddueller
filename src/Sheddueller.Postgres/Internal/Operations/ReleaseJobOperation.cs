@@ -37,6 +37,7 @@ internal static class ReleaseJobOperation
           connection,
           transaction,
           job,
+          request.ReleasedAtUtc,
           supersededFailure,
           cancellationToken)
           .ConfigureAwait(false);

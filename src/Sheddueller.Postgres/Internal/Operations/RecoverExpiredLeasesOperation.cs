@@ -12,6 +12,8 @@ internal static class RecoverExpiredLeasesOperation
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var expiredJobs = await PostgresClaimedJobs.ReadExpiredClaimsAsync(context, connection, transaction, cancellationToken)
           .ConfigureAwait(false);
+        var recoveredAtUtc = await PostgresOperationContext.ReadTransactionTimestampAsync(connection, transaction, cancellationToken)
+          .ConfigureAwait(false);
         foreach (var job in expiredJobs)
         {
             await PostgresJobGroups.DecrementGroupsAsync(context, connection, transaction, job.GroupKeys, cancellationToken).ConfigureAwait(false);
@@ -20,6 +22,7 @@ internal static class RecoverExpiredLeasesOperation
               connection,
               transaction,
               job,
+              recoveredAtUtc,
               new JobFailureInfo("Sheddueller.LeaseExpired", "The job lease expired before the owning node renewed it.", null),
               cancellationToken)
               .ConfigureAwait(false);

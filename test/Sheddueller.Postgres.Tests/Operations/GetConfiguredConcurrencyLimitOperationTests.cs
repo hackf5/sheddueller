@@ -23,4 +23,14 @@ public sealed class GetConfiguredConcurrencyLimitOperationTests(PostgresFixture 
 
         (await context.Store.GetConfiguredConcurrencyLimitAsync("shared")).ShouldBe(4);
     }
+
+    [Fact]
+    public async Task GetConfiguredConcurrencyLimit_DefaultOnly_ReturnsNull()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await context.Store.SetConcurrencyDefaultLimitAsync(new SetConcurrencyDefaultLimitRequest("shared", 4, DateTimeOffset.UtcNow));
+
+        (await context.Store.GetConfiguredConcurrencyLimitAsync("shared")).ShouldBeNull();
+    }
 }

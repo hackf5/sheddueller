@@ -29,6 +29,25 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_Reapplied_DropsRedundantIndexes()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await ExecuteAsync(
+          context,
+          $"""
+          create index idx_jobs_inspection_newest on {context.Table("jobs")} (enqueue_sequence desc);
+          create index idx_job_events_job_sequence on {context.Table("job_events")} (job_id, event_sequence);
+          """);
+        (await IndexExistsAsync(context, "idx_jobs_inspection_newest")).ShouldBeTrue();
+        (await IndexExistsAsync(context, "idx_job_events_job_sequence")).ShouldBeTrue();
+
+        await context.Provider.GetRequiredService<IPostgresMigrator>().ApplyAsync();
+
+        (await IndexExistsAsync(context, "idx_jobs_inspection_newest")).ShouldBeFalse();
+        (await IndexExistsAsync(context, "idx_job_events_job_sequence")).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesIndexedHandlerSearchColumn()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
@@ -99,6 +118,127 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_FreshSchema_CreatesClaimedJobsByNodeIndex()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        var indexDefinition = await ScalarAsync<string>(
+          context,
+          """
+          select indexdef
+          from pg_indexes
+          where schemaname = @schema_name
+            and indexname = 'idx_jobs_claimed_by_node';
+          """);
+
+        var normalized = indexDefinition.ToLowerInvariant();
+        normalized.ShouldContain("claimed_by_node_id");
+        normalized.ShouldContain("enqueue_sequence");
+        normalized.ShouldContain("state = 'claimed'");
+        normalized.ShouldContain("claimed_by_node_id is not null");
+    }
+
+    [Fact]
+    public async Task Migration_FreshSchema_CreatesMetricsRollupTables()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await AssertTableExistsAsync(context, "metrics_buckets");
+        await AssertTableExistsAsync(context, "metrics_histogram_bins");
+        await AssertTableExistsAsync(context, "metrics_rollup_state");
+
+        (await ScalarAsync<long>(
+          context,
+          $"select count(*) from {context.Table("metrics_buckets")};"))
+          .ShouldBe(0L);
+        (await ScalarAsync<long>(
+          context,
+          $"select count(*) from {context.Table("metrics_histogram_bins")};"))
+          .ShouldBe(0L);
+        (await ScalarAsync<long>(
+          context,
+          $"select count(*) from {context.Table("metrics_rollup_state")};"))
+          .ShouldBe(1L);
+
+        var indexDefinition = await ScalarAsync<string>(
+          context,
+          """
+          select indexdef
+          from pg_indexes
+          where schemaname = @schema_name
+            and indexname = 'idx_metrics_histogram_bins_metric_bucket';
+          """);
+
+        indexDefinition.ShouldContain("metric");
+        indexDefinition.ShouldContain("bucket_started_at_utc");
+        indexDefinition.ShouldContain("bin_index");
+    }
+
+    [Fact]
+    public async Task Migration_FreshSchema_CreatesSettingsTable()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await AssertTableExistsAsync(context, "settings");
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'settings'
+                and column_name = 'value'
+                and data_type = 'jsonb'
+          );
+          """))
+          .ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Migration_FreshSchema_CreatesConcurrencyEffectiveLimitColumn()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'concurrency_groups'
+                and column_name = 'effective_limit'
+                and is_generated = 'ALWAYS'
+          );
+          """))
+          .ShouldBeTrue();
+
+        await ExecuteAsync(
+          context,
+          $"""
+          insert into {context.Table("concurrency_groups")} (group_key, configured_limit, default_limit, in_use_count, updated_at_utc)
+          values ('override', 5, 2, 0, transaction_timestamp()),
+                 ('default', null, 3, 0, transaction_timestamp()),
+                 ('built-in', null, null, 0, transaction_timestamp());
+          """);
+
+        (await ScalarAsync<int>(
+          context,
+          $"select effective_limit from {context.Table("concurrency_groups")} where group_key = 'override';"))
+          .ShouldBe(5);
+        (await ScalarAsync<int>(
+          context,
+          $"select effective_limit from {context.Table("concurrency_groups")} where group_key = 'default';"))
+          .ShouldBe(3);
+        (await ScalarAsync<int>(
+          context,
+          $"select effective_limit from {context.Table("concurrency_groups")} where group_key = 'built-in';"))
+          .ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
@@ -163,6 +303,22 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
           command => command.Parameters.AddWithValue("table_name", tableName)))
         .ShouldBeTrue();
 
+    private static async Task AssertTableExistsAsync(
+        PostgresTestContext context,
+        string tableName)
+      => (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.tables
+              where table_schema = @schema_name
+                and table_name = @table_name
+          );
+          """,
+          command => command.Parameters.AddWithValue("table_name", tableName)))
+        .ShouldBeTrue();
+
     private static async ValueTask<T> ScalarAsync<T>(
         PostgresTestContext context,
         string commandText,
@@ -175,4 +331,27 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
         result.ShouldNotBeNull();
         return result.ShouldBeOfType<T>();
     }
+
+    private static async ValueTask ExecuteAsync(
+        PostgresTestContext context,
+        string commandText)
+    {
+        await using var command = context.DataSource.CreateCommand(commandText);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async ValueTask<bool> IndexExistsAsync(
+        PostgresTestContext context,
+        string indexName)
+      => await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from pg_indexes
+              where schemaname = @schema_name
+                and indexname = @index_name
+          );
+          """,
+          command => command.Parameters.AddWithValue("index_name", indexName));
 }

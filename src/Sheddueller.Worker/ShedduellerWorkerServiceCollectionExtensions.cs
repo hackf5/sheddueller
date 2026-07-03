@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 
 using Sheddueller;
 using Sheddueller.Runtime;
+using Sheddueller.Storage;
 using Sheddueller.Worker.Internal;
 
 /// <summary>
@@ -34,9 +35,18 @@ public static class ShedduellerWorkerServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerJobLogEventDispatcher>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IShedduellerStartupValidator, ShedduellerWorkerStartupValidator>());
         TryAddStartupValidationHostedService(services);
+        TryAddJobRetentionHostedService(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerWorker>());
 
         return services;
+    }
+
+    private static void TryAddJobRetentionHostedService(IServiceCollection services)
+    {
+        if (services.Any(descriptor => descriptor.ServiceType == typeof(IJobRetentionStore)))
+        {
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ShedduellerJobRetentionService>());
+        }
     }
 
     private static void TryAddStartupValidationHostedService(IServiceCollection services)

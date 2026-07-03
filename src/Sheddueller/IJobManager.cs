@@ -11,4 +11,10 @@ public interface IJobManager
     ValueTask<JobCancellationResult> CancelAsync(
         Guid jobId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels all queued jobs. Running jobs are left untouched.
+    /// </summary>
+    ValueTask<int> CancelQueuedJobsAsync(
+        CancellationToken cancellationToken = default);
 }

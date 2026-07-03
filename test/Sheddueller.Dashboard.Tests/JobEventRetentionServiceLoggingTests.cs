@@ -27,6 +27,7 @@ public sealed class JobEventRetentionServiceLoggingTests
           .AddProvider(logs));
         using var service = new JobEventRetentionService(
           serviceProvider,
+          TimeProvider.System,
           Options.Create(new ShedduellerDashboardOptions { EventRetention = TimeSpan.FromDays(1) }),
           loggerFactory.CreateLogger<JobEventRetentionService>());
 
@@ -40,16 +41,72 @@ public sealed class JobEventRetentionServiceLoggingTests
         entry.MessageTemplate.ShouldBe("Dashboard job-event retention cleanup deleted {DeletedCount} events.");
     }
 
+    [Fact]
+    public async Task Cleanup_PersistedSettingsStore_UsesPersistedRetention()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var store = new RecordingRetentionStore(0);
+        var settingsStore = new RecordingCleanupConfigurationStore(new JobEventCleanupConfiguration(
+          TimeSpan.FromDays(3),
+          TimeSpan.FromHours(1)));
+        var services = new ServiceCollection();
+        services.AddSingleton<IJobEventRetentionStore>(store);
+        services.AddSingleton<IShedduellerCleanupConfigurationStore>(settingsStore);
+        using var serviceProvider = services.BuildServiceProvider();
+        using var service = new JobEventRetentionService(
+          serviceProvider,
+          TimeProvider.System,
+          Options.Create(new ShedduellerDashboardOptions { EventRetention = TimeSpan.FromDays(1) }),
+          Microsoft.Extensions.Logging.Abstractions.NullLogger<JobEventRetentionService>.Instance);
+
+        await service.StartAsync(cancellationTokenSource.Token);
+        await store.CleanupCalled.Task.WaitAsync(cancellationTokenSource.Token);
+        await service.StopAsync(cancellationTokenSource.Token);
+
+        store.Retention.ShouldBe(TimeSpan.FromDays(3));
+    }
+
     private sealed class RecordingRetentionStore(int deletedCount) : IJobEventRetentionStore
     {
         public TaskCompletionSource CleanupCalled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TimeSpan? Retention { get; private set; }
 
         public ValueTask<int> CleanupAsync(
             TimeSpan retention,
             CancellationToken cancellationToken = default)
         {
+            this.Retention = retention;
             this.CleanupCalled.TrySetResult();
             return ValueTask.FromResult(deletedCount);
         }
+    }
+
+    private sealed class RecordingCleanupConfigurationStore(JobEventCleanupConfiguration configuration) : IShedduellerCleanupConfigurationStore
+    {
+        public ValueTask<ShedduellerCleanupConfiguration> GetCleanupConfigurationAsync(
+            ShedduellerCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(defaultConfiguration with { JobEvents = configuration });
+
+        public ValueTask<JobRetentionCleanupConfiguration> GetJobRetentionCleanupConfigurationAsync(
+            JobRetentionCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(defaultConfiguration);
+
+        public ValueTask<JobEventCleanupConfiguration> GetJobEventCleanupConfigurationAsync(
+            JobEventCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(configuration);
+
+        public ValueTask<MetricsCleanupConfiguration> GetMetricsCleanupConfigurationAsync(
+            MetricsCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(defaultConfiguration);
+
+        public ValueTask SetCleanupConfigurationAsync(
+            ShedduellerCleanupConfiguration configuration,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
     }
 }

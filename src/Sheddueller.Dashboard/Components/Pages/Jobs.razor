@@ -1,8 +1,10 @@
 @page "/jobs"
 @inherits DashboardPageComponent
 @inject IJobInspectionReader Reader
+@inject IJobManager JobManager
 @inject DashboardLiveUpdateStream LiveUpdates
 @inject NavigationManager Navigation
+@inject IJSRuntime JsRuntime
 
 <div class="jobs-page">
     <header class="jobs-header">
@@ -10,6 +12,12 @@
             <h1>Jobs</h1>
             <p>@HeaderText</p>
         </div>
+
+        <button class="jobs-clear-queued-button" type="button" title="@ClearQueuedButtonTitle"
+                aria-label="@ClearQueuedButtonTitle" @onclick="ClearQueuedJobsAsync" disabled="@IsClearQueuedDisabled">
+            <span class="material-symbols-outlined" aria-hidden="true">@ClearQueuedButtonIcon</span>
+            <span>@ClearQueuedButtonText</span>
+        </button>
     </header>
 
     <section class="jobs-filter-bar" aria-label="Job filters">
@@ -41,6 +49,13 @@
             </button>
         </div>
     </section>
+
+    @if (_actionMessage is not null)
+    {
+        <DashboardInlineAlert CssClass="@ActionAlertClass" Icon="@ActionAlertIcon">
+            <span>@_actionMessage</span>
+        </DashboardInlineAlert>
+    }
 
     @if (_error is not null)
     {
@@ -292,6 +307,7 @@
     }
 
     button.jobs-clear-button,
+    button.jobs-clear-queued-button,
     button.jobs-load-more-button {
         display: inline-flex;
         align-items: center;
@@ -310,13 +326,29 @@
         text-transform: uppercase;
     }
 
+    button.jobs-clear-queued-button {
+        border-color: var(--sd-error);
+        background: var(--sd-error-container);
+        color: var(--sd-on-error-container);
+    }
+
+    button.jobs-clear-queued-button .material-symbols-outlined {
+        font-size: 17px;
+    }
+
     button.jobs-load-more-button {
         min-width: 160px;
     }
 
     button.jobs-clear-button:hover,
+    button.jobs-clear-queued-button:hover,
     button.jobs-load-more-button:hover {
         color: var(--sd-primary);
+    }
+
+    button.jobs-clear-queued-button:hover:not(:disabled) {
+        border-color: var(--sd-error);
+        color: var(--sd-error);
     }
 
     .jobs-page button:disabled,
@@ -353,6 +385,26 @@
         color: var(--sd-error);
     }
 
+    .jobs-inline-alert--success {
+        border-color: var(--sd-success);
+        background: var(--sd-success-container);
+        color: var(--sd-success);
+    }
+
+    .jobs-inline-alert--success .material-symbols-outlined {
+        color: var(--sd-success);
+    }
+
+    .jobs-inline-alert--warning {
+        border-color: var(--sd-warning);
+        background: var(--sd-warning-container);
+        color: var(--sd-warning);
+    }
+
+    .jobs-inline-alert--warning .material-symbols-outlined {
+        color: var(--sd-warning);
+    }
+
     .jobs-message p,
     .jobs-inline-alert {
         color: var(--sd-on-surface-variant);
@@ -360,6 +412,14 @@
 
     .jobs-inline-alert--error {
         color: var(--sd-on-error-container);
+    }
+
+    .jobs-inline-alert--success {
+        color: var(--sd-success);
+    }
+
+    .jobs-inline-alert--warning {
+        color: var(--sd-warning);
     }
 
     .jobs-table-shell {
@@ -730,6 +790,7 @@
         .jobs-filter-bar .sd-table-search,
         .jobs-filter-bar .sd-table-select,
         button.jobs-clear-button,
+        button.jobs-clear-queued-button,
         .jobs-pagination {
             width: 100%;
         }
@@ -751,6 +812,8 @@
 @code {
     private static readonly TimeSpan FilterDebounce = TimeSpan.FromMilliseconds(300);
     private const int DefaultPageSize = 25;
+    private const string ClearQueuedConfirmationWord = "delete";
+    private const string ClearQueuedPrompt = "This will cancel all queued, delayed, and retry-waiting jobs while preserving historical records.\n\nType delete to continue.";
 
     private readonly DashboardJobFilters _filters = new();
     private readonly List<JobInspectionSummary> _jobs = [];
@@ -758,10 +821,13 @@
     private JobInspectionQuery _lastQuery = new(PageSize: DefaultPageSize);
     private CancellationTokenSource? _filterDebounceCts;
     private string? _error;
+    private string? _actionMessage;
     private string? _pendingFilterNavigationUri;
     private int _queryVersion;
+    private JobsActionSeverity _actionSeverity = JobsActionSeverity.Success;
     private bool _isLoading;
     private bool _isLoadingMore;
+    private bool _isClearQueuedRunning;
 
     private string HeaderText
       => this._page is null ? "Reading scheduler job records." : this.ResultRangeText;
@@ -770,6 +836,34 @@
       => this._filters.HasAppliedFilters
         ? "No jobs matched the current filters."
         : "No jobs are available.";
+
+    private string ActionAlertClass
+      => this._actionSeverity switch
+      {
+          JobsActionSeverity.Success => "jobs-inline-alert jobs-inline-alert--success",
+          JobsActionSeverity.Warning => "jobs-inline-alert jobs-inline-alert--warning",
+          _ => "jobs-inline-alert jobs-inline-alert--error",
+      };
+
+    private string ActionAlertIcon
+      => this._actionSeverity switch
+      {
+          JobsActionSeverity.Success => "check_circle",
+          JobsActionSeverity.Warning => "info",
+          _ => "warning",
+      };
+
+    private bool IsClearQueuedDisabled
+      => this._isClearQueuedRunning || this._isLoading || this._isLoadingMore;
+
+    private string ClearQueuedButtonIcon
+      => this._isClearQueuedRunning ? "progress_activity" : "cancel";
+
+    private string ClearQueuedButtonText
+      => this._isClearQueuedRunning ? "Clearing Queued" : "Clear Queued";
+
+    private string ClearQueuedButtonTitle
+      => "Cancel all queued, delayed, and retry-waiting jobs. Type delete to confirm.";
 
     private string ResultRangeText
     {
@@ -867,6 +961,46 @@
         this._filters.Clear();
         this.NavigateToCurrentFilters();
         await this.LoadAsync();
+    }
+
+    private async Task ClearQueuedJobsAsync()
+    {
+        if (this._isClearQueuedRunning)
+        {
+            return;
+        }
+
+        var confirmation = await JsRuntime.InvokeAsync<string?>("prompt", ClearQueuedPrompt);
+        if (!string.Equals(confirmation?.Trim(), ClearQueuedConfirmationWord, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        this._isClearQueuedRunning = true;
+        this.ClearActionAlert();
+
+        try
+        {
+            var canceledCount = await JobManager.CancelQueuedJobsAsync();
+            if (canceledCount == 0)
+            {
+                this.SetActionWarning("No queued jobs were available to cancel.");
+            }
+            else
+            {
+                this.SetActionSuccess(CreateClearQueuedSuccessMessage(canceledCount));
+            }
+
+            await this.LiveRefresh.RefreshNowAsync();
+        }
+        catch (Exception exception)
+        {
+            this.SetActionError(string.Create(CultureInfo.InvariantCulture, $"Clear queued jobs failed: {exception.Message}"));
+        }
+        finally
+        {
+            this._isClearQueuedRunning = false;
+        }
     }
 
     private async Task LoadAsync()
@@ -1094,6 +1228,30 @@
         this._page = page;
     }
 
+    private void SetActionSuccess(string message)
+    {
+        this._actionSeverity = JobsActionSeverity.Success;
+        this._actionMessage = message;
+    }
+
+    private void SetActionWarning(string message)
+    {
+        this._actionSeverity = JobsActionSeverity.Warning;
+        this._actionMessage = message;
+    }
+
+    private void SetActionError(string message)
+    {
+        this._actionSeverity = JobsActionSeverity.Error;
+        this._actionMessage = message;
+    }
+
+    private void ClearActionAlert()
+      => this._actionMessage = null;
+
+    internal static string CreateClearQueuedSuccessMessage(int canceledCount)
+      => string.Create(CultureInfo.InvariantCulture, $"Canceled {DashboardFormat.Count(canceledCount)} queued job(s).");
+
     private static string StatusFilterClass(JobState state)
       => string.Concat("jobs-status-option jobs-status-option--", DashboardFormat.StateCssModifier(state));
 
@@ -1143,4 +1301,11 @@
 
     private string GroupFilterHref(string group)
       => DashboardJobFilterQuery.WithGroupHref(this._filters, group);
+
+    private enum JobsActionSeverity
+    {
+        Success,
+        Warning,
+        Error,
+    }
 }

@@ -4,15 +4,21 @@ using System.Globalization;
 
 using Npgsql;
 
+using Sheddueller;
 using Sheddueller.Inspection.Metrics;
 
 internal static class PostgresMetricsInspectionOperation
 {
+    private const string QueueLatencyMetric = "queue_latency";
+    private const string ExecutionDurationMetric = "execution_duration";
+    private const string ScheduleFireLagMetric = "schedule_fire_lag";
+
     private static readonly TimeSpan[] DefaultMetricWindows = [TimeSpan.FromMinutes(5), TimeSpan.FromHours(1), TimeSpan.FromHours(24)];
 
     public static async ValueTask<MetricsInspectionSnapshot> GetAsync(
         PostgresOperationContext context,
         MetricsInspectionQuery query,
+        MetricsCleanupConfiguration cleanupConfiguration,
         TimeSpan staleThreshold,
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
@@ -24,10 +30,13 @@ internal static class PostgresMetricsInspectionOperation
         }
 
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await PostgresMetricsRollups.CleanupAsync(context, connection, cleanupConfiguration, cancellationToken).ConfigureAwait(false);
+        var current = await ReadCurrentCountsAsync(context, connection, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
+
         var metrics = new List<MetricsInspectionWindow>(windows.Count);
         foreach (var window in windows)
         {
-            metrics.Add(await ReadWindowAsync(context, connection, window, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false));
+            metrics.Add(await ReadWindowAsync(context, connection, window, current, cancellationToken).ConfigureAwait(false));
         }
 
         return new MetricsInspectionSnapshot(metrics);
@@ -37,79 +46,40 @@ internal static class PostgresMetricsInspectionOperation
         PostgresOperationContext context,
         NpgsqlConnection connection,
         TimeSpan window,
-        TimeSpan staleThreshold,
-        TimeSpan deadThreshold,
+        PostgresCurrentMetricsCounts current,
         CancellationToken cancellationToken)
     {
-        var counts = await ReadCountsAsync(context, connection, window, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
-        var (queueLatencyP50, queueLatencyP95) = await ReadPercentilesAsync(
-          connection,
-          $"""
-          select extract(epoch from (claimed_at_utc - enqueued_at_utc)) * 1000 as value_ms
-          from {context.Names.Jobs}
-          where claimed_at_utc >= transaction_timestamp() - @window
-            and claimed_at_utc is not null
-            and claimed_at_utc >= enqueued_at_utc
-          """,
-          window,
-          cancellationToken)
-          .ConfigureAwait(false);
-        var (executionDurationP50, executionDurationP95) = await ReadPercentilesAsync(
-          connection,
-          $"""
-          select extract(epoch from (coalesce(completed_at_utc, failed_at_utc, canceled_at_utc) - claimed_at_utc)) * 1000 as value_ms
-          from {context.Names.Jobs}
-          where state in ('Completed', 'Failed', 'Canceled')
-            and claimed_at_utc is not null
-            and coalesce(completed_at_utc, failed_at_utc, canceled_at_utc) >= transaction_timestamp() - @window
-            and coalesce(completed_at_utc, failed_at_utc, canceled_at_utc) >= claimed_at_utc
-          """,
-          window,
-          cancellationToken)
-          .ConfigureAwait(false);
-        var (_, scheduleFireLagP95) = await ReadPercentilesAsync(
-          connection,
-          $"""
-          select extract(epoch from (enqueued_at_utc - scheduled_fire_at_utc)) * 1000 as value_ms
-          from {context.Names.Jobs}
-          where schedule_occurrence_kind = 'Automatic'
-            and scheduled_fire_at_utc is not null
-            and enqueued_at_utc >= transaction_timestamp() - @window
-            and enqueued_at_utc >= scheduled_fire_at_utc
-          """,
-          window,
-          cancellationToken)
-          .ConfigureAwait(false);
-
+        var counts = await ReadWindowCountsAsync(context, connection, window, cancellationToken).ConfigureAwait(false);
+        var percentiles = await ReadWindowPercentilesAsync(context, connection, window, cancellationToken).ConfigureAwait(false);
         var minutes = Math.Max(window.TotalMinutes, double.Epsilon);
+
         return new MetricsInspectionWindow(
           window,
-          counts.QueuedCount,
-          counts.ClaimedCount,
-          counts.FailedCount,
-          counts.CanceledCount,
-          counts.OldestQueuedAge,
+          current.QueuedCount,
+          current.ClaimedCount,
+          Convert.ToInt32(counts.FailedCount, CultureInfo.InvariantCulture),
+          Convert.ToInt32(counts.CanceledCount, CultureInfo.InvariantCulture),
+          current.OldestQueuedAge,
           counts.EnqueuedCount / minutes,
           counts.ClaimedStartedCount / minutes,
           counts.SucceededCount / minutes,
           counts.FailedCount / minutes,
           counts.CanceledCount / minutes,
           counts.RetryEventCount / minutes,
-          queueLatencyP50,
-          queueLatencyP95,
-          executionDurationP50,
-          executionDurationP95,
-          scheduleFireLagP95,
-          counts.SaturatedGroupCount,
-          counts.ActiveNodeCount,
-          counts.StaleNodeCount,
-          counts.DeadNodeCount);
+          percentiles.QueueLatencyP50,
+          percentiles.QueueLatencyP95,
+          percentiles.ExecutionDurationP50,
+          percentiles.ExecutionDurationP95,
+          percentiles.ScheduleFireLagP95,
+          current.SaturatedGroupCount,
+          current.ActiveNodeCount,
+          current.StaleNodeCount,
+          current.DeadNodeCount);
     }
 
-    private static async ValueTask<PostgresMetricsCounts> ReadCountsAsync(
+    private static async ValueTask<PostgresCurrentMetricsCounts> ReadCurrentCountsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
-        TimeSpan window,
         TimeSpan staleThreshold,
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
@@ -117,35 +87,22 @@ internal static class PostgresMetricsInspectionOperation
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
-          with current_counts as (
+          with queued_counts as (
               select
-                  count(*) filter (where state = 'Queued') as queued_count,
-                  count(*) filter (where state = 'Claimed') as claimed_count,
-                  max(transaction_timestamp() - enqueued_at_utc) filter (where state = 'Queued') as oldest_queued_age
+                  count(*) as queued_count,
+                  max(transaction_timestamp() - enqueued_at_utc) as oldest_queued_age
               from {context.Names.Jobs}
+              where state = 'Queued'
           ),
-          terminal_counts as (
-              select
-                  count(*) filter (where state = 'Completed' and completed_at_utc >= transaction_timestamp() - @window) as succeeded_count,
-                  count(*) filter (where state = 'Failed' and failed_at_utc >= transaction_timestamp() - @window) as failed_count,
-                  count(*) filter (where state = 'Canceled' and canceled_at_utc >= transaction_timestamp() - @window) as canceled_count
+          claimed_counts as (
+              select count(*) as claimed_count
               from {context.Names.Jobs}
-          ),
-          event_counts as (
-              select
-                  count(*) filter (where kind = 'AttemptStarted' and occurred_at_utc >= transaction_timestamp() - @window) as claimed_started_count,
-                  count(*) filter (where kind = 'AttemptFailed' and occurred_at_utc >= transaction_timestamp() - @window) as retry_event_count
-              from {context.Names.JobEvents}
-          ),
-          enqueue_counts as (
-              select count(*) as enqueued_count
-              from {context.Names.Jobs}
-              where enqueued_at_utc >= transaction_timestamp() - @window
+              where state = 'Claimed'
           ),
           saturated_groups as (
               select count(*) as saturated_group_count
               from {context.Names.ConcurrencyGroups}
-              where in_use_count >= coalesce(configured_limit, 1)
+              where in_use_count >= effective_limit
           ),
           node_counts as (
               select
@@ -155,89 +112,176 @@ internal static class PostgresMetricsInspectionOperation
               from {context.Names.WorkerNodes}
           )
           select
-              current_counts.queued_count,
-              current_counts.claimed_count,
-              current_counts.oldest_queued_age,
-              terminal_counts.succeeded_count,
-              terminal_counts.failed_count,
-              terminal_counts.canceled_count,
-              event_counts.claimed_started_count,
-              event_counts.retry_event_count,
-              enqueue_counts.enqueued_count,
+              queued_counts.queued_count,
+              claimed_counts.claimed_count,
+              queued_counts.oldest_queued_age,
               saturated_groups.saturated_group_count,
               node_counts.active_node_count,
               node_counts.stale_node_count,
               node_counts.dead_node_count
-          from current_counts, terminal_counts, event_counts, enqueue_counts, saturated_groups, node_counts;
+          from queued_counts, claimed_counts, saturated_groups, node_counts;
           """;
-        command.Parameters.AddWithValue("window", window);
         command.Parameters.AddWithValue("stale_threshold", staleThreshold);
         command.Parameters.AddWithValue("dead_threshold", deadThreshold);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            throw new InvalidOperationException("PostgreSQL did not return inspection metrics.");
+            throw new InvalidOperationException("PostgreSQL did not return current inspection metrics.");
         }
 
-        return new PostgresMetricsCounts(
+        return new PostgresCurrentMetricsCounts(
           Convert.ToInt32(reader.GetInt64(0), CultureInfo.InvariantCulture),
           Convert.ToInt32(reader.GetInt64(1), CultureInfo.InvariantCulture),
           reader.IsDBNull(2) ? null : reader.GetTimeSpan(2),
           Convert.ToInt32(reader.GetInt64(3), CultureInfo.InvariantCulture),
           Convert.ToInt32(reader.GetInt64(4), CultureInfo.InvariantCulture),
           Convert.ToInt32(reader.GetInt64(5), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(6), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(7), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(8), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(9), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(10), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(11), CultureInfo.InvariantCulture),
-          Convert.ToInt32(reader.GetInt64(12), CultureInfo.InvariantCulture));
+          Convert.ToInt32(reader.GetInt64(6), CultureInfo.InvariantCulture));
     }
 
-    private static async ValueTask<(TimeSpan? P50, TimeSpan? P95)> ReadPercentilesAsync(
+    private static async ValueTask<PostgresWindowRollupCounts> ReadWindowCountsAsync(
+        PostgresOperationContext context,
         NpgsqlConnection connection,
-        string sourceSql,
         TimeSpan window,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
-          with values_ms as (
-              {sourceSql}
-          )
           select
-              percentile_cont(0.5) within group (order by value_ms) as p50,
-              percentile_cont(0.95) within group (order by value_ms) as p95
-          from values_ms;
+              coalesce(sum(enqueued_count), 0),
+              coalesce(sum(claimed_started_count), 0),
+              coalesce(sum(succeeded_count), 0),
+              coalesce(sum(failed_count), 0),
+              coalesce(sum(canceled_count), 0),
+              coalesce(sum(retry_event_count), 0)
+          from {context.Names.MetricsBuckets}
+          where bucket_started_at_utc >= {PostgresMetricsRollups.BucketStartedAtSql("transaction_timestamp() - @window")};
           """;
         command.Parameters.AddWithValue("window", window);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            return (null, null);
+            throw new InvalidOperationException("PostgreSQL did not return rolled-up inspection metrics.");
         }
 
-        return (
-          reader.IsDBNull(0) ? null : TimeSpan.FromMilliseconds(reader.GetDouble(0)),
-          reader.IsDBNull(1) ? null : TimeSpan.FromMilliseconds(reader.GetDouble(1)));
+        return new PostgresWindowRollupCounts(
+          Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture),
+          Convert.ToInt64(reader.GetValue(1), CultureInfo.InvariantCulture),
+          Convert.ToInt64(reader.GetValue(2), CultureInfo.InvariantCulture),
+          Convert.ToInt64(reader.GetValue(3), CultureInfo.InvariantCulture),
+          Convert.ToInt64(reader.GetValue(4), CultureInfo.InvariantCulture),
+          Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture));
     }
 
-    private sealed record PostgresMetricsCounts(
+    private static async ValueTask<PostgresWindowPercentiles> ReadWindowPercentilesAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        TimeSpan window,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          with histogram as (
+              select
+                  metric,
+                  bin_index,
+                  sum(sample_count) as sample_count
+              from {context.Names.MetricsHistogramBins}
+              where bucket_started_at_utc >= {PostgresMetricsRollups.BucketStartedAtSql("transaction_timestamp() - @window")}
+              group by metric, bin_index
+          ),
+          ordered as (
+              select
+                  metric,
+                  bin_index,
+                  sum(sample_count) over (partition by metric order by bin_index asc) as cumulative_count,
+                  sum(sample_count) over (partition by metric) as total_count
+              from histogram
+          )
+          select
+              metric,
+              min(bin_index) filter (where cumulative_count >= ceiling(total_count * 0.50)) as p50_bin,
+              min(bin_index) filter (where cumulative_count >= ceiling(total_count * 0.95)) as p95_bin
+          from ordered
+          group by metric;
+          """;
+        command.Parameters.AddWithValue("window", window);
+
+        TimeSpan? queueLatencyP50 = null;
+        TimeSpan? queueLatencyP95 = null;
+        TimeSpan? executionDurationP50 = null;
+        TimeSpan? executionDurationP95 = null;
+        TimeSpan? scheduleFireLagP95 = null;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var metric = reader.GetString(0);
+            var p50 = ReadDurationBin(reader, 1);
+            var p95 = ReadDurationBin(reader, 2);
+
+            switch (metric)
+            {
+                case QueueLatencyMetric:
+                    queueLatencyP50 = p50;
+                    queueLatencyP95 = p95;
+                    break;
+                case ExecutionDurationMetric:
+                    executionDurationP50 = p50;
+                    executionDurationP95 = p95;
+                    break;
+                case ScheduleFireLagMetric:
+                    scheduleFireLagP95 = p95;
+                    break;
+            }
+        }
+
+        return new PostgresWindowPercentiles(
+          queueLatencyP50,
+          queueLatencyP95,
+          executionDurationP50,
+          executionDurationP95,
+          scheduleFireLagP95);
+    }
+
+    private static TimeSpan? ReadDurationBin(
+        NpgsqlDataReader reader,
+        int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            return null;
+        }
+
+        var binIndex = Math.Clamp(reader.GetInt32(ordinal), 0, PostgresMetricsRollups.DurationHistogramThresholdsMs.Length - 1);
+        return TimeSpan.FromMilliseconds(PostgresMetricsRollups.DurationHistogramThresholdsMs[binIndex]);
+    }
+
+    private sealed record PostgresCurrentMetricsCounts(
         int QueuedCount,
         int ClaimedCount,
         TimeSpan? OldestQueuedAge,
-        int SucceededCount,
-        int FailedCount,
-        int CanceledCount,
-        int ClaimedStartedCount,
-        int RetryEventCount,
-        int EnqueuedCount,
         int SaturatedGroupCount,
         int ActiveNodeCount,
         int StaleNodeCount,
         int DeadNodeCount);
+
+    private sealed record PostgresWindowRollupCounts(
+        long EnqueuedCount,
+        long ClaimedStartedCount,
+        long SucceededCount,
+        long FailedCount,
+        long CanceledCount,
+        long RetryEventCount);
+
+    private sealed record PostgresWindowPercentiles(
+        TimeSpan? QueueLatencyP50,
+        TimeSpan? QueueLatencyP95,
+        TimeSpan? ExecutionDurationP50,
+        TimeSpan? ExecutionDurationP95,
+        TimeSpan? ScheduleFireLagP95);
 }

@@ -34,7 +34,7 @@ internal static class MarkJobCompletedOperation
           $"""
           update {context.Names.Jobs}
           set state = 'Completed',
-              completed_at_utc = transaction_timestamp()
+              completed_at_utc = @completed_at_utc
           where job_id = @job_id
             and state = 'Claimed'
             and claimed_by_node_id = @node_id
@@ -46,6 +46,7 @@ internal static class MarkJobCompletedOperation
               command.Parameters.AddWithValue("job_id", request.JobId);
               command.Parameters.AddWithValue("node_id", request.NodeId);
               command.Parameters.AddWithValue("lease_token", request.LeaseToken);
+              command.Parameters.AddWithValue("completed_at_utc", request.CompletedAtUtc);
           },
           cancellationToken)
           .ConfigureAwait(false);

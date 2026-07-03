@@ -251,6 +251,191 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task SearchJobs_PagedQueuedResults_KeepGlobalQueuePositions()
+    {
+        await using var context = await this.CreateContextAsync();
+        var jobIds = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
+
+        foreach (var jobId in jobIds)
+        {
+            await context.Store.EnqueueAsync(CreateRequest(jobId));
+        }
+
+        var firstPage = await context.Reader.SearchJobsAsync(new JobInspectionQuery(
+          States: [JobState.Queued],
+          PageSize: 2));
+        var secondPage = await context.Reader.SearchJobsAsync(new JobInspectionQuery(
+          States: [JobState.Queued],
+          PageSize: 2,
+          ContinuationToken: firstPage.ContinuationToken));
+
+        firstPage.Jobs.Select(job => job.JobId).ShouldBe([jobIds[0], jobIds[1]]);
+        firstPage.Jobs.Select(job => job.QueuePosition?.Position).ShouldBe([1L, 2L]);
+        secondPage.Jobs.Select(job => job.JobId).ShouldBe([jobIds[2], jobIds[3]]);
+        secondPage.Jobs.Select(job => job.QueuePosition?.Position).ShouldBe([3L, 4L]);
+    }
+
+    [Fact]
+    public async Task SearchJobs_MixedStates_ReportsEquivalentQueuePositionKinds()
+    {
+        await using var context = await this.CreateContextAsync();
+        var completed = Guid.NewGuid();
+        var failed = Guid.NewGuid();
+        var retryWaiting = Guid.NewGuid();
+        var running = Guid.NewGuid();
+        var blocked = Guid.NewGuid();
+        var claimable = Guid.NewGuid();
+        var delayed = Guid.NewGuid();
+        var canceled = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(completed));
+        var completedClaim = await ClaimAsync(context.Store);
+        completedClaim.JobId.ShouldBe(completed);
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(completed, "node-1", completedClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(failed));
+        var failedClaim = await ClaimAsync(context.Store);
+        failedClaim.JobId.ShouldBe(failed);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(failed, "node-1", failedClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          retryWaiting,
+          maxAttempts: 2,
+          retryBackoffKind: RetryBackoffKind.Fixed,
+          retryBaseDelay: TimeSpan.FromHours(1)));
+        var retryClaim = await ClaimAsync(context.Store);
+        retryClaim.JobId.ShouldBe(retryWaiting);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(retryWaiting, "node-1", retryClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(running, priority: 100, groupKeys: ["shared"]));
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
+        await context.Store.EnqueueAsync(CreateRequest(blocked, priority: 100, groupKeys: ["shared"]));
+        await context.Store.EnqueueAsync(CreateRequest(claimable, priority: 50));
+        await context.Store.EnqueueAsync(CreateRequest(delayed, notBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
+        await context.Store.EnqueueAsync(CreateRequest(canceled));
+        (await context.Store.CancelAsync(new CancelJobRequest(canceled, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.Canceled);
+
+        var page = await context.Reader.SearchJobsAsync(new JobInspectionQuery(PageSize: 20));
+        var jobsById = page.Jobs.ToDictionary(static job => job.JobId);
+
+        jobsById[running].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Claimed);
+        jobsById[claimable].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Claimable);
+        jobsById[claimable].QueuePosition?.Position.ShouldBe(1);
+        jobsById[blocked].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.BlockedByConcurrency);
+        jobsById[retryWaiting].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.RetryWaiting);
+        jobsById[delayed].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Delayed);
+        jobsById[completed].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Terminal);
+        jobsById[failed].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Terminal);
+        jobsById[canceled].QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Canceled);
+    }
+
+    [Fact]
+    public async Task Overview_MixedStates_ReturnsIndependentSectionsWithHydratedSummaries()
+    {
+        await using var context = await this.CreateContextAsync();
+        var failed = Guid.NewGuid();
+        var retryWaiting = Guid.NewGuid();
+        var running = Guid.NewGuid();
+        var claimable = Guid.NewGuid();
+        var delayed = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          failed,
+          groupKeys: ["overview-group"],
+          tags: [new JobTag("tenant", "acme")]));
+        await context.EventSink.AppendAsync(new AppendJobEventRequest(
+          failed,
+          JobEventKind.Progress,
+          AttemptNumber: 0,
+          Message: "halfway",
+          ProgressPercent: 50));
+        var failedClaim = await ClaimAsync(context.Store);
+        failedClaim.JobId.ShouldBe(failed);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(failed, "node-1", failedClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          retryWaiting,
+          maxAttempts: 2,
+          retryBackoffKind: RetryBackoffKind.Fixed,
+          retryBaseDelay: TimeSpan.FromHours(1)));
+        var retryClaim = await ClaimAsync(context.Store);
+        retryClaim.JobId.ShouldBe(retryWaiting);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(retryWaiting, "node-1", retryClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(running));
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
+        await context.Store.EnqueueAsync(CreateRequest(claimable, priority: 10));
+        await context.Store.EnqueueAsync(CreateRequest(delayed, notBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
+
+        var overview = await context.Reader.GetOverviewAsync();
+
+        var runningSummary = overview.RunningJobs.Single(job => job.JobId == running);
+        runningSummary.QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Claimed);
+
+        var failedSummary = overview.RecentlyFailedJobs.Single(job => job.JobId == failed);
+        failedSummary.Tags.ShouldBe([new JobTag("tenant", "acme")]);
+        failedSummary.ConcurrencyGroupKeys.ShouldBe(["overview-group"]);
+        failedSummary.LatestProgress.ShouldNotBeNull().Message.ShouldBe("halfway");
+        failedSummary.QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Terminal);
+
+        var claimableSummary = overview.QueuedJobs.Single(job => job.JobId == claimable);
+        claimableSummary.QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Claimable);
+        claimableSummary.QueuePosition?.Position.ShouldBe(1);
+        overview.DelayedJobs.Single(job => job.JobId == delayed).QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Delayed);
+        overview.RetryWaitingJobs.Single(job => job.JobId == retryWaiting).QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.RetryWaiting);
+    }
+
+    [Fact]
+    public async Task Overview_DelayedBacklog_DoesNotHideClaimableJobs()
+    {
+        await using var context = await this.CreateContextAsync();
+        var claimable = Guid.NewGuid();
+        var delayedRequests = Enumerable
+          .Range(0, 105)
+          .Select(index => CreateRequest(Guid.NewGuid(), notBeforeUtc: DateTimeOffset.UtcNow.AddHours(1).AddMinutes(index)))
+          .ToArray();
+
+        await context.Store.EnqueueManyAsync(delayedRequests);
+        await context.Store.EnqueueAsync(CreateRequest(claimable, priority: 100));
+
+        var overview = await context.Reader.GetOverviewAsync();
+
+        overview.QueuedJobs.Select(job => job.JobId).ShouldContain(claimable);
+        overview.QueuedJobs.Single(job => job.JobId == claimable).QueuePosition?.Kind.ShouldBe(JobQueuePositionKind.Claimable);
+        overview.DelayedJobs.Count.ShouldBe(10);
+    }
+
+    [Fact]
+    public async Task Overview_ClaimableBacklog_DoesNotHideWaitingSections()
+    {
+        await using var context = await this.CreateContextAsync();
+        var retryWaiting = Guid.NewGuid();
+        var delayed = Guid.NewGuid();
+        var claimableRequests = Enumerable
+          .Range(0, 105)
+          .Select(index => CreateRequest(Guid.NewGuid(), priority: 100 - index))
+          .ToArray();
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          retryWaiting,
+          maxAttempts: 2,
+          retryBackoffKind: RetryBackoffKind.Fixed,
+          retryBaseDelay: TimeSpan.FromHours(1)));
+        var retryClaim = await ClaimAsync(context.Store);
+        retryClaim.JobId.ShouldBe(retryWaiting);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(retryWaiting, "node-1", retryClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+        await context.Store.EnqueueAsync(CreateRequest(delayed, notBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
+        await context.Store.EnqueueManyAsync(claimableRequests);
+
+        var overview = await context.Reader.GetOverviewAsync();
+
+        overview.QueuedJobs.Count.ShouldBe(10);
+        overview.QueuedJobs.All(job => job.QueuePosition?.Kind == JobQueuePositionKind.Claimable).ShouldBeTrue();
+        overview.DelayedJobs.Select(job => job.JobId).ShouldContain(delayed);
+        overview.RetryWaitingJobs.Select(job => job.JobId).ShouldContain(retryWaiting);
+    }
+
+    [Fact]
     public async Task SearchJobs_NewestFirstSort_OrdersByNewestEnqueueSequence()
     {
         await using var context = await this.CreateContextAsync();
@@ -410,10 +595,34 @@ public abstract class InspectionContractTests
         saturatedPage.TotalCount.ShouldBe(1L);
         detail.ShouldNotBeNull();
         detail.Summary.EffectiveLimit.ShouldBe(1);
+        detail.Summary.DefaultLimit.ShouldBeNull();
+        detail.Summary.OverrideLimit.ShouldBeNull();
         detail.Summary.CurrentOccupancy.ShouldBe(1);
         detail.Summary.IsSaturated.ShouldBeTrue();
         detail.ClaimedJobIds.ShouldBe([running]);
         detail.BlockedJobIds.ShouldBe([blocked]);
+    }
+
+    [Fact]
+    public async Task ConcurrencyGroupView_DefaultAndOverrideLimits_AreVisible()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.SetConcurrencyDefaultLimitAsync(new SetConcurrencyDefaultLimitRequest("api", 2, DateTimeOffset.UtcNow));
+        await context.Store.SetConcurrencyDefaultLimitAsync(new SetConcurrencyDefaultLimitRequest("etl", 3, DateTimeOffset.UtcNow));
+        await context.Store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("etl", 5, DateTimeOffset.UtcNow));
+
+        var api = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
+        var etl = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("etl");
+
+        api.ShouldNotBeNull().Summary.ShouldSatisfyAllConditions(
+          summary => summary.DefaultLimit.ShouldBe(2),
+          summary => summary.OverrideLimit.ShouldBeNull(),
+          summary => summary.EffectiveLimit.ShouldBe(2));
+        etl.ShouldNotBeNull().Summary.ShouldSatisfyAllConditions(
+          summary => summary.DefaultLimit.ShouldBe(3),
+          summary => summary.OverrideLimit.ShouldBe(5),
+          summary => summary.EffectiveLimit.ShouldBe(5));
     }
 
     [Fact]
@@ -484,6 +693,110 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task Metrics_RollingActivity_ReturnsRolledUpRatesAndPercentiles()
+    {
+        await using var context = await this.CreateContextAsync();
+        var completed = Guid.NewGuid();
+        var failed = Guid.NewGuid();
+        var canceled = Guid.NewGuid();
+        var scheduled = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(completed));
+        var completedClaim = await ClaimAsync(context.Store);
+        await context.Store.MarkCompletedAsync(new CompleteJobRequest(
+          completed,
+          "node-1",
+          completedClaim.LeaseToken,
+          DateTimeOffset.UtcNow));
+
+        await context.Store.EnqueueAsync(CreateRequest(failed));
+        var failedClaim = await ClaimAsync(context.Store);
+        await context.Store.MarkFailedAsync(new FailJobRequest(
+          failed,
+          "node-1",
+          failedClaim.LeaseToken,
+          DateTimeOffset.UtcNow,
+          CreateFailure()));
+
+        await context.Store.EnqueueAsync(CreateRequest(canceled));
+        (await context.Store.CancelAsync(new CancelJobRequest(canceled, DateTimeOffset.UtcNow)))
+          .ShouldBe(JobCancellationResult.Canceled);
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          scheduled,
+          sourceScheduleKey: "nightly",
+          scheduledFireAtUtc: DateTimeOffset.UtcNow.AddSeconds(-2),
+          scheduleOccurrenceKind: ScheduleOccurrenceKind.Automatic));
+
+        var metrics = await context.MetricsReader.GetMetricsAsync(new MetricsInspectionQuery([TimeSpan.FromMinutes(5)]));
+        var window = metrics.Windows.ShouldHaveSingleItem();
+
+        window.EnqueueRatePerMinute.ShouldBeGreaterThan(0);
+        window.ClaimRatePerMinute.ShouldBeGreaterThan(0);
+        window.SuccessRatePerMinute.ShouldBeGreaterThan(0);
+        window.FailureRatePerMinute.ShouldBeGreaterThan(0);
+        window.CancellationRatePerMinute.ShouldBeGreaterThan(0);
+        window.RetryRatePerMinute.ShouldBeGreaterThan(0);
+        window.P50QueueLatency.ShouldNotBeNull();
+        window.P95ExecutionDuration.ShouldNotBeNull();
+        window.P95ScheduleFireLag.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Metrics_BulkQueuedCancellation_ReturnsRolledUpCancellationRate()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid()));
+        await context.Store.EnqueueAsync(CreateRequest(Guid.NewGuid()));
+
+        (await context.Store.CancelQueuedJobsAsync(new CancelQueuedJobsRequest(DateTimeOffset.UtcNow))).ShouldBe(2);
+
+        var metrics = await context.MetricsReader.GetMetricsAsync(new MetricsInspectionQuery([TimeSpan.FromMinutes(5)]));
+
+        metrics.Windows.ShouldHaveSingleItem().CancellationRatePerMinute.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task NodeSearch_MultipleClaimedJobsAcrossNodes_ReturnsPerNodeClaimedCounts()
+    {
+        await using var context = await this.CreateContextAsync();
+        var nodeAFirst = Guid.NewGuid();
+        var nodeASecond = Guid.NewGuid();
+        var nodeBJob = Guid.NewGuid();
+
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-a",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 2));
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-b",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 1));
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-c",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 0));
+        await context.Store.EnqueueAsync(CreateRequest(nodeAFirst));
+        await context.Store.EnqueueAsync(CreateRequest(nodeASecond));
+        await context.Store.EnqueueAsync(CreateRequest(nodeBJob));
+
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeAFirst);
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeASecond);
+        (await ClaimAsync(context.Store, "node-b")).JobId.ShouldBe(nodeBJob);
+
+        var page = await context.NodeReader.SearchNodesAsync(new NodeInspectionQuery(PageSize: 10));
+        var nodesById = page.Nodes.ToDictionary(node => node.NodeId);
+
+        nodesById["node-a"].ClaimedJobCount.ShouldBe(2);
+        nodesById["node-b"].ClaimedJobCount.ShouldBe(1);
+        nodesById["node-c"].ClaimedJobCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task NodeSearch_StateFilter_ReturnsTotalMatchingCount()
     {
         await using var context = await this.CreateContextAsync();
@@ -503,9 +816,49 @@ public abstract class InspectionContractTests
           new NodeInspectionQuery(State: NodeHealthState.Active, PageSize: 1));
 
         page.Nodes.Count.ShouldBe(1);
+        page.Nodes.Select(node => node.NodeId).ShouldBe(["node-a"]);
         page.Nodes[0].State.ShouldBe(NodeHealthState.Active);
         page.TotalCount.ShouldBe(2L);
         page.ContinuationToken.ShouldNotBeNull();
+
+        var secondPage = await context.NodeReader.SearchNodesAsync(
+          new NodeInspectionQuery(State: NodeHealthState.Active, PageSize: 1, ContinuationToken: page.ContinuationToken));
+
+        secondPage.Nodes.Select(node => node.NodeId).ShouldBe(["node-b"]);
+        secondPage.TotalCount.ShouldBe(2L);
+        secondPage.ContinuationToken.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task NodeDetail_ClaimedJobs_ReturnsClaimedJobIdsForNode()
+    {
+        await using var context = await this.CreateContextAsync();
+        var nodeAFirst = Guid.NewGuid();
+        var nodeBJob = Guid.NewGuid();
+        var nodeASecond = Guid.NewGuid();
+
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-a",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 2));
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-b",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 1));
+        await context.Store.EnqueueAsync(CreateRequest(nodeAFirst));
+        await context.Store.EnqueueAsync(CreateRequest(nodeBJob));
+        await context.Store.EnqueueAsync(CreateRequest(nodeASecond));
+
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeAFirst);
+        (await ClaimAsync(context.Store, "node-b")).JobId.ShouldBe(nodeBJob);
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeASecond);
+
+        var detail = await context.NodeReader.GetNodeAsync("node-a");
+
+        detail.ShouldNotBeNull().Summary.ClaimedJobCount.ShouldBe(2);
+        detail.ClaimedJobIds.ShouldBe([nodeAFirst, nodeASecond]);
     }
 
     [Fact]
@@ -543,8 +896,10 @@ public abstract class InspectionContractTests
         secondPage.ContinuationToken.ShouldNotBeNull();
     }
 
-    protected static async ValueTask<ClaimedJob> ClaimAsync(IJobStore store)
-      => (await store.TryClaimNextAsync(new ClaimJobRequest("node-1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30))))
+    protected static async ValueTask<ClaimedJob> ClaimAsync(
+        IJobStore store,
+        string nodeId = "node-1")
+      => (await store.TryClaimNextAsync(new ClaimJobRequest(nodeId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30))))
         .ShouldBeOfType<ClaimJobResult.Claimed>()
         .Job;
 
@@ -562,7 +917,10 @@ public abstract class InspectionContractTests
         IReadOnlyList<string>? methodParameterTypes = null,
         SerializedJobPayload? serializedArguments = null,
         JobInvocationTargetKind invocationTargetKind = JobInvocationTargetKind.Instance,
-        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null)
+        IReadOnlyList<JobMethodParameterBinding>? methodParameterBindings = null,
+        string? sourceScheduleKey = null,
+        DateTimeOffset? scheduledFireAtUtc = null,
+        ScheduleOccurrenceKind? scheduleOccurrenceKind = null)
       => new(
         jobId,
         priority,
@@ -576,7 +934,10 @@ public abstract class InspectionContractTests
         maxAttempts,
         retryBackoffKind,
         retryBaseDelay,
+        SourceScheduleKey: sourceScheduleKey,
+        ScheduledFireAtUtc: scheduledFireAtUtc,
         Tags: tags,
+        ScheduleOccurrenceKind: scheduleOccurrenceKind,
         InvocationTargetKind: invocationTargetKind,
         MethodParameterBindings: methodParameterBindings);
 
@@ -596,6 +957,9 @@ public abstract class InspectionContractTests
         RecurringOverlapMode.Skip,
         DateTimeOffset.UtcNow,
         tags);
+
+    private static JobFailureInfo CreateFailure()
+      => new("TestException", "failed", "stack");
 
     private static async ValueTask<IReadOnlyList<JobEvent>> ReadAllAsync(IJobInspectionReader reader, Guid jobId)
     {

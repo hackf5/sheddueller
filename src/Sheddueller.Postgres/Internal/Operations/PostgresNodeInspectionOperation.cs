@@ -56,16 +56,18 @@ internal static class PostgresNodeInspectionOperation
     {
         await using var command = connection.CreateCommand();
         var conditions = new List<string>();
-        ConfigureFilters(command, conditions, query);
+        ConfigureFilters(conditions, query);
         command.CommandText =
           $"""
-          {NodeSummaryCteSql(context)}
           select count(*)
-          from summary
+          from {context.Names.WorkerNodes} node
           {CreateWhereClause(conditions)};
           """;
-        command.Parameters.AddWithValue("stale_threshold", staleThreshold);
-        command.Parameters.AddWithValue("dead_threshold", deadThreshold);
+        if (query.State is not null)
+        {
+            command.Parameters.AddWithValue("stale_threshold", staleThreshold);
+            command.Parameters.AddWithValue("dead_threshold", deadThreshold);
+        }
 
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }
@@ -80,28 +82,49 @@ internal static class PostgresNodeInspectionOperation
     {
         await using var command = connection.CreateCommand();
         var conditions = new List<string>();
-        ConfigureFilters(command, conditions, query);
+        ConfigureFilters(conditions, query);
         if (query.ContinuationToken is not null)
         {
-            conditions.Add("summary.node_id > @after_node_id");
+            conditions.Add("node.node_id > @after_node_id");
             command.Parameters.AddWithValue("after_node_id", query.ContinuationToken);
         }
 
         command.CommandText =
           $"""
-          {NodeSummaryCteSql(context)}
+          with page_nodes as (
+              select
+                  node.node_id,
+                  {CreateNodeStateSql("node")} as state,
+                  node.first_seen_at_utc,
+                  node.last_heartbeat_at_utc,
+                  node.max_concurrent_executions_per_node,
+                  node.current_execution_count
+              from {context.Names.WorkerNodes} node
+              {CreateWhereClause(conditions)}
+              order by node.node_id asc
+              limit @limit
+          ),
+          claimed_counts as (
+              select
+                  job.claimed_by_node_id as node_id,
+                  count(*) as claimed_count
+              from {context.Names.Jobs} job
+              join page_nodes node on node.node_id = job.claimed_by_node_id
+              where job.state = 'Claimed'
+                and job.claimed_by_node_id is not null
+              group by job.claimed_by_node_id
+          )
           select
-              summary.node_id,
-              summary.state,
-              summary.first_seen_at_utc,
-              summary.last_heartbeat_at_utc,
-              summary.claimed_count,
-              summary.max_concurrent_executions_per_node,
-              summary.current_execution_count
-          from summary
-          {CreateWhereClause(conditions)}
-          order by summary.node_id asc
-          limit @limit;
+              page_nodes.node_id,
+              page_nodes.state,
+              page_nodes.first_seen_at_utc,
+              page_nodes.last_heartbeat_at_utc,
+              coalesce(claimed_counts.claimed_count, 0),
+              page_nodes.max_concurrent_executions_per_node,
+              page_nodes.current_execution_count
+          from page_nodes
+          left join claimed_counts on claimed_counts.node_id = page_nodes.node_id
+          order by page_nodes.node_id asc;
           """;
         command.Parameters.AddWithValue("stale_threshold", staleThreshold);
         command.Parameters.AddWithValue("dead_threshold", deadThreshold);
@@ -121,17 +144,34 @@ internal static class PostgresNodeInspectionOperation
         await using var command = connection.CreateCommand();
         command.CommandText =
           $"""
-          {NodeSummaryCteSql(context)}
+          with selected_node as (
+              select
+                  node.node_id,
+                  {CreateNodeStateSql("node")} as state,
+                  node.first_seen_at_utc,
+                  node.last_heartbeat_at_utc,
+                  node.max_concurrent_executions_per_node,
+                  node.current_execution_count
+              from {context.Names.WorkerNodes} node
+              where node.node_id = @node_id
+          ),
+          claimed_counts as (
+              select count(*) as claimed_count
+              from {context.Names.Jobs} job
+              join selected_node node on node.node_id = job.claimed_by_node_id
+              where job.state = 'Claimed'
+                and job.claimed_by_node_id is not null
+          )
           select
-              summary.node_id,
-              summary.state,
-              summary.first_seen_at_utc,
-              summary.last_heartbeat_at_utc,
-              summary.claimed_count,
-              summary.max_concurrent_executions_per_node,
-              summary.current_execution_count
-          from summary
-          where summary.node_id = @node_id;
+              selected_node.node_id,
+              selected_node.state,
+              selected_node.first_seen_at_utc,
+              selected_node.last_heartbeat_at_utc,
+              claimed_counts.claimed_count,
+              selected_node.max_concurrent_executions_per_node,
+              selected_node.current_execution_count
+          from selected_node
+          cross join claimed_counts;
           """;
         command.Parameters.AddWithValue("node_id", nodeId);
         command.Parameters.AddWithValue("stale_threshold", staleThreshold);
@@ -190,42 +230,33 @@ internal static class PostgresNodeInspectionOperation
     }
 
     private static void ConfigureFilters(
-        NpgsqlCommand command,
         List<string> conditions,
         NodeInspectionQuery query)
     {
-        if (query.State is { } state)
+        if (query.State is not { } state)
         {
-            conditions.Add("summary.state = @state");
-            command.Parameters.AddWithValue("state", state.ToString());
+            return;
         }
+
+        conditions.Add(state switch
+        {
+            NodeHealthState.Active => "transaction_timestamp() - node.last_heartbeat_at_utc < @stale_threshold",
+            NodeHealthState.Stale => "transaction_timestamp() - node.last_heartbeat_at_utc >= @stale_threshold and transaction_timestamp() - node.last_heartbeat_at_utc < @dead_threshold",
+            NodeHealthState.Dead => "transaction_timestamp() - node.last_heartbeat_at_utc >= @dead_threshold",
+            _ => throw new ArgumentOutOfRangeException(nameof(query), query.State, "Node health state is invalid."),
+        });
     }
 
     private static string CreateWhereClause(List<string> conditions)
       => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
 
-    private static string NodeSummaryCteSql(PostgresOperationContext context)
+    private static string CreateNodeStateSql(string nodeAlias)
       => $"""
-         with summary as (
-             select
-                 node.node_id,
-                 case
-                     when transaction_timestamp() - node.last_heartbeat_at_utc >= @dead_threshold then 'Dead'
-                     when transaction_timestamp() - node.last_heartbeat_at_utc >= @stale_threshold then 'Stale'
-                     else 'Active'
-                 end as state,
-                 node.first_seen_at_utc,
-                 node.last_heartbeat_at_utc,
-                 (
-                     select count(*)
-                     from {context.Names.Jobs} job
-                     where job.state = 'Claimed'
-                       and job.claimed_by_node_id = node.node_id
-                 ) as claimed_count,
-                 node.max_concurrent_executions_per_node,
-                 node.current_execution_count
-             from {context.Names.WorkerNodes} node
-         )
+         case
+             when transaction_timestamp() - {nodeAlias}.last_heartbeat_at_utc >= @dead_threshold then 'Dead'
+             when transaction_timestamp() - {nodeAlias}.last_heartbeat_at_utc >= @stale_threshold then 'Stale'
+             else 'Active'
+         end
          """;
 
     private static void ValidateQuery(NodeInspectionQuery query)

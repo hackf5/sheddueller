@@ -41,6 +41,14 @@ internal static partial class ShedduellerLoggerMessages
         string result);
 
     [LoggerMessage(
+        EventIdStart + 11,
+        LogLevel.Debug,
+        "Canceled {CanceledCount} queued jobs.")]
+    public static partial void QueuedJobsCanceled(
+        this ILogger logger,
+        int canceledCount);
+
+    [LoggerMessage(
         EventIdStart + 20,
         LogLevel.Debug,
         "Recurring schedule {ScheduleKey} upsert returned {Result}.")]
@@ -93,6 +101,23 @@ internal static partial class ShedduellerLoggerMessages
         this ILogger logger,
         string groupKey,
         int limit);
+
+    [LoggerMessage(
+        EventIdStart + 31,
+        LogLevel.Debug,
+        "Set concurrency group {GroupKey} default limit to {Limit}.")]
+    public static partial void ConcurrencyGroupDefaultLimitSet(
+        this ILogger logger,
+        string groupKey,
+        int limit);
+
+    [LoggerMessage(
+        EventIdStart + 32,
+        LogLevel.Debug,
+        "Cleared concurrency group {GroupKey} limit override.")]
+    public static partial void ConcurrencyGroupLimitOverrideCleared(
+        this ILogger logger,
+        string groupKey);
 
     [LoggerMessage(
         EventIdStart + 40,

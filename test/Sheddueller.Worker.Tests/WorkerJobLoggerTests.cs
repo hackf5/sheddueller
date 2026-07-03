@@ -537,6 +537,11 @@ public sealed class WorkerJobLoggerTests
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(JobCancellationResult.NotFound);
 
+        public ValueTask<int> CancelQueuedJobsAsync(
+            CancelQueuedJobsRequest request,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(0);
+
         public ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
             JobCancellationStatusRequest request,
             CancellationToken cancellationToken = default)
@@ -554,6 +559,16 @@ public sealed class WorkerJobLoggerTests
 
         public ValueTask SetConcurrencyLimitAsync(
             SetConcurrencyLimitRequest request,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
+        public ValueTask SetConcurrencyDefaultLimitAsync(
+            SetConcurrencyDefaultLimitRequest request,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
+        public ValueTask ClearConcurrencyLimitOverrideAsync(
+            ClearConcurrencyLimitOverrideRequest request,
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 

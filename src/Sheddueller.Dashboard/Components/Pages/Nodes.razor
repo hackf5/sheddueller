@@ -1,7 +1,6 @@
 @page "/nodes"
 @inherits DashboardPageComponent
 @inject INodeInspectionReader NodeReader
-@inject IMetricsInspectionReader MetricsReader
 
 <div class="nodes-page">
     <header class="nodes-header">
@@ -528,7 +527,7 @@
     private readonly List<NodeInspectionSummary> _nodes = [];
     private readonly DashboardNodeFilters _filters = new();
     private NodeInspectionPage? _nodePage;
-    private MetricsInspectionWindow? _metricsWindow;
+    private NodeHealthCounts? _healthCounts;
     private string? _loadError;
     private bool _isLoading;
     private bool _isLoadingMore;
@@ -537,16 +536,16 @@
       => this._filters.ApplyClientFilter(this._nodes);
 
     private int ActiveNodeCount
-      => this._metricsWindow?.ActiveNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Active);
+      => this._healthCounts?.ActiveNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Active);
 
     private int StaleNodeCount
-      => this._metricsWindow?.StaleNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Stale);
+      => this._healthCounts?.StaleNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Stale);
 
     private int DeadNodeCount
-      => this._metricsWindow?.DeadNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Dead);
+      => this._healthCounts?.DeadNodeCount ?? this._nodes.Count(node => node.State == NodeHealthState.Dead);
 
     private int TotalNodeCount
-      => this.ActiveNodeCount + this.StaleNodeCount + this.DeadNodeCount;
+      => this._healthCounts?.TotalNodeCount ?? this.ActiveNodeCount + this.StaleNodeCount + this.DeadNodeCount;
 
     private string EmptyText
       => this._nodes.Count == 0
@@ -671,16 +670,30 @@
           this._filters.ToQuery(pageSize, continuationToken),
           cancellationToken)
           .AsTask();
-        var metricsTask = MetricsReader.GetMetricsAsync(
-          new MetricsInspectionQuery([TimeSpan.FromMinutes(5)]),
-          cancellationToken)
-          .AsTask();
+        var activeCountTask = this.ReadNodeHealthCountAsync(NodeHealthState.Active, cancellationToken);
+        var staleCountTask = this.ReadNodeHealthCountAsync(NodeHealthState.Stale, cancellationToken);
+        var deadCountTask = this.ReadNodeHealthCountAsync(NodeHealthState.Dead, cancellationToken);
 
-        await Task.WhenAll(nodePageTask, metricsTask);
+        await Task.WhenAll(nodePageTask, activeCountTask, staleCountTask, deadCountTask);
 
         return new NodesSnapshot(
           nodePageTask.Result,
-          metricsTask.Result.Windows.FirstOrDefault());
+          new NodeHealthCounts(
+            activeCountTask.Result,
+            staleCountTask.Result,
+            deadCountTask.Result));
+    }
+
+    private async Task<int> ReadNodeHealthCountAsync(
+        NodeHealthState state,
+        CancellationToken cancellationToken)
+    {
+        var page = await NodeReader.SearchNodesAsync(
+          new NodeInspectionQuery(State: state, PageSize: 1),
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        return Convert.ToInt32(page.TotalCount, CultureInfo.InvariantCulture);
     }
 
     private void ApplySnapshot(
@@ -694,7 +707,7 @@
 
         this._nodes.AddRange(snapshot.Page.Nodes);
         this._nodePage = snapshot.Page;
-        this._metricsWindow = snapshot.MetricsWindow;
+        this._healthCounts = snapshot.HealthCounts;
         this._loadError = null;
     }
 
@@ -742,5 +755,14 @@
 
     private sealed record NodesSnapshot(
         NodeInspectionPage Page,
-        MetricsInspectionWindow? MetricsWindow);
+        NodeHealthCounts HealthCounts);
+
+    private sealed record NodeHealthCounts(
+        int ActiveNodeCount,
+        int StaleNodeCount,
+        int DeadNodeCount)
+    {
+        public int TotalNodeCount
+          => this.ActiveNodeCount + this.StaleNodeCount + this.DeadNodeCount;
+    }
 }

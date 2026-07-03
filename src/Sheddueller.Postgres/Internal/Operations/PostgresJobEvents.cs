@@ -143,7 +143,7 @@ internal static class PostgresJobEvents
         var occurredAtUtc = PostgresConversion.ToDateTimeOffset(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
           ?? throw new InvalidOperationException("PostgreSQL did not return a job event timestamp."));
 
-        return new JobEvent(
+        var jobEvent = new JobEvent(
           eventId,
           request.JobId,
           eventSequence,
@@ -154,6 +154,10 @@ internal static class PostgresJobEvents
           request.Message,
           request.ProgressPercent,
           request.Fields);
+        await PostgresMetricsRollups.RecordJobEventAsync(context, connection, transaction, jobEvent, cancellationToken)
+          .ConfigureAwait(false);
+
+        return jobEvent;
     }
 
     private static async ValueTask<long> IncrementEventSequenceAsync(

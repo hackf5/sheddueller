@@ -313,7 +313,7 @@ internal sealed class PostgresTestContext(
     {
         await using var command = this.DataSource.CreateCommand(
           $"""
-          select group_key, configured_limit, in_use_count
+          select group_key, configured_limit, default_limit, effective_limit, in_use_count
           from {this.Table("concurrency_groups")}
           where group_key = @group_key;
           """);
@@ -328,7 +328,9 @@ internal sealed class PostgresTestContext(
         return new PostgresConcurrencyGroupRow(
           reader.GetString(0),
           reader.IsDBNull(1) ? null : reader.GetInt32(1),
-          reader.GetInt32(2));
+          reader.IsDBNull(2) ? null : reader.GetInt32(2),
+          reader.GetInt32(3),
+          reader.GetInt32(4));
     }
 
     public async ValueTask<int> CountJobsForScheduleAsync(string scheduleKey)
@@ -460,4 +462,6 @@ internal sealed record PostgresScheduleRow(
 internal sealed record PostgresConcurrencyGroupRow(
     string GroupKey,
     int? ConfiguredLimit,
+    int? DefaultLimit,
+    int EffectiveLimit,
     int InUseCount);
