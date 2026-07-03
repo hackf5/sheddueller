@@ -324,6 +324,19 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public async Task Nodes_HealthSummary_RendersFromNodeCountsWithoutMetricsData()
+    {
+        await using var app = await CreateStartedDashboardAsync(registerMetricsReader: false);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/nodes");
+
+        html.ShouldContain("Total Nodes");
+        html.ShouldContain("<strong>3</strong>");
+        html.ShouldContain("cluster-wide");
+        html.ShouldContain("33.3%");
+        html.ShouldContain("Showing 1-3 of 3 nodes");
+    }
+
+    [Fact]
     public async Task Metrics_KnownData_RendersRollingHealth()
     {
         await using var app = await CreateStartedDashboardAsync();
@@ -479,7 +492,8 @@ public sealed class DashboardEndpointTests
     private static async Task<WebApplication> CreateStartedDashboardAsync(
         bool prerender = true,
         bool mapWithWebApplication = true,
-        Action<ShedduellerDashboardOptions>? configureDashboard = null)
+        Action<ShedduellerDashboardOptions>? configureDashboard = null,
+        bool registerMetricsReader = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -490,7 +504,11 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IRecurringScheduleManager>(serviceProvider => serviceProvider.GetRequiredService<StubScheduleInspectionReader>());
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
-        builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
+        if (registerMetricsReader)
+        {
+            builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
+        }
+
         builder.Services.AddSingleton<IDashboardThroughputReader, StubDashboardThroughputReader>();
         builder.Services.AddShedduellerDashboard(options =>
         {

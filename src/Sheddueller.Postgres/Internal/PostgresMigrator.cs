@@ -300,6 +300,10 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               on {this._names.Jobs} (lease_expires_at_utc)
               where state = 'Claimed';
 
+          create index if not exists idx_jobs_claimed_by_node
+              on {this._names.Jobs} (claimed_by_node_id, enqueue_sequence)
+              where state = 'Claimed' and claimed_by_node_id is not null;
+
           create index if not exists idx_jobs_source_schedule_nonterminal
               on {this._names.Jobs} (source_schedule_key)
               where state in ('Queued', 'Claimed');

@@ -669,6 +669,45 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task NodeSearch_MultipleClaimedJobsAcrossNodes_ReturnsPerNodeClaimedCounts()
+    {
+        await using var context = await this.CreateContextAsync();
+        var nodeAFirst = Guid.NewGuid();
+        var nodeASecond = Guid.NewGuid();
+        var nodeBJob = Guid.NewGuid();
+
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-a",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 2));
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-b",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 1));
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-c",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 0));
+        await context.Store.EnqueueAsync(CreateRequest(nodeAFirst));
+        await context.Store.EnqueueAsync(CreateRequest(nodeASecond));
+        await context.Store.EnqueueAsync(CreateRequest(nodeBJob));
+
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeAFirst);
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeASecond);
+        (await ClaimAsync(context.Store, "node-b")).JobId.ShouldBe(nodeBJob);
+
+        var page = await context.NodeReader.SearchNodesAsync(new NodeInspectionQuery(PageSize: 10));
+        var nodesById = page.Nodes.ToDictionary(node => node.NodeId);
+
+        nodesById["node-a"].ClaimedJobCount.ShouldBe(2);
+        nodesById["node-b"].ClaimedJobCount.ShouldBe(1);
+        nodesById["node-c"].ClaimedJobCount.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task NodeSearch_StateFilter_ReturnsTotalMatchingCount()
     {
         await using var context = await this.CreateContextAsync();
@@ -688,9 +727,49 @@ public abstract class InspectionContractTests
           new NodeInspectionQuery(State: NodeHealthState.Active, PageSize: 1));
 
         page.Nodes.Count.ShouldBe(1);
+        page.Nodes.Select(node => node.NodeId).ShouldBe(["node-a"]);
         page.Nodes[0].State.ShouldBe(NodeHealthState.Active);
         page.TotalCount.ShouldBe(2L);
         page.ContinuationToken.ShouldNotBeNull();
+
+        var secondPage = await context.NodeReader.SearchNodesAsync(
+          new NodeInspectionQuery(State: NodeHealthState.Active, PageSize: 1, ContinuationToken: page.ContinuationToken));
+
+        secondPage.Nodes.Select(node => node.NodeId).ShouldBe(["node-b"]);
+        secondPage.TotalCount.ShouldBe(2L);
+        secondPage.ContinuationToken.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task NodeDetail_ClaimedJobs_ReturnsClaimedJobIdsForNode()
+    {
+        await using var context = await this.CreateContextAsync();
+        var nodeAFirst = Guid.NewGuid();
+        var nodeBJob = Guid.NewGuid();
+        var nodeASecond = Guid.NewGuid();
+
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-a",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 2));
+        await context.Store.RecordWorkerNodeHeartbeatAsync(new WorkerNodeHeartbeatRequest(
+          "node-b",
+          DateTimeOffset.UtcNow,
+          MaxConcurrentExecutionsPerNode: 4,
+          CurrentExecutionCount: 1));
+        await context.Store.EnqueueAsync(CreateRequest(nodeAFirst));
+        await context.Store.EnqueueAsync(CreateRequest(nodeBJob));
+        await context.Store.EnqueueAsync(CreateRequest(nodeASecond));
+
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeAFirst);
+        (await ClaimAsync(context.Store, "node-b")).JobId.ShouldBe(nodeBJob);
+        (await ClaimAsync(context.Store, "node-a")).JobId.ShouldBe(nodeASecond);
+
+        var detail = await context.NodeReader.GetNodeAsync("node-a");
+
+        detail.ShouldNotBeNull().Summary.ClaimedJobCount.ShouldBe(2);
+        detail.ClaimedJobIds.ShouldBe([nodeAFirst, nodeASecond]);
     }
 
     [Fact]
@@ -728,8 +807,10 @@ public abstract class InspectionContractTests
         secondPage.ContinuationToken.ShouldNotBeNull();
     }
 
-    protected static async ValueTask<ClaimedJob> ClaimAsync(IJobStore store)
-      => (await store.TryClaimNextAsync(new ClaimJobRequest("node-1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30))))
+    protected static async ValueTask<ClaimedJob> ClaimAsync(
+        IJobStore store,
+        string nodeId = "node-1")
+      => (await store.TryClaimNextAsync(new ClaimJobRequest(nodeId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddSeconds(30))))
         .ShouldBeOfType<ClaimJobResult.Claimed>()
         .Job;
 

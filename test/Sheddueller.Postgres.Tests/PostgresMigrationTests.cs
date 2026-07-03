@@ -118,6 +118,27 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_FreshSchema_CreatesClaimedJobsByNodeIndex()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        var indexDefinition = await ScalarAsync<string>(
+          context,
+          """
+          select indexdef
+          from pg_indexes
+          where schemaname = @schema_name
+            and indexname = 'idx_jobs_claimed_by_node';
+          """);
+
+        var normalized = indexDefinition.ToLowerInvariant();
+        normalized.ShouldContain("claimed_by_node_id");
+        normalized.ShouldContain("enqueue_sequence");
+        normalized.ShouldContain("state = 'claimed'");
+        normalized.ShouldContain("claimed_by_node_id is not null");
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
