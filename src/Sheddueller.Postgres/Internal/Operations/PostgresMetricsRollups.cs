@@ -4,15 +4,14 @@ using Npgsql;
 
 using NpgsqlTypes;
 
+using Sheddueller;
 using Sheddueller.Storage;
 
 internal static class PostgresMetricsRollups
 {
     public const int BucketSizeSeconds = 5;
-    public static readonly TimeSpan Retention = TimeSpan.FromDays(7);
 
     private const int CleanupAdvisoryLockKey = 7870835;
-    private static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(1);
 
     internal static readonly long[] DurationHistogramThresholdsMs =
     [
@@ -361,8 +360,11 @@ internal static class PostgresMetricsRollups
     public static async ValueTask CleanupAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
+        MetricsCleanupConfiguration configuration,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(configuration);
+
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var acquired = await TryAcquireCleanupLockAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         if (!acquired)
@@ -371,7 +373,7 @@ internal static class PostgresMetricsRollups
             return;
         }
 
-        if (!await ShouldCleanupAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false))
+        if (!await ShouldCleanupAsync(context, connection, transaction, configuration.CleanupInterval, cancellationToken).ConfigureAwait(false))
         {
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return;
@@ -388,7 +390,7 @@ internal static class PostgresMetricsRollups
           set last_cleanup_at_utc = transaction_timestamp()
           where singleton_id = 1;
           """,
-          command => command.Parameters.AddWithValue("retention", Retention),
+          command => command.Parameters.AddWithValue("retention", configuration.Retention),
           cancellationToken)
           .ConfigureAwait(false);
 
@@ -415,6 +417,7 @@ internal static class PostgresMetricsRollups
         PostgresOperationContext context,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        TimeSpan cleanupInterval,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -427,7 +430,7 @@ internal static class PostgresMetricsRollups
           where singleton_id = 1
           for update;
           """;
-        command.Parameters.AddWithValue("cleanup_interval", CleanupInterval);
+        command.Parameters.AddWithValue("cleanup_interval", cleanupInterval);
 
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
           ?? throw new InvalidOperationException("PostgreSQL did not return metrics cleanup state."));

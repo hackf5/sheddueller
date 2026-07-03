@@ -19,6 +19,7 @@ internal sealed class PostgresJobStore(
     IJobEventSink,
     IJobEventRetentionStore,
     IJobRetentionStore,
+    IShedduellerCleanupConfigurationStore,
     IScheduleInspectionReader,
     IConcurrencyGroupInspectionReader,
     INodeInspectionReader,
@@ -259,6 +260,51 @@ internal sealed class PostgresJobStore(
         return PostgresJobRetentionOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
+    public ValueTask<ShedduellerCleanupConfiguration> GetCleanupConfigurationAsync(
+        ShedduellerCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(defaultConfiguration);
+
+        return PostgresCleanupConfigurationOperation.GetAsync(this._context, defaultConfiguration, cancellationToken);
+    }
+
+    public ValueTask<JobRetentionCleanupConfiguration> GetJobRetentionCleanupConfigurationAsync(
+        JobRetentionCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(defaultConfiguration);
+
+        return PostgresCleanupConfigurationOperation.GetJobRetentionAsync(this._context, defaultConfiguration, cancellationToken);
+    }
+
+    public ValueTask<JobEventCleanupConfiguration> GetJobEventCleanupConfigurationAsync(
+        JobEventCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(defaultConfiguration);
+
+        return PostgresCleanupConfigurationOperation.GetJobEventsAsync(this._context, defaultConfiguration, cancellationToken);
+    }
+
+    public ValueTask<MetricsCleanupConfiguration> GetMetricsCleanupConfigurationAsync(
+        MetricsCleanupConfiguration defaultConfiguration,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(defaultConfiguration);
+
+        return PostgresCleanupConfigurationOperation.GetMetricsAsync(this._context, defaultConfiguration, cancellationToken);
+    }
+
+    public ValueTask SetCleanupConfigurationAsync(
+        ShedduellerCleanupConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        return PostgresCleanupConfigurationOperation.SetAsync(this._context, configuration, cancellationToken);
+    }
+
     public ValueTask<ScheduleInspectionPage> SearchSchedulesAsync(
         ScheduleInspectionQuery query,
         CancellationToken cancellationToken = default)
@@ -302,11 +348,24 @@ internal sealed class PostgresJobStore(
     public ValueTask<MetricsInspectionSnapshot> GetMetricsAsync(
         MetricsInspectionQuery query,
         CancellationToken cancellationToken = default)
-      => PostgresMetricsInspectionOperation.GetAsync(
-        this._context,
-        query,
-        this._shedduellerOptions.Value.EffectiveStaleNodeThreshold,
-        this._shedduellerOptions.Value.EffectiveDeadNodeThreshold,
-        cancellationToken);
+      => this.GetMetricsCoreAsync(query, cancellationToken);
+
+    private async ValueTask<MetricsInspectionSnapshot> GetMetricsCoreAsync(
+        MetricsInspectionQuery query,
+        CancellationToken cancellationToken)
+    {
+        var cleanupConfiguration = await PostgresCleanupConfigurationOperation
+          .GetMetricsAsync(this._context, MetricsCleanupConfiguration.Default, cancellationToken)
+          .ConfigureAwait(false);
+
+        return await PostgresMetricsInspectionOperation.GetAsync(
+          this._context,
+          query,
+          cleanupConfiguration,
+          this._shedduellerOptions.Value.EffectiveStaleNodeThreshold,
+          this._shedduellerOptions.Value.EffectiveDeadNodeThreshold,
+          cancellationToken)
+          .ConfigureAwait(false);
+    }
 
 }

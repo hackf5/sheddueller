@@ -2,7 +2,9 @@ namespace Sheddueller.Postgres.Tests;
 
 using Microsoft.Extensions.DependencyInjection;
 
+using Sheddueller;
 using Sheddueller.Inspection.Metrics;
+using Sheddueller.Storage;
 
 using Shouldly;
 
@@ -19,6 +21,24 @@ public sealed class PostgresMetricsRollupTests(PostgresFixture fixture) : IClass
 
         (await CountAsync(context, "metrics_buckets")).ShouldBe(0L);
         (await CountAsync(context, "metrics_histogram_bins")).ShouldBe(0L);
+    }
+
+    [Fact]
+    public async Task MetricsRead_PersistedMetricsRetention_RetainsBucketsInsideConfiguredWindow()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await context.Provider.GetRequiredService<IShedduellerCleanupConfigurationStore>()
+          .SetCleanupConfigurationAsync(new ShedduellerCleanupConfiguration(
+            JobRetentionCleanupConfiguration.FromOptions(new JobRetentionOptions()),
+            new JobEventCleanupConfiguration(TimeSpan.FromDays(7), TimeSpan.FromHours(1)),
+            new MetricsCleanupConfiguration(TimeSpan.FromDays(10), TimeSpan.FromHours(1))));
+        await InsertOldRollupAsync(context);
+
+        await context.Provider.GetRequiredService<IMetricsInspectionReader>()
+          .GetMetricsAsync(new MetricsInspectionQuery([TimeSpan.FromMinutes(5)]));
+
+        (await CountAsync(context, "metrics_buckets")).ShouldBe(1L);
+        (await CountAsync(context, "metrics_histogram_bins")).ShouldBe(1L);
     }
 
     private static async ValueTask InsertOldRollupAsync(PostgresTestContext context)

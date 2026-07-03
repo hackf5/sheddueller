@@ -175,6 +175,28 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_FreshSchema_CreatesSettingsTable()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await AssertTableExistsAsync(context, "settings");
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'settings'
+                and column_name = 'value'
+                and data_type = 'jsonb'
+          );
+          """))
+          .ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);

@@ -15,6 +15,9 @@ internal sealed class DashboardJobRetentionService(
     IOptions<ShedduellerOptions> options,
     ILogger<DashboardJobRetentionService> logger) : BackgroundService
 {
+    private static readonly TimeSpan PersistedSettingsPollingInterval = TimeSpan.FromMinutes(1);
+    private DateTimeOffset? _lastCleanupAtUtc;
+
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Retention cleanup failures are diagnostic and should not stop the dashboard host.")]
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -22,9 +25,10 @@ internal sealed class DashboardJobRetentionService(
         {
             while (!stoppingToken.IsCancellationRequested)
             {
+                var delay = PersistedSettingsPollingInterval;
                 try
                 {
-                    await this.CleanupOnceAsync(stoppingToken).ConfigureAwait(false);
+                    delay = await this.CleanupIfDueAsync(stoppingToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -35,7 +39,7 @@ internal sealed class DashboardJobRetentionService(
                     logger.DashboardJobRetentionCleanupFailed(exception);
                 }
 
-                await Task.Delay(options.Value.JobRetention.CleanupInterval, stoppingToken).ConfigureAwait(false);
+                await Task.Delay(delay, stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -43,29 +47,43 @@ internal sealed class DashboardJobRetentionService(
         }
     }
 
-    private async ValueTask CleanupOnceAsync(CancellationToken cancellationToken)
+    private async ValueTask<TimeSpan> CleanupIfDueAsync(CancellationToken cancellationToken)
     {
-        var retention = options.Value.JobRetention;
+        var settingsStore = serviceProvider.GetService<IShedduellerCleanupConfigurationStore>();
+        var retention = settingsStore is null
+          ? JobRetentionCleanupConfiguration.FromOptions(options.Value.JobRetention)
+          : await settingsStore
+            .GetJobRetentionCleanupConfigurationAsync(JobRetentionCleanupConfiguration.FromOptions(options.Value.JobRetention), cancellationToken)
+            .ConfigureAwait(false);
+        var usesPersistedSettings = settingsStore is not null;
         if (!retention.Enabled)
         {
-            return;
+            return GetDelay(retention.CleanupInterval, usesPersistedSettings);
+        }
+
+        var now = timeProvider.GetUtcNow();
+        if (usesPersistedSettings
+            && this._lastCleanupAtUtc is { } lastCleanupAtUtc
+            && now - lastCleanupAtUtc < retention.CleanupInterval)
+        {
+            return GetDelay(retention.CleanupInterval - (now - lastCleanupAtUtc), usesPersistedSettings);
         }
 
         var store = serviceProvider.GetService<IJobRetentionStore>();
         if (store is null)
         {
             logger.DashboardJobRetentionStoreMissing();
-            return;
+            return GetDelay(retention.CleanupInterval, usesPersistedSettings);
         }
 
         if (retention.CompletedRetention is null
             && retention.FailedRetention is null
             && retention.CanceledRetention is null)
         {
-            return;
+            this._lastCleanupAtUtc = now;
+            return GetDelay(retention.CleanupInterval, usesPersistedSettings);
         }
 
-        var now = timeProvider.GetUtcNow();
         var request = new JobRetentionCleanupRequest(
           retention.CompletedRetention is { } completedRetention ? now.Subtract(completedRetention) : null,
           retention.FailedRetention is { } failedRetention ? now.Subtract(failedRetention) : null,
@@ -87,5 +105,16 @@ internal sealed class DashboardJobRetentionService(
         {
             logger.DashboardJobRetentionCleaned(totalDeleted);
         }
+
+        this._lastCleanupAtUtc = now;
+
+        return GetDelay(retention.CleanupInterval, usesPersistedSettings);
     }
+
+    private static TimeSpan GetDelay(
+        TimeSpan requestedDelay,
+        bool usesPersistedSettings)
+      => usesPersistedSettings && requestedDelay > PersistedSettingsPollingInterval
+        ? PersistedSettingsPollingInterval
+        : requestedDelay;
 }

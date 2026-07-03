@@ -370,6 +370,42 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public async Task Settings_KnownData_RendersCleanupControls()
+    {
+        await using var app = await CreateStartedDashboardAsync(registerCleanupSettingsStore: true);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/settings");
+
+        html.ShouldContain("base href=\"http://localhost/sheddueller/\"");
+        html.ShouldContain("Settings");
+        html.ShouldContain("Persisted cluster cleanup controls.");
+        html.ShouldContain("Terminal Jobs");
+        html.ShouldContain("Cleanup enabled");
+        html.ShouldContain("Completed retention");
+        html.ShouldContain("Failed retention");
+        html.ShouldContain("Canceled retention");
+        html.ShouldContain("Job Events");
+        html.ShouldContain("Event retention");
+        html.ShouldContain("Metrics");
+        html.ShouldContain("Metrics retention");
+        html.ShouldContain("Save Settings");
+        html.ShouldContain("Reload");
+        html.ShouldContain("value=\"48\"");
+        html.ShouldContain("value=\"72\"");
+        html.ShouldContain("value=\"250\"");
+    }
+
+    [Fact]
+    public async Task Settings_UnsupportedProvider_RendersUnavailableState()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/settings");
+
+        html.ShouldContain("Settings");
+        html.ShouldContain("Persisted settings unavailable");
+        html.ShouldContain("does not expose dashboard-editable cleanup settings");
+    }
+
+    [Fact]
     public async Task JobDetail_KnownJob_RendersDetailAndDefaultLogFilter()
     {
         await using var app = await CreateStartedDashboardAsync();
@@ -493,7 +529,8 @@ public sealed class DashboardEndpointTests
         bool prerender = true,
         bool mapWithWebApplication = true,
         Action<ShedduellerDashboardOptions>? configureDashboard = null,
-        bool registerMetricsReader = true)
+        bool registerMetricsReader = true,
+        bool registerCleanupSettingsStore = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -507,6 +544,11 @@ public sealed class DashboardEndpointTests
         if (registerMetricsReader)
         {
             builder.Services.AddSingleton<IMetricsInspectionReader, StubMetricsInspectionReader>();
+        }
+
+        if (registerCleanupSettingsStore)
+        {
+            builder.Services.AddSingleton<IShedduellerCleanupConfigurationStore, StubCleanupConfigurationStore>();
         }
 
         builder.Services.AddSingleton<IDashboardThroughputReader, StubDashboardThroughputReader>();
@@ -649,6 +691,66 @@ public sealed class DashboardEndpointTests
         endIndex.ShouldBeGreaterThan(startIndex);
 
         return html[startIndex..(endIndex + "</button>".Length)];
+    }
+
+    private sealed class StubCleanupConfigurationStore : IShedduellerCleanupConfigurationStore
+    {
+        private ShedduellerCleanupConfiguration _configuration = new(
+          new JobRetentionCleanupConfiguration(
+            Enabled: true,
+            CompletedRetention: null,
+            FailedRetention: TimeSpan.FromHours(48),
+            CanceledRetention: TimeSpan.FromHours(72),
+            CleanupInterval: TimeSpan.FromMinutes(15),
+            BatchSize: 250),
+          new JobEventCleanupConfiguration(TimeSpan.FromHours(12), TimeSpan.FromMinutes(20)),
+          new MetricsCleanupConfiguration(TimeSpan.FromHours(168), TimeSpan.FromMinutes(30)));
+
+        public ValueTask<ShedduellerCleanupConfiguration> GetCleanupConfigurationAsync(
+            ShedduellerCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration);
+        }
+
+        public ValueTask<JobRetentionCleanupConfiguration> GetJobRetentionCleanupConfigurationAsync(
+            JobRetentionCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration.JobRetention);
+        }
+
+        public ValueTask<JobEventCleanupConfiguration> GetJobEventCleanupConfigurationAsync(
+            JobEventCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration.JobEvents);
+        }
+
+        public ValueTask<MetricsCleanupConfiguration> GetMetricsCleanupConfigurationAsync(
+            MetricsCleanupConfiguration defaultConfiguration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(this._configuration.Metrics);
+        }
+
+        public ValueTask SetCleanupConfigurationAsync(
+            ShedduellerCleanupConfiguration configuration,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            this._configuration = configuration;
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class StubJobInspectionReader : IJobInspectionReader

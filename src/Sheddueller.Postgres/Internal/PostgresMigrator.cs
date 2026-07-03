@@ -325,6 +325,13 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           values (1, null)
           on conflict (singleton_id) do nothing;
 
+          create table if not exists {this._names.Settings} (
+              setting_key text primary key,
+              value jsonb not null,
+              updated_at_utc timestamptz not null,
+              constraint settings_setting_key_check check (length(setting_key) > 0)
+          );
+
           create index if not exists idx_jobs_claim_scan
               on {this._names.Jobs} (priority desc, enqueue_sequence asc)
               where state = 'Queued';

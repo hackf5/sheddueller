@@ -4,6 +4,7 @@ using System.Globalization;
 
 using Npgsql;
 
+using Sheddueller;
 using Sheddueller.Inspection.Metrics;
 
 internal static class PostgresMetricsInspectionOperation
@@ -17,6 +18,7 @@ internal static class PostgresMetricsInspectionOperation
     public static async ValueTask<MetricsInspectionSnapshot> GetAsync(
         PostgresOperationContext context,
         MetricsInspectionQuery query,
+        MetricsCleanupConfiguration cleanupConfiguration,
         TimeSpan staleThreshold,
         TimeSpan deadThreshold,
         CancellationToken cancellationToken)
@@ -28,7 +30,7 @@ internal static class PostgresMetricsInspectionOperation
         }
 
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await PostgresMetricsRollups.CleanupAsync(context, connection, cancellationToken).ConfigureAwait(false);
+        await PostgresMetricsRollups.CleanupAsync(context, connection, cleanupConfiguration, cancellationToken).ConfigureAwait(false);
         var current = await ReadCurrentCountsAsync(context, connection, staleThreshold, deadThreshold, cancellationToken).ConfigureAwait(false);
 
         var metrics = new List<MetricsInspectionWindow>(windows.Count);
