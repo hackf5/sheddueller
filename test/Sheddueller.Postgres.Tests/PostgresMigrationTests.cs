@@ -197,6 +197,48 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_FreshSchema_CreatesConcurrencyEffectiveLimitColumn()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        (await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from information_schema.columns
+              where table_schema = @schema_name
+                and table_name = 'concurrency_groups'
+                and column_name = 'effective_limit'
+                and is_generated = 'ALWAYS'
+          );
+          """))
+          .ShouldBeTrue();
+
+        await ExecuteAsync(
+          context,
+          $"""
+          insert into {context.Table("concurrency_groups")} (group_key, configured_limit, default_limit, in_use_count, updated_at_utc)
+          values ('override', 5, 2, 0, transaction_timestamp()),
+                 ('default', null, 3, 0, transaction_timestamp()),
+                 ('built-in', null, null, 0, transaction_timestamp());
+          """);
+
+        (await ScalarAsync<int>(
+          context,
+          $"select effective_limit from {context.Table("concurrency_groups")} where group_key = 'override';"))
+          .ShouldBe(5);
+        (await ScalarAsync<int>(
+          context,
+          $"select effective_limit from {context.Table("concurrency_groups")} where group_key = 'default';"))
+          .ShouldBe(3);
+        (await ScalarAsync<int>(
+          context,
+          $"select effective_limit from {context.Table("concurrency_groups")} where group_key = 'built-in';"))
+          .ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);

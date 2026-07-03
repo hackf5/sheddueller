@@ -9,4 +9,15 @@ public sealed record ConcurrencyGroupInspectionSummary(
     int CurrentOccupancy,
     int BlockedJobCount,
     bool IsSaturated,
-    DateTimeOffset? UpdatedAtUtc);
+    DateTimeOffset? UpdatedAtUtc)
+{
+    /// <summary>
+    /// Gets the code-defined default limit, if one exists.
+    /// </summary>
+    public int? DefaultLimit { get; init; }
+
+    /// <summary>
+    /// Gets the live override limit, if one exists.
+    /// </summary>
+    public int? OverrideLimit { get; init; }
+}

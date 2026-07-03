@@ -154,6 +154,24 @@ internal sealed class PostgresJobStore(
         return SetConcurrencyLimitOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
+    public ValueTask SetConcurrencyDefaultLimitAsync(
+        SetConcurrencyDefaultLimitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return SetConcurrencyDefaultLimitOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask ClearConcurrencyLimitOverrideAsync(
+        ClearConcurrencyLimitOverrideRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return ClearConcurrencyLimitOverrideOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
     public ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
         string groupKey,
         CancellationToken cancellationToken = default)

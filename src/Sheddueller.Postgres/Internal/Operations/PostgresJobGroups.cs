@@ -71,7 +71,7 @@ internal static class PostgresJobGroups
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          select group_key, configured_limit, in_use_count
+          select group_key, effective_limit, in_use_count
           from {context.Names.ConcurrencyGroups}
           where group_key = any(@group_keys)
           order by group_key asc
@@ -85,9 +85,9 @@ internal static class PostgresJobGroups
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 lockCount++;
-                var configuredLimit = reader.IsDBNull(1) ? 1 : reader.GetInt32(1);
+                var effectiveLimit = reader.GetInt32(1);
                 var inUseCount = reader.GetInt32(2);
-                if (inUseCount >= configuredLimit)
+                if (inUseCount >= effectiveLimit)
                 {
                     return false;
                 }

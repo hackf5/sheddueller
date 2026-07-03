@@ -102,7 +102,7 @@ internal static class PostgresMetricsInspectionOperation
           saturated_groups as (
               select count(*) as saturated_group_count
               from {context.Names.ConcurrencyGroups}
-              where in_use_count >= coalesce(configured_limit, 1)
+              where in_use_count >= effective_limit
           ),
           node_counts as (
               select

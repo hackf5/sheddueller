@@ -103,6 +103,23 @@ internal static partial class ShedduellerLoggerMessages
         int limit);
 
     [LoggerMessage(
+        EventIdStart + 31,
+        LogLevel.Debug,
+        "Set concurrency group {GroupKey} default limit to {Limit}.")]
+    public static partial void ConcurrencyGroupDefaultLimitSet(
+        this ILogger logger,
+        string groupKey,
+        int limit);
+
+    [LoggerMessage(
+        EventIdStart + 32,
+        LogLevel.Debug,
+        "Cleared concurrency group {GroupKey} limit override.")]
+    public static partial void ConcurrencyGroupLimitOverrideCleared(
+        this ILogger logger,
+        string groupKey);
+
+    [LoggerMessage(
         EventIdStart + 40,
         LogLevel.Warning,
         "Failed to append durable job event for job {JobId}.")]

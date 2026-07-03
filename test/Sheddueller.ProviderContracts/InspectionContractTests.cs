@@ -595,10 +595,34 @@ public abstract class InspectionContractTests
         saturatedPage.TotalCount.ShouldBe(1L);
         detail.ShouldNotBeNull();
         detail.Summary.EffectiveLimit.ShouldBe(1);
+        detail.Summary.DefaultLimit.ShouldBeNull();
+        detail.Summary.OverrideLimit.ShouldBeNull();
         detail.Summary.CurrentOccupancy.ShouldBe(1);
         detail.Summary.IsSaturated.ShouldBeTrue();
         detail.ClaimedJobIds.ShouldBe([running]);
         detail.BlockedJobIds.ShouldBe([blocked]);
+    }
+
+    [Fact]
+    public async Task ConcurrencyGroupView_DefaultAndOverrideLimits_AreVisible()
+    {
+        await using var context = await this.CreateContextAsync();
+
+        await context.Store.SetConcurrencyDefaultLimitAsync(new SetConcurrencyDefaultLimitRequest("api", 2, DateTimeOffset.UtcNow));
+        await context.Store.SetConcurrencyDefaultLimitAsync(new SetConcurrencyDefaultLimitRequest("etl", 3, DateTimeOffset.UtcNow));
+        await context.Store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("etl", 5, DateTimeOffset.UtcNow));
+
+        var api = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
+        var etl = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("etl");
+
+        api.ShouldNotBeNull().Summary.ShouldSatisfyAllConditions(
+          summary => summary.DefaultLimit.ShouldBe(2),
+          summary => summary.OverrideLimit.ShouldBeNull(),
+          summary => summary.EffectiveLimit.ShouldBe(2));
+        etl.ShouldNotBeNull().Summary.ShouldSatisfyAllConditions(
+          summary => summary.DefaultLimit.ShouldBe(3),
+          summary => summary.OverrideLimit.ShouldBe(5),
+          summary => summary.EffectiveLimit.ShouldBe(5));
     }
 
     [Fact]

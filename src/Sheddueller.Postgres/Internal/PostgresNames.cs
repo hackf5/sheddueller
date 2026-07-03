@@ -4,7 +4,7 @@ namespace Sheddueller.Postgres.Internal;
 
 internal sealed class PostgresNames
 {
-    public const int ExpectedSchemaVersion = 12;
+    public const int ExpectedSchemaVersion = 13;
     public const string WakeupChannel = "sheddueller_wakeup";
     public const string JobEventChannel = "sheddueller_job_event";
 

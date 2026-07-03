@@ -8,6 +8,9 @@ internal sealed class RecordingJobStore : IJobStore
     private readonly List<UpsertRecurringScheduleRequest> recurringScheduleRequests = [];
     private readonly List<TriggerRecurringScheduleRequest> triggerRequests = [];
     private readonly List<CancelQueuedJobsRequest> cancelQueuedJobsRequests = [];
+    private readonly List<SetConcurrencyLimitRequest> concurrencyLimitRequests = [];
+    private readonly List<SetConcurrencyDefaultLimitRequest> concurrencyDefaultLimitRequests = [];
+    private readonly List<ClearConcurrencyLimitOverrideRequest> clearConcurrencyLimitOverrideRequests = [];
     private long nextSequence;
 
     public IReadOnlyList<EnqueueJobRequest> EnqueuedRequests => this.enqueuedRequests;
@@ -17,6 +20,12 @@ internal sealed class RecordingJobStore : IJobStore
     public IReadOnlyList<TriggerRecurringScheduleRequest> TriggerRequests => this.triggerRequests;
 
     public IReadOnlyList<CancelQueuedJobsRequest> CancelQueuedJobsRequests => this.cancelQueuedJobsRequests;
+
+    public IReadOnlyList<SetConcurrencyLimitRequest> ConcurrencyLimitRequests => this.concurrencyLimitRequests;
+
+    public IReadOnlyList<SetConcurrencyDefaultLimitRequest> ConcurrencyDefaultLimitRequests => this.concurrencyDefaultLimitRequests;
+
+    public IReadOnlyList<ClearConcurrencyLimitOverrideRequest> ClearConcurrencyLimitOverrideRequests => this.clearConcurrencyLimitOverrideRequests;
 
     public RecurringScheduleUpsertResult CreateOrUpdateRecurringScheduleResult { get; set; } = RecurringScheduleUpsertResult.Created;
 
@@ -118,7 +127,32 @@ internal sealed class RecordingJobStore : IJobStore
     public ValueTask SetConcurrencyLimitAsync(
         SetConcurrencyLimitRequest request,
         CancellationToken cancellationToken = default)
-      => throw CreateUnsupportedException();
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        this.concurrencyLimitRequests.Add(request);
+
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask SetConcurrencyDefaultLimitAsync(
+        SetConcurrencyDefaultLimitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        this.concurrencyDefaultLimitRequests.Add(request);
+
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask ClearConcurrencyLimitOverrideAsync(
+        ClearConcurrencyLimitOverrideRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        this.clearConcurrencyLimitOverrideRequests.Add(request);
+
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
         string groupKey,

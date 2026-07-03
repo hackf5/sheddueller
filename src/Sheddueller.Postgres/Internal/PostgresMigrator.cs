@@ -174,11 +174,28 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create table if not exists {this._names.ConcurrencyGroups} (
               group_key text primary key,
               configured_limit integer null,
+              default_limit integer null,
+              effective_limit integer generated always as (coalesce(configured_limit, default_limit, 1)) stored,
               in_use_count integer not null,
               updated_at_utc timestamptz not null,
               constraint concurrency_groups_configured_limit_check check (configured_limit is null or configured_limit > 0),
+              constraint concurrency_groups_default_limit_check check (default_limit is null or default_limit > 0),
               constraint concurrency_groups_in_use_count_check check (in_use_count >= 0)
           );
+
+          alter table {this._names.ConcurrencyGroups}
+              add column if not exists default_limit integer null;
+
+          alter table {this._names.ConcurrencyGroups}
+              add column if not exists effective_limit integer generated always as (coalesce(configured_limit, default_limit, 1)) stored;
+
+          alter table {this._names.ConcurrencyGroups}
+              drop constraint if exists concurrency_groups_configured_limit_check,
+              add constraint concurrency_groups_configured_limit_check check (configured_limit is null or configured_limit > 0),
+              drop constraint if exists concurrency_groups_default_limit_check,
+              add constraint concurrency_groups_default_limit_check check (default_limit is null or default_limit > 0),
+              drop constraint if exists concurrency_groups_in_use_count_check,
+              add constraint concurrency_groups_in_use_count_check check (in_use_count >= 0);
 
           create table if not exists {this._names.RecurringSchedules} (
               schedule_key text primary key,

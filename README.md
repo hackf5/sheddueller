@@ -120,6 +120,8 @@ Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an applicat
 
 The operational store keeps active jobs plus a bounded searchable terminal window. By default, background retention cleanup keeps completed jobs for 24 hours and failed or canceled jobs for 7 days, then deletes those terminal job rows and their tags, concurrency groups, and events. Configure `ShedduellerOptions.JobRetention` to change the windows, set a state retention to `null` to keep that state indefinitely, or set `Enabled = false` to disable cleanup.
 
+Concurrency group limits use a persisted override over a code-defined default over the built-in default of `1`. Use `IConcurrencyGroupManager.SetDefaultLimitAsync(...)` from startup or deployment seeding code so dashboard edits survive restarts. Use `SetLimitAsync(...)` for an explicit live override and `ClearLimitOverrideAsync(...)` to fall back to the code default.
+
 ## Enqueue Jobs
 
 Job methods return `Task` or `ValueTask` and receive the scheduler-owned `CancellationToken`. Use constructor-injected `ILogger<T>` for durable job logs, `Job.Context` when a handler needs the job id or attempt number, and scheduler-supplied `IProgress<decimal>` for durable progress updates.

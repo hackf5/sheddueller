@@ -577,6 +577,43 @@ public abstract class JobStoreContractTests
     }
 
     [Fact]
+    public async Task ConcurrencyLimit_DefaultOverrideAndClear_UsesEffectivePrecedence()
+    {
+        await using var context = await this.CreateContextAsync();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
+        var fourth = Guid.NewGuid();
+
+        await context.Store.SetConcurrencyDefaultLimitAsync(new SetConcurrencyDefaultLimitRequest("shared", 2, ContractClock));
+        (await context.Store.GetConfiguredConcurrencyLimitAsync("shared")).ShouldBeNull();
+
+        await context.Store.EnqueueAsync(CreateRequest(first, groupKeys: ["shared"]));
+        await context.Store.EnqueueAsync(CreateRequest(second, groupKeys: ["shared"]));
+        await context.Store.EnqueueAsync(CreateRequest(third, groupKeys: ["shared"]));
+
+        var firstClaim = await ClaimAsync(context.Store);
+        firstClaim.JobId.ShouldBe(first);
+        var secondClaim = await ClaimAsync(context.Store);
+        secondClaim.JobId.ShouldBe(second);
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+
+        await context.Store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("shared", 3, ContractClock));
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(third);
+
+        await context.Store.EnqueueAsync(CreateRequest(fourth, groupKeys: ["shared"]));
+        await context.Store.ClearConcurrencyLimitOverrideAsync(new ClearConcurrencyLimitOverrideRequest("shared", ContractClock));
+        (await context.Store.GetConfiguredConcurrencyLimitAsync("shared")).ShouldBeNull();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(first, "node-1", firstClaim.LeaseToken, ContractClock))).ShouldBeTrue();
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(second, "node-1", secondClaim.LeaseToken, ContractClock))).ShouldBeTrue();
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(fourth);
+    }
+
+    [Fact]
     public async Task RecurringSchedule_Lifecycle_CreateUpdatePauseResumeListDelete()
     {
         await using var context = await this.CreateContextAsync();

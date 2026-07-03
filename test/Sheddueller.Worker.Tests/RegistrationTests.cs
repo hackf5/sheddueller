@@ -166,6 +166,16 @@ public sealed class RegistrationTests
             CancellationToken cancellationToken = default)
           => ValueTask.CompletedTask;
 
+        public ValueTask SetConcurrencyDefaultLimitAsync(
+            SetConcurrencyDefaultLimitRequest request,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask ClearConcurrencyLimitOverrideAsync(
+            ClearConcurrencyLimitOverrideRequest request,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
         public ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
             string groupKey,
             CancellationToken cancellationToken = default)

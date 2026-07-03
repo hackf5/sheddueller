@@ -52,7 +52,7 @@ internal static class PostgresJobInspectionOperation
                 from {context.Names.JobConcurrencyGroups} job_group
                 left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                 where job_group.job_id = job.job_id
-                  and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+                  and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
             )
           order by priority desc, enqueue_sequence asc
           limit 10
@@ -735,7 +735,7 @@ internal static class PostgresJobInspectionOperation
                     from {context.Names.JobConcurrencyGroups} job_group
                     left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                     where job_group.job_id = job.job_id
-                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
                 )
           )
           select job_id, position
@@ -806,7 +806,7 @@ internal static class PostgresJobInspectionOperation
                     from {context.Names.JobConcurrencyGroups} job_group
                     left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                     where job_group.job_id = job.job_id
-                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
                 )
           )
           select position
@@ -1138,7 +1138,7 @@ internal static class PostgresJobInspectionOperation
                  from {context.Names.JobConcurrencyGroups} job_group
                  left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                  where job_group.job_id = job.job_id
-                   and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+                   and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
              ) then 1
              else 0
          end asc,

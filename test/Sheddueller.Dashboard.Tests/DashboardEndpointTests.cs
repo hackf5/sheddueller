@@ -278,6 +278,12 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("api_sync_workers");
         html.ShouldContain("bg_maintenance");
         html.ShouldContain("db_vacuum_ops");
+        html.ShouldContain("Limit Source");
+        html.ShouldContain("Override");
+        html.ShouldContain("Code default");
+        html.ShouldContain("Built-in default");
+        html.ShouldNotContain("Edit Limit");
+        html.ShouldNotContain("Reset Override");
         html.ShouldContain("Saturated");
         html.ShouldContain("High Load");
         html.ShouldContain("Nominal");
@@ -286,6 +292,19 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Load More Records");
         html.ShouldContain("Showing 1-4 of 4 groups with more available");
         AssertShellRefresh(html);
+    }
+
+    [Fact]
+    public async Task ConcurrencyGroups_WithManager_RendersLimitEditActions()
+    {
+        await using var app = await CreateStartedDashboardAsync(registerConcurrencyGroupManager: true);
+        var html = await GetOkHtmlAsync(app, "/sheddueller/concurrency-groups");
+
+        html.ShouldContain("Actions");
+        html.ShouldContain("Edit Limit");
+        html.ShouldContain("Reset Override");
+        html.ShouldContain("aria-label=\"Edit limit for concurrency group pool_etl_heavy\"");
+        html.ShouldContain("aria-label=\"Reset limit override for concurrency group pool_etl_heavy\"");
     }
 
     [Fact]
@@ -530,7 +549,8 @@ public sealed class DashboardEndpointTests
         bool mapWithWebApplication = true,
         Action<ShedduellerDashboardOptions>? configureDashboard = null,
         bool registerMetricsReader = true,
-        bool registerCleanupSettingsStore = false)
+        bool registerCleanupSettingsStore = false,
+        bool registerConcurrencyGroupManager = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -540,6 +560,11 @@ public sealed class DashboardEndpointTests
         builder.Services.AddSingleton<IScheduleInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<StubScheduleInspectionReader>());
         builder.Services.AddSingleton<IRecurringScheduleManager>(serviceProvider => serviceProvider.GetRequiredService<StubScheduleInspectionReader>());
         builder.Services.AddSingleton<IConcurrencyGroupInspectionReader, StubConcurrencyGroupInspectionReader>();
+        if (registerConcurrencyGroupManager)
+        {
+            builder.Services.AddSingleton<IConcurrencyGroupManager, StubConcurrencyGroupManager>();
+        }
+
         builder.Services.AddSingleton<INodeInspectionReader, StubNodeInspectionReader>();
         if (registerMetricsReader)
         {
@@ -1262,18 +1287,25 @@ public sealed class DashboardEndpointTests
               CurrentOccupancy: 50,
               BlockedJobCount: 12,
               IsSaturated: true,
-              UpdatedAtUtc),
+              UpdatedAtUtc)
+            {
+                DefaultLimit = 25,
+                OverrideLimit = 50,
+            },
             new(
               "api_sync_workers",
               EffectiveLimit: 100,
               CurrentOccupancy: 85,
               BlockedJobCount: 0,
               IsSaturated: false,
-              UpdatedAtUtc.AddMinutes(-1)),
+              UpdatedAtUtc.AddMinutes(-1))
+            {
+                DefaultLimit = 100,
+            },
             new(
               "bg_maintenance",
-              EffectiveLimit: 10,
-              CurrentOccupancy: 2,
+              EffectiveLimit: 1,
+              CurrentOccupancy: 0,
               BlockedJobCount: 0,
               IsSaturated: false,
               UpdatedAtUtc.AddMinutes(-5)),
@@ -1310,6 +1342,31 @@ public sealed class DashboardEndpointTests
             string groupKey,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult<ConcurrencyGroupInspectionDetail?>(null);
+    }
+
+    private sealed class StubConcurrencyGroupManager : IConcurrencyGroupManager
+    {
+        public ValueTask SetLimitAsync(
+            string groupKey,
+            int limit,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask SetDefaultLimitAsync(
+            string groupKey,
+            int limit,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask ClearLimitOverrideAsync(
+            string groupKey,
+            CancellationToken cancellationToken = default)
+          => ValueTask.CompletedTask;
+
+        public ValueTask<int?> GetConfiguredLimitAsync(
+            string groupKey,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult<int?>(null);
     }
 
     private sealed class StubNodeInspectionReader : INodeInspectionReader

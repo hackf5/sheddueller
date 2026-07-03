@@ -242,6 +242,16 @@ public sealed class WorkerProgressTests
             CancellationToken cancellationToken = default)
           => throw new NotSupportedException();
 
+        public ValueTask SetConcurrencyDefaultLimitAsync(
+            SetConcurrencyDefaultLimitRequest request,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
+        public ValueTask ClearConcurrencyLimitOverrideAsync(
+            ClearConcurrencyLimitOverrideRequest request,
+            CancellationToken cancellationToken = default)
+          => throw new NotSupportedException();
+
         public ValueTask<int?> GetConfiguredConcurrencyLimitAsync(
             string groupKey,
             CancellationToken cancellationToken = default)

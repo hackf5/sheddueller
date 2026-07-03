@@ -84,6 +84,8 @@ internal static class PostgresConcurrencyGroupInspectionOperation
           {GroupSummaryCteSql(context)}
           select
               summary.group_key,
+              summary.default_limit,
+              summary.override_limit,
               summary.effective_limit,
               summary.current_occupancy,
               summary.blocked_count,
@@ -110,6 +112,8 @@ internal static class PostgresConcurrencyGroupInspectionOperation
           {GroupSummaryCteSql(context)}
           select
               summary.group_key,
+              summary.default_limit,
+              summary.override_limit,
               summary.effective_limit,
               summary.current_occupancy,
               summary.blocked_count,
@@ -132,15 +136,21 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            var limit = reader.GetInt32(1);
-            var occupancy = reader.GetInt32(2);
+            var defaultLimit = reader.IsDBNull(1) ? null : (int?)reader.GetInt32(1);
+            var overrideLimit = reader.IsDBNull(2) ? null : (int?)reader.GetInt32(2);
+            var limit = reader.GetInt32(3);
+            var occupancy = reader.GetInt32(4);
             groups.Add(new ConcurrencyGroupInspectionSummary(
               reader.GetString(0),
               limit,
               occupancy,
-              Convert.ToInt32(reader.GetInt64(3), CultureInfo.InvariantCulture),
-              reader.GetBoolean(4),
-              reader.IsDBNull(5) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(5))));
+              Convert.ToInt32(reader.GetInt64(5), CultureInfo.InvariantCulture),
+              reader.GetBoolean(6),
+              reader.IsDBNull(7) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(7)))
+            {
+                DefaultLimit = defaultLimit,
+                OverrideLimit = overrideLimit,
+            });
         }
 
         return groups;
@@ -187,16 +197,18 @@ internal static class PostgresConcurrencyGroupInspectionOperation
              left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
              where job.state = 'Queued'
                and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-               and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+               and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
              group by job_group.group_key
          ),
          summary as (
              select
                  group_keys.group_key,
-                 coalesce(concurrency_group.configured_limit, 1) as effective_limit,
+                 concurrency_group.default_limit,
+                 concurrency_group.configured_limit as override_limit,
+                 coalesce(concurrency_group.effective_limit, 1) as effective_limit,
                  coalesce(concurrency_group.in_use_count, 0) as current_occupancy,
                  coalesce(blocked.blocked_count, 0) as blocked_count,
-                 coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1) as is_saturated,
+                 coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1) as is_saturated,
                  concurrency_group.updated_at_utc
              from group_keys
              left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = group_keys.group_key
@@ -238,7 +250,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         where job_group.group_key = @group_key
           and job.state = 'Queued'
           and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-          and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+          and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
         order by job.priority desc, job.enqueue_sequence asc;
         """,
         groupKey,
