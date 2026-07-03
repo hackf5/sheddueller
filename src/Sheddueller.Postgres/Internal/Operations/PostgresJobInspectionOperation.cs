@@ -26,19 +26,82 @@ internal static class PostgresJobInspectionOperation
     {
         await using var connection = await context.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         var counts = await ReadStateCountsAsync(context, connection, cancellationToken).ConfigureAwait(false);
-        var running = await ReadSummaryPageAsync(context, connection, "where state = 'Claimed' order by claimed_at_utc desc nulls last, enqueue_sequence desc limit 10", static _ => { }, cancellationToken)
+        var nowUtc = await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
+        var runningRows = await ReadSummaryRowsAsync(
+          context,
+          connection,
+          "where state = 'Claimed' order by claimed_at_utc desc nulls last, enqueue_sequence desc limit 10",
+          static _ => { },
+          cancellationToken)
           .ConfigureAwait(false);
-        var recentlyFailed = await ReadSummaryPageAsync(context, connection, "where state = 'Failed' order by failed_at_utc desc nulls last, enqueue_sequence desc limit 10", static _ => { }, cancellationToken)
+        var recentlyFailedRows = await ReadSummaryRowsAsync(
+          context,
+          connection,
+          "where state = 'Failed' order by failed_at_utc desc nulls last, enqueue_sequence desc limit 10",
+          static _ => { },
+          cancellationToken)
           .ConfigureAwait(false);
-        var queuedPage = await SearchJobsAsync(context, new JobInspectionQuery(States: [JobState.Queued], PageSize: 100), cancellationToken).ConfigureAwait(false);
+        var queuedRows = await ReadSummaryRowsAsync(
+          context,
+          connection,
+          $"""
+          where state = 'Queued'
+            and (not_before_utc is null or not_before_utc <= @now_utc)
+            and not exists (
+                select 1
+                from {context.Names.JobConcurrencyGroups} job_group
+                left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
+                where job_group.job_id = job.job_id
+                  and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+            )
+          order by priority desc, enqueue_sequence asc
+          limit 10
+          """,
+          command => command.Parameters.AddWithValue("now_utc", nowUtc),
+          cancellationToken)
+          .ConfigureAwait(false);
+        var delayedRows = await ReadSummaryRowsAsync(
+          context,
+          connection,
+          """
+          where state = 'Queued'
+            and not_before_utc > @now_utc
+            and failed_at_utc is null
+          order by not_before_utc asc, enqueue_sequence asc
+          limit 10
+          """,
+          command => command.Parameters.AddWithValue("now_utc", nowUtc),
+          cancellationToken)
+          .ConfigureAwait(false);
+        var retryWaitingRows = await ReadSummaryRowsAsync(
+          context,
+          connection,
+          """
+          where state = 'Queued'
+            and not_before_utc > @now_utc
+            and failed_at_utc is not null
+          order by not_before_utc asc, enqueue_sequence asc
+          limit 10
+          """,
+          command => command.Parameters.AddWithValue("now_utc", nowUtc),
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        var allRows = runningRows
+          .Concat(recentlyFailedRows)
+          .Concat(queuedRows)
+          .Concat(delayedRows)
+          .Concat(retryWaitingRows)
+          .ToArray();
+        var summaries = await CreateSummaryMapAsync(context, connection, allRows, nowUtc, cancellationToken).ConfigureAwait(false);
 
         return new JobInspectionOverview(
           counts,
-          running,
-          recentlyFailed,
-          [.. queuedPage.Jobs.Where(job => job.QueuePosition?.Kind == JobQueuePositionKind.Claimable).Take(10)],
-          [.. queuedPage.Jobs.Where(job => job.QueuePosition?.Kind == JobQueuePositionKind.Delayed).Take(10)],
-          [.. queuedPage.Jobs.Where(job => job.QueuePosition?.Kind == JobQueuePositionKind.RetryWaiting).Take(10)]);
+          SelectSummaries(runningRows, summaries),
+          SelectSummaries(recentlyFailedRows, summaries),
+          SelectSummaries(queuedRows, summaries),
+          SelectSummaries(delayedRows, summaries),
+          SelectSummaries(retryWaitingRows, summaries));
     }
 
     public static async ValueTask<JobInspectionPage> SearchJobsAsync(
@@ -163,14 +226,62 @@ internal static class PostgresJobInspectionOperation
         NpgsqlConnection connection,
         IReadOnlyList<PostgresJobInspectionRow> rows,
         CancellationToken cancellationToken)
+      => await CreateSummariesAsync(context, connection, rows, nowUtc: null, cancellationToken).ConfigureAwait(false);
+
+    private static async ValueTask<IReadOnlyList<JobInspectionSummary>> CreateSummariesAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        IReadOnlyList<PostgresJobInspectionRow> rows,
+        DateTimeOffset? nowUtc,
+        CancellationToken cancellationToken)
     {
-        var jobs = new List<JobInspectionSummary>(rows.Count);
-        foreach (var row in rows)
+        if (rows.Count == 0)
         {
-            jobs.Add(await CreateSummaryAsync(context, connection, row, cancellationToken).ConfigureAwait(false));
+            return [];
         }
 
-        return jobs;
+        var jobIds = rows.Select(static row => row.JobId).Distinct().ToArray();
+        var tagsByJobId = await ReadTagsByJobIdAsync(context, connection, jobIds, cancellationToken).ConfigureAwait(false);
+        var groupsByJobId = await ReadGroupsByJobIdAsync(context, connection, jobIds, cancellationToken).ConfigureAwait(false);
+        var latestProgressByJobId = await ReadLatestProgressByJobIdAsync(context, connection, jobIds, cancellationToken).ConfigureAwait(false);
+        var queuePositionsByJobId = await ReadQueuePositionsAsync(context, connection, rows, nowUtc, cancellationToken).ConfigureAwait(false);
+
+        return CreateSummaries(rows, tagsByJobId, groupsByJobId, latestProgressByJobId, queuePositionsByJobId);
+    }
+
+    private static async ValueTask<IReadOnlyDictionary<Guid, JobInspectionSummary>> CreateSummaryMapAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        IReadOnlyList<PostgresJobInspectionRow> rows,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var summaries = await CreateSummariesAsync(context, connection, rows, nowUtc, cancellationToken).ConfigureAwait(false);
+        var byJobId = new Dictionary<Guid, JobInspectionSummary>(summaries.Count);
+        foreach (var summary in summaries)
+        {
+            byJobId[summary.JobId] = summary;
+        }
+
+        return byJobId;
+    }
+
+    private static List<JobInspectionSummary> SelectSummaries(
+        IReadOnlyList<PostgresJobInspectionRow> rows,
+        IReadOnlyDictionary<Guid, JobInspectionSummary> summaries)
+    {
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        var selected = new List<JobInspectionSummary>(rows.Count);
+        foreach (var row in rows)
+        {
+            selected.Add(summaries[row.JobId]);
+        }
+
+        return selected;
     }
 
     public static async ValueTask<JobInspectionDetail?> GetJobAsync(
@@ -309,7 +420,7 @@ internal static class PostgresJobInspectionOperation
     private static string CreateWhereClause(List<string> conditions)
       => conditions.Count == 0 ? string.Empty : $"where {string.Join(" and ", conditions)}";
 
-    private static async ValueTask<IReadOnlyList<JobInspectionSummary>> ReadSummaryPageAsync(
+    private static async ValueTask<IReadOnlyList<PostgresJobInspectionRow>> ReadSummaryRowsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
         string clause,
@@ -324,14 +435,7 @@ internal static class PostgresJobInspectionOperation
           """;
         configure(command);
 
-        var rows = await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
-        var jobs = new List<JobInspectionSummary>(rows.Count);
-        foreach (var row in rows)
-        {
-            jobs.Add(await CreateSummaryAsync(context, connection, row, cancellationToken).ConfigureAwait(false));
-        }
-
-        return jobs;
+        return await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false);
     }
 
     private static async ValueTask<JobInspectionSummary> CreateSummaryAsync(
@@ -365,6 +469,291 @@ internal static class PostgresJobInspectionOperation
           CancellationObservedAtUtc = row.CancellationObservedAtUtc,
           ScheduleOccurrenceKind = row.ScheduleOccurrenceKind,
       };
+
+    private static List<JobInspectionSummary> CreateSummaries(
+        IReadOnlyList<PostgresJobInspectionRow> rows,
+        IReadOnlyDictionary<Guid, IReadOnlyList<JobTag>> tagsByJobId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<string>> groupsByJobId,
+        IReadOnlyDictionary<Guid, JobProgressSnapshot> latestProgressByJobId,
+        IReadOnlyDictionary<Guid, JobQueuePosition> queuePositionsByJobId)
+    {
+        var jobs = new List<JobInspectionSummary>(rows.Count);
+        foreach (var row in rows)
+        {
+            jobs.Add(new JobInspectionSummary(
+              row.JobId,
+              row.State,
+              row.ServiceType,
+              row.MethodName,
+              row.Priority,
+              row.EnqueueSequence,
+              row.EnqueuedAtUtc,
+              row.NotBeforeUtc,
+              row.AttemptCount,
+              row.MaxAttempts,
+              tagsByJobId.TryGetValue(row.JobId, out var tags) ? tags : [],
+              groupsByJobId.TryGetValue(row.JobId, out var groups) ? groups : [],
+              row.SourceScheduleKey,
+              latestProgressByJobId.GetValueOrDefault(row.JobId),
+              queuePositionsByJobId[row.JobId],
+              row.ClaimedAtUtc,
+              row.CompletedAtUtc,
+              row.FailedAtUtc,
+              row.CanceledAtUtc)
+            {
+                RetryCloneSourceJobId = row.RetryCloneSourceJobId,
+                CancellationRequestedAtUtc = row.CancellationRequestedAtUtc,
+                CancellationObservedAtUtc = row.CancellationObservedAtUtc,
+                ScheduleOccurrenceKind = row.ScheduleOccurrenceKind,
+            });
+        }
+
+        return jobs;
+    }
+
+    private static async ValueTask<IReadOnlyDictionary<Guid, IReadOnlyList<JobTag>>> ReadTagsByJobIdAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid[] jobIds,
+        CancellationToken cancellationToken)
+    {
+        if (jobIds.Length == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<JobTag>>();
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select job_id, name, value
+          from {context.Names.JobTags}
+          where job_id = any(@job_ids)
+          order by job_id asc, ordinal asc, name asc, value asc;
+          """;
+        command.Parameters.AddWithValue("job_ids", jobIds);
+
+        var tags = new Dictionary<Guid, List<JobTag>>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var jobId = reader.GetGuid(0);
+            if (!tags.TryGetValue(jobId, out var jobTags))
+            {
+                jobTags = [];
+                tags.Add(jobId, jobTags);
+            }
+
+            jobTags.Add(new JobTag(reader.GetString(1), reader.GetString(2)));
+        }
+
+        var result = new Dictionary<Guid, IReadOnlyList<JobTag>>(tags.Count);
+        foreach (var pair in tags)
+        {
+            result.Add(pair.Key, pair.Value);
+        }
+
+        return result;
+    }
+
+    private static async ValueTask<IReadOnlyDictionary<Guid, IReadOnlyList<string>>> ReadGroupsByJobIdAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid[] jobIds,
+        CancellationToken cancellationToken)
+    {
+        if (jobIds.Length == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<string>>();
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select job_id, group_key
+          from {context.Names.JobConcurrencyGroups}
+          where job_id = any(@job_ids)
+          order by job_id asc, group_key asc;
+          """;
+        command.Parameters.AddWithValue("job_ids", jobIds);
+
+        var groups = new Dictionary<Guid, List<string>>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var jobId = reader.GetGuid(0);
+            if (!groups.TryGetValue(jobId, out var jobGroups))
+            {
+                jobGroups = [];
+                groups.Add(jobId, jobGroups);
+            }
+
+            jobGroups.Add(reader.GetString(1));
+        }
+
+        var result = new Dictionary<Guid, IReadOnlyList<string>>(groups.Count);
+        foreach (var pair in groups)
+        {
+            result.Add(pair.Key, pair.Value);
+        }
+
+        return result;
+    }
+
+    private static async ValueTask<IReadOnlyDictionary<Guid, JobProgressSnapshot>> ReadLatestProgressByJobIdAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid[] jobIds,
+        CancellationToken cancellationToken)
+    {
+        if (jobIds.Length == 0)
+        {
+            return new Dictionary<Guid, JobProgressSnapshot>();
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select distinct on (job_id)
+              job_id,
+              progress_percent,
+              message,
+              occurred_at_utc
+          from {context.Names.JobEvents}
+          where job_id = any(@job_ids)
+            and kind = 'Progress'
+          order by job_id asc, event_sequence desc;
+          """;
+        command.Parameters.AddWithValue("job_ids", jobIds);
+
+        var progress = new Dictionary<Guid, JobProgressSnapshot>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            progress.Add(
+              reader.GetGuid(0),
+              new JobProgressSnapshot(
+                reader.IsDBNull(1) ? null : reader.GetDouble(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                PostgresConversion.ToDateTimeOffset(reader.GetValue(3))));
+        }
+
+        return progress;
+    }
+
+    private static async ValueTask<IReadOnlyDictionary<Guid, JobQueuePosition>> ReadQueuePositionsAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        IReadOnlyList<PostgresJobInspectionRow> rows,
+        DateTimeOffset? nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var positions = new Dictionary<Guid, JobQueuePosition>(rows.Count);
+        var readyQueuedRows = new List<PostgresJobInspectionRow>();
+        DateTimeOffset? resolvedNowUtc = null;
+
+        foreach (var row in rows)
+        {
+            switch (row.State)
+            {
+                case JobState.Canceled:
+                    positions[row.JobId] = new JobQueuePosition(row.JobId, JobQueuePositionKind.Canceled, Position: null, "Job was canceled.");
+                    break;
+
+                case JobState.Completed:
+                case JobState.Failed:
+                    positions[row.JobId] = new JobQueuePosition(row.JobId, JobQueuePositionKind.Terminal, Position: null, "Job is terminal.");
+                    break;
+
+                case JobState.Claimed:
+                    positions[row.JobId] = new JobQueuePosition(row.JobId, JobQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
+                    break;
+
+                case JobState.Queued:
+                    resolvedNowUtc ??= nowUtc ?? await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
+                    if (row.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > resolvedNowUtc.Value)
+                    {
+                        positions[row.JobId] = row.FailedAtUtc is null
+                          ? new JobQueuePosition(row.JobId, JobQueuePositionKind.Delayed, Position: null, $"Job is delayed until {notBeforeUtc:O}.")
+                          : new JobQueuePosition(row.JobId, JobQueuePositionKind.RetryWaiting, Position: null, $"Job is waiting to retry until {notBeforeUtc:O}.");
+                    }
+                    else
+                    {
+                        readyQueuedRows.Add(row);
+                    }
+
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(rows), row.State, "Job state is not supported.");
+            }
+        }
+
+        if (readyQueuedRows.Count == 0)
+        {
+            return positions;
+        }
+
+        resolvedNowUtc ??= nowUtc ?? await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
+        var readyJobIds = readyQueuedRows.Select(static row => row.JobId).Distinct().ToArray();
+        var claimablePositions = await ReadClaimablePositionsAsync(context, connection, readyJobIds, resolvedNowUtc.Value, cancellationToken)
+          .ConfigureAwait(false);
+
+        foreach (var row in readyQueuedRows)
+        {
+            positions[row.JobId] = claimablePositions.TryGetValue(row.JobId, out var position)
+              ? new JobQueuePosition(row.JobId, JobQueuePositionKind.Claimable, position, "Job is currently claimable.")
+              : new JobQueuePosition(row.JobId, JobQueuePositionKind.BlockedByConcurrency, Position: null, "Job is blocked by concurrency group limits.");
+        }
+
+        return positions;
+    }
+
+    private static async ValueTask<IReadOnlyDictionary<Guid, long>> ReadClaimablePositionsAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid[] jobIds,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (jobIds.Length == 0)
+        {
+            return new Dictionary<Guid, long>();
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          with claimable as (
+              select
+                  job.job_id,
+                  row_number() over (order by job.priority desc, job.enqueue_sequence asc) as position
+              from {context.Names.Jobs} job
+              where job.state = 'Queued'
+                and (job.not_before_utc is null or job.not_before_utc <= @now_utc)
+                and not exists (
+                    select 1
+                    from {context.Names.JobConcurrencyGroups} job_group
+                    left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
+                    where job_group.job_id = job.job_id
+                      and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.configured_limit, 1)
+                )
+          )
+          select job_id, position
+          from claimable
+          where job_id = any(@job_ids);
+          """;
+        command.Parameters.AddWithValue("now_utc", nowUtc);
+        command.Parameters.AddWithValue("job_ids", jobIds);
+
+        var positions = new Dictionary<Guid, long>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            positions.Add(reader.GetGuid(0), reader.GetInt64(1));
+        }
+
+        return positions;
+    }
 
     private static async ValueTask<JobProgressSnapshot?> ReadLatestProgressAsync(
         PostgresOperationContext context,
