@@ -31,6 +31,36 @@ internal sealed class ShedduellerCommonStartupValidator(
             throw new InvalidOperationException("No Sheddueller job store provider has been registered.");
         }
 
+        ValidateJobRetentionOptions(value.JobRetention);
+
         return ValueTask.CompletedTask;
+    }
+
+    private static void ValidateJobRetentionOptions(JobRetentionOptions options)
+    {
+        if (options.CompletedRetention is { } completedRetention && completedRetention <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.JobRetention.CompletedRetention must be positive or null.");
+        }
+
+        if (options.FailedRetention is { } failedRetention && failedRetention <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.JobRetention.FailedRetention must be positive or null.");
+        }
+
+        if (options.CanceledRetention is { } canceledRetention && canceledRetention <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.JobRetention.CanceledRetention must be positive or null.");
+        }
+
+        if (options.CleanupInterval <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.JobRetention.CleanupInterval must be positive.");
+        }
+
+        if (options.BatchSize <= 0)
+        {
+            throw new InvalidOperationException("ShedduellerOptions.JobRetention.BatchSize must be positive.");
+        }
     }
 }

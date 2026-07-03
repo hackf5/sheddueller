@@ -7,6 +7,7 @@ internal sealed class RecordingJobStore : IJobStore
     private readonly List<EnqueueJobRequest> enqueuedRequests = [];
     private readonly List<UpsertRecurringScheduleRequest> recurringScheduleRequests = [];
     private readonly List<TriggerRecurringScheduleRequest> triggerRequests = [];
+    private readonly List<CancelQueuedJobsRequest> cancelQueuedJobsRequests = [];
     private long nextSequence;
 
     public IReadOnlyList<EnqueueJobRequest> EnqueuedRequests => this.enqueuedRequests;
@@ -15,9 +16,13 @@ internal sealed class RecordingJobStore : IJobStore
 
     public IReadOnlyList<TriggerRecurringScheduleRequest> TriggerRequests => this.triggerRequests;
 
+    public IReadOnlyList<CancelQueuedJobsRequest> CancelQueuedJobsRequests => this.cancelQueuedJobsRequests;
+
     public RecurringScheduleUpsertResult CreateOrUpdateRecurringScheduleResult { get; set; } = RecurringScheduleUpsertResult.Created;
 
     public RecurringScheduleTriggerResult TriggerResult { get; set; } = new(RecurringScheduleTriggerStatus.NotFound);
+
+    public int CancelQueuedJobsResult { get; set; }
 
     public EnqueueJobRequest GetRequest(Guid jobId)
       => this.enqueuedRequests.Single(request => request.JobId == jobId);
@@ -84,6 +89,16 @@ internal sealed class RecordingJobStore : IJobStore
         CancelJobRequest request,
         CancellationToken cancellationToken = default)
       => throw CreateUnsupportedException();
+
+    public ValueTask<int> CancelQueuedJobsAsync(
+        CancelQueuedJobsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        this.cancelQueuedJobsRequests.Add(request);
+
+        return ValueTask.FromResult(this.CancelQueuedJobsResult);
+    }
 
     public ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
         JobCancellationStatusRequest request,

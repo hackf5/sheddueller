@@ -18,6 +18,7 @@ internal sealed class PostgresJobStore(
     IJobInspectionReader,
     IJobEventSink,
     IJobEventRetentionStore,
+    IJobRetentionStore,
     IScheduleInspectionReader,
     IConcurrencyGroupInspectionReader,
     INodeInspectionReader,
@@ -105,6 +106,15 @@ internal sealed class PostgresJobStore(
         ArgumentNullException.ThrowIfNull(request);
 
         return CancelJobOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask<int> CancelQueuedJobsAsync(
+        CancelQueuedJobsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return CancelQueuedJobsOperation.ExecuteAsync(this._context, request, cancellationToken);
     }
 
     public ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
@@ -239,6 +249,15 @@ internal sealed class PostgresJobStore(
         TimeSpan retention,
         CancellationToken cancellationToken = default)
       => PostgresJobInspectionOperation.CleanupAsync(this._context, retention, cancellationToken);
+
+    public ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsAsync(
+        JobRetentionCleanupRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return PostgresJobRetentionOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
 
     public ValueTask<ScheduleInspectionPage> SearchSchedulesAsync(
         ScheduleInspectionQuery query,

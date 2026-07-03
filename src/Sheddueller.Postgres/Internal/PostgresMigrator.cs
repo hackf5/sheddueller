@@ -308,9 +308,6 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               on {this._names.Jobs} (idempotency_key)
               where state = 'Queued' and idempotency_key is not null;
 
-          create index if not exists idx_jobs_inspection_newest
-              on {this._names.Jobs} (enqueue_sequence desc);
-
           create index if not exists idx_jobs_inspection_state_newest
               on {this._names.Jobs} (state, enqueue_sequence desc);
 
@@ -351,12 +348,13 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
           create unique index if not exists idx_schedule_tags_schedule_key_ordinal
               on {this._names.ScheduleTags} (schedule_key, ordinal);
 
-          create index if not exists idx_job_events_job_sequence
-              on {this._names.JobEvents} (job_id, event_sequence);
-
           create index if not exists idx_job_events_progress
               on {this._names.JobEvents} (job_id, event_sequence desc)
               where kind = 'Progress';
+
+          drop index if exists {this._names.Schema}.idx_jobs_inspection_newest;
+
+          drop index if exists {this._names.Schema}.idx_job_events_job_sequence;
 
           create index if not exists idx_recurring_schedules_due
               on {this._names.RecurringSchedules} (next_fire_at_utc, schedule_key)

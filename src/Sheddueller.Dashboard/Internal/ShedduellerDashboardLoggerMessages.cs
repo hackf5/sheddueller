@@ -44,4 +44,27 @@ internal static partial class ShedduellerDashboardLoggerMessages
     public static partial void DashboardEventRetentionCleanupFailed(
         this ILogger logger,
         Exception exception);
+
+    [LoggerMessage(
+        EventIdStart + 30,
+        LogLevel.Debug,
+        "Dashboard job retention cleanup skipped because no retention store is registered.")]
+    public static partial void DashboardJobRetentionStoreMissing(
+        this ILogger logger);
+
+    [LoggerMessage(
+        EventIdStart + 31,
+        LogLevel.Information,
+        "Dashboard job retention cleanup deleted {DeletedCount} terminal jobs.")]
+    public static partial void DashboardJobRetentionCleaned(
+        this ILogger logger,
+        int deletedCount);
+
+    [LoggerMessage(
+        EventIdStart + 32,
+        LogLevel.Warning,
+        "Dashboard job retention cleanup failed.")]
+    public static partial void DashboardJobRetentionCleanupFailed(
+        this ILogger logger,
+        Exception exception);
 }

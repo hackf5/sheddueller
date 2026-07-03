@@ -31,6 +31,21 @@ public sealed class RegistrationTests
     }
 
     [Fact]
+    public void AddShedduellerWorker_RetentionStore_RegistersRetentionHostedService()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RecordingJobStore>();
+        services.AddSingleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<RecordingJobStore>());
+        services.AddSingleton<IJobRetentionStore, RecordingRetentionStore>();
+
+        services.AddShedduellerWorker();
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetServices<IHostedService>().ShouldContain(service => service.GetType() == typeof(ShedduellerJobRetentionService));
+    }
+
+    [Fact]
     public async Task StartupValidation_InvalidWorkerOption_FailsStart()
     {
         var services = new ServiceCollection();
@@ -48,6 +63,34 @@ public sealed class RegistrationTests
         });
 
         exception.Message.ShouldContain("ShedduellerOptions.MaxConcurrentExecutionsPerNode must be positive.");
+    }
+
+    [Fact]
+    public async Task StartupValidation_InvalidJobRetentionOption_FailsStart()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<RecordingJobStore>();
+        services.AddSingleton<IJobStore>(serviceProvider => serviceProvider.GetRequiredService<RecordingJobStore>());
+        services.AddShedduellerWorker(builder => builder.ConfigureOptions(options => options.JobRetention.BatchSize = 0));
+        using var provider = services.BuildServiceProvider();
+
+        var exception = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            foreach (var hostedService in provider.GetServices<IHostedService>())
+            {
+                await hostedService.StartAsync(CancellationToken.None);
+            }
+        });
+
+        exception.Message.ShouldContain("ShedduellerOptions.JobRetention.BatchSize must be positive.");
+    }
+
+    private sealed class RecordingRetentionStore : IJobRetentionStore
+    {
+        public ValueTask<JobRetentionCleanupResult> CleanupTerminalJobsAsync(
+            JobRetentionCleanupRequest request,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(new JobRetentionCleanupResult(0));
     }
 
     private sealed class RecordingJobStore : IJobStore
@@ -97,6 +140,11 @@ public sealed class RegistrationTests
             CancelJobRequest request,
             CancellationToken cancellationToken = default)
           => ValueTask.FromResult(JobCancellationResult.NotFound);
+
+        public ValueTask<int> CancelQueuedJobsAsync(
+            CancelQueuedJobsRequest request,
+            CancellationToken cancellationToken = default)
+          => ValueTask.FromResult(0);
 
         public ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(
             JobCancellationStatusRequest request,

@@ -51,6 +51,11 @@ public sealed class ShedduellerOptions
     public bool EnableJobLogCapture { get; set; }
 
     /// <summary>
+    /// Gets the retention policy for terminal jobs in the operational store.
+    /// </summary>
+    public JobRetentionOptions JobRetention { get; } = new();
+
+    /// <summary>
     /// Gets the effective stale worker node threshold.
     /// </summary>
     public TimeSpan EffectiveStaleNodeThreshold

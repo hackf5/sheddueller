@@ -69,6 +69,13 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Cancels all queued jobs.
+    /// </summary>
+    ValueTask<int> CancelQueuedJobsAsync(
+        CancelQueuedJobsRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the cooperative cancellation request timestamp for a currently claimed job.
     /// </summary>
     ValueTask<DateTimeOffset?> GetCancellationRequestedAtAsync(

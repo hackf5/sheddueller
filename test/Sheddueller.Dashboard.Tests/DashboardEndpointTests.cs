@@ -22,6 +22,7 @@ using Sheddueller.Storage;
 
 using Shouldly;
 
+using JobsPage = Sheddueller.Dashboard.Components.Pages.Jobs;
 using SchedulesPage = Sheddueller.Dashboard.Components.Pages.Schedules;
 
 public sealed class DashboardEndpointTests
@@ -112,6 +113,8 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Operational Order");
         html.ShouldContain("Newest First");
         html.ShouldContain("Clear Filters");
+        html.ShouldContain("Clear Queued");
+        html.ShouldContain("Cancel all queued, delayed, and retry-waiting jobs. Type delete to confirm.");
         html.ShouldNotContain("Expand query filters");
         html.ShouldNotContain("Execute Query");
         html.ShouldNotContain("Query Parameters");
@@ -242,6 +245,13 @@ public sealed class DashboardEndpointTests
           .ShouldBe("Schedule etl_nightly_sync already has an active occurrence.");
         SchedulesPage.ScheduleNotFoundActionFailureMessage
           .ShouldBe("Schedule action failed: Schedule was not found.");
+    }
+
+    [Fact]
+    public void Jobs_ClearQueuedActionMessage_FormatsCanceledCount()
+    {
+        JobsPage.CreateClearQueuedSuccessMessage(1234)
+          .ShouldBe("Canceled 1,234 queued job(s).");
     }
 
     [Fact]
@@ -907,6 +917,13 @@ public sealed class DashboardEndpointTests
             }
 
             return ValueTask.FromResult(JobCancellationResult.NotFound);
+        }
+
+        public ValueTask<int> CancelQueuedJobsAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ValueTask.FromResult(2);
         }
     }
 

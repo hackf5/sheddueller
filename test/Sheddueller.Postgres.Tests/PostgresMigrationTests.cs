@@ -29,6 +29,25 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_Reapplied_DropsRedundantIndexes()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+        await ExecuteAsync(
+          context,
+          $"""
+          create index idx_jobs_inspection_newest on {context.Table("jobs")} (enqueue_sequence desc);
+          create index idx_job_events_job_sequence on {context.Table("job_events")} (job_id, event_sequence);
+          """);
+        (await IndexExistsAsync(context, "idx_jobs_inspection_newest")).ShouldBeTrue();
+        (await IndexExistsAsync(context, "idx_job_events_job_sequence")).ShouldBeTrue();
+
+        await context.Provider.GetRequiredService<IPostgresMigrator>().ApplyAsync();
+
+        (await IndexExistsAsync(context, "idx_jobs_inspection_newest")).ShouldBeFalse();
+        (await IndexExistsAsync(context, "idx_job_events_job_sequence")).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesIndexedHandlerSearchColumn()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
@@ -175,4 +194,27 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
         result.ShouldNotBeNull();
         return result.ShouldBeOfType<T>();
     }
+
+    private static async ValueTask ExecuteAsync(
+        PostgresTestContext context,
+        string commandText)
+    {
+        await using var command = context.DataSource.CreateCommand(commandText);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async ValueTask<bool> IndexExistsAsync(
+        PostgresTestContext context,
+        string indexName)
+      => await ScalarAsync<bool>(
+          context,
+          """
+          select exists (
+              select 1
+              from pg_indexes
+              where schemaname = @schema_name
+                and indexname = @index_name
+          );
+          """,
+          command => command.Parameters.AddWithValue("index_name", indexName));
 }

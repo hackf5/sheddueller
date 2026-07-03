@@ -123,12 +123,13 @@ internal static class PostgresClaimedJobs
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         PostgresClaimedJob job,
+        DateTimeOffset failedAtUtc,
         JobFailureInfo failure,
         CancellationToken cancellationToken)
     {
         var retriesRemain = job.AttemptCount < job.MaxAttempts;
         if (retriesRemain
-            && await TryMarkSupersededByQueuedDuplicateAsync(context, connection, transaction, job, failure, cancellationToken)
+            && await TryMarkSupersededByQueuedDuplicateAsync(context, connection, transaction, job, failedAtUtc, failure, cancellationToken)
                 .ConfigureAwait(false) is { } supersededMessage)
         {
             return supersededMessage;
@@ -141,7 +142,7 @@ internal static class PostgresClaimedJobs
           $"""
           update {context.Names.Jobs}
           set state = @state,
-              failed_at_utc = transaction_timestamp(),
+              failed_at_utc = @failed_at_utc,
               failure_type_name = @failure_type_name,
               failure_message = @failure_message,
               failure_stack_trace = @failure_stack_trace,
@@ -157,6 +158,7 @@ internal static class PostgresClaimedJobs
           {
               command.Parameters.AddWithValue("job_id", job.JobId);
               command.Parameters.AddWithValue("state", retriesRemain ? "Queued" : "Failed");
+              command.Parameters.AddWithValue("failed_at_utc", failedAtUtc);
               command.Parameters.AddWithValue("failure_type_name", failure.ExceptionType);
               command.Parameters.AddWithValue("failure_message", failure.Message);
               command.Parameters.AddWithValue("failure_stack_trace", PostgresOperationContext.ToDbValue(failure.StackTrace));
@@ -177,6 +179,7 @@ internal static class PostgresClaimedJobs
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         PostgresClaimedJob job,
+        DateTimeOffset failedAtUtc,
         JobFailureInfo failure,
         CancellationToken cancellationToken)
     {
@@ -198,7 +201,7 @@ internal static class PostgresClaimedJobs
           $"""
           update {context.Names.Jobs}
           set state = 'Failed',
-              failed_at_utc = transaction_timestamp(),
+              failed_at_utc = @failed_at_utc,
               failure_type_name = @failure_type_name,
               failure_message = @failure_message,
               failure_stack_trace = @failure_stack_trace,
@@ -213,6 +216,7 @@ internal static class PostgresClaimedJobs
           command =>
           {
               command.Parameters.AddWithValue("job_id", job.JobId);
+              command.Parameters.AddWithValue("failed_at_utc", failedAtUtc);
               command.Parameters.AddWithValue("failure_type_name", failure.ExceptionType);
               command.Parameters.AddWithValue("failure_message", failure.Message);
               command.Parameters.AddWithValue("failure_stack_trace", PostgresOperationContext.ToDbValue(failure.StackTrace));

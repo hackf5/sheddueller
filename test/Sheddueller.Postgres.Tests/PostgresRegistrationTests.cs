@@ -27,6 +27,7 @@ public sealed class PostgresRegistrationTests
         provider.GetRequiredService<ShedduellerPostgresOptions>().SchemaName.ShouldBe("sheddueller");
         provider.GetRequiredService<IJobStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
         provider.GetRequiredService<IJobInspectionReader>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
+        provider.GetRequiredService<IJobRetentionStore>().ShouldBeSameAs(provider.GetRequiredService<PostgresJobStore>());
         provider.GetRequiredService<IPostgresMigrator>().ShouldBeOfType<PostgresMigrator>();
         provider.GetRequiredService<IShedduellerWakeSignal>().ShouldBeOfType<PostgresWakeSignal>();
     }

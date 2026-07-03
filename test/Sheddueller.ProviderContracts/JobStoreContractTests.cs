@@ -513,6 +513,56 @@ public abstract class JobStoreContractTests
     }
 
     [Fact]
+    public async Task CancelQueuedJobs_QueuedState_CancelsAllQueuedAndLeavesOthersUntouched()
+    {
+        await using var context = await this.CreateContextAsync();
+        var claimed = Guid.NewGuid();
+        var retryWaiting = Guid.NewGuid();
+        var completed = Guid.NewGuid();
+        var failed = Guid.NewGuid();
+        var alreadyCanceled = Guid.NewGuid();
+        var claimable = Guid.NewGuid();
+        var delayed = Guid.NewGuid();
+
+        await context.Store.EnqueueAsync(CreateRequest(claimed));
+        await ClaimAsync(context.Store);
+
+        await context.Store.EnqueueAsync(CreateRequest(
+          retryWaiting,
+          maxAttempts: 2,
+          retryBackoffKind: RetryBackoffKind.Fixed,
+          retryBaseDelay: TimeSpan.FromHours(1)));
+        var retryClaim = await ClaimAsync(context.Store);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(retryWaiting, "node-1", retryClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(completed));
+        var completedClaim = await ClaimAsync(context.Store);
+        (await context.Store.MarkCompletedAsync(new CompleteJobRequest(completed, "node-1", completedClaim.LeaseToken, DateTimeOffset.UtcNow))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(failed));
+        var failedClaim = await ClaimAsync(context.Store);
+        (await context.Store.MarkFailedAsync(new FailJobRequest(failed, "node-1", failedClaim.LeaseToken, DateTimeOffset.UtcNow, CreateFailure()))).ShouldBeTrue();
+
+        await context.Store.EnqueueAsync(CreateRequest(alreadyCanceled));
+        (await context.Store.CancelAsync(new CancelJobRequest(alreadyCanceled, DateTimeOffset.UtcNow))).ShouldBe(JobCancellationResult.Canceled);
+
+        await context.Store.EnqueueAsync(CreateRequest(claimable));
+        await context.Store.EnqueueAsync(CreateRequest(delayed, notBeforeUtc: DateTimeOffset.UtcNow.AddHours(1)));
+
+        (await context.Store.CancelQueuedJobsAsync(new CancelQueuedJobsRequest(DateTimeOffset.UtcNow))).ShouldBe(3);
+
+        var reader = GetInspectionReader(context);
+        (await reader.GetJobAsync(claimable)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Canceled);
+        (await reader.GetJobAsync(delayed)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Canceled);
+        (await reader.GetJobAsync(retryWaiting)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Canceled);
+        (await reader.GetJobAsync(claimed)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Claimed);
+        (await reader.GetJobAsync(completed)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Completed);
+        (await reader.GetJobAsync(failed)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Failed);
+        (await reader.GetJobAsync(alreadyCanceled)).ShouldNotBeNull().Summary.State.ShouldBe(JobState.Canceled);
+        (await context.Store.TryClaimNextAsync(CreateClaimRequest("node-1"))).ShouldBeOfType<ClaimJobResult.NoJobAvailable>();
+    }
+
+    [Fact]
     public async Task ConcurrencyLimit_SetAndGet_RoundTripsConfiguredLimit()
     {
         await using var context = await this.CreateContextAsync();

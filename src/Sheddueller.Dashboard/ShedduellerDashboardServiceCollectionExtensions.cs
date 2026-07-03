@@ -45,6 +45,7 @@ public static class ShedduellerDashboardServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardThroughputHostedService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardJobEventListenerService>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, JobEventRetentionService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DashboardJobRetentionService>());
 
         return services;
     }

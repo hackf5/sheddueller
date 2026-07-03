@@ -23,8 +23,8 @@ internal static class CancelJobOperation
 
         var result = row.State switch
         {
-            JobState.Queued => await CancelQueuedJobAsync(context, connection, transaction, row, cancellationToken).ConfigureAwait(false),
-            JobState.Claimed => await RequestClaimedJobCancellationAsync(context, connection, transaction, row, cancellationToken).ConfigureAwait(false),
+            JobState.Queued => await CancelQueuedJobAsync(context, connection, transaction, row, request, cancellationToken).ConfigureAwait(false),
+            JobState.Claimed => await RequestClaimedJobCancellationAsync(context, connection, transaction, row, request, cancellationToken).ConfigureAwait(false),
             JobState.Completed or JobState.Failed or JobState.Canceled => JobCancellationResult.AlreadyFinished,
             _ => throw new InvalidOperationException($"Unsupported job state '{row.State}'."),
         };
@@ -38,6 +38,7 @@ internal static class CancelJobOperation
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancelJobRow row,
+        CancelJobRequest request,
         CancellationToken cancellationToken)
     {
         await PostgresOperationContext.ExecuteCountAsync(
@@ -46,10 +47,14 @@ internal static class CancelJobOperation
           $"""
           update {context.Names.Jobs}
           set state = 'Canceled',
-              canceled_at_utc = transaction_timestamp()
+              canceled_at_utc = @canceled_at_utc
           where job_id = @job_id;
           """,
-          command => command.Parameters.AddWithValue("job_id", row.JobId),
+          command =>
+          {
+              command.Parameters.AddWithValue("job_id", row.JobId);
+              command.Parameters.AddWithValue("canceled_at_utc", request.CanceledAtUtc);
+          },
           cancellationToken)
           .ConfigureAwait(false);
 
@@ -69,6 +74,7 @@ internal static class CancelJobOperation
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancelJobRow row,
+        CancelJobRequest request,
         CancellationToken cancellationToken)
     {
         if (row.CancellationRequestedAtUtc is not null)
@@ -81,10 +87,14 @@ internal static class CancelJobOperation
           transaction,
           $"""
           update {context.Names.Jobs}
-          set cancellation_requested_at_utc = transaction_timestamp()
+          set cancellation_requested_at_utc = @cancellation_requested_at_utc
           where job_id = @job_id;
           """,
-          command => command.Parameters.AddWithValue("job_id", row.JobId),
+          command =>
+          {
+              command.Parameters.AddWithValue("job_id", row.JobId);
+              command.Parameters.AddWithValue("cancellation_requested_at_utc", request.CanceledAtUtc);
+          },
           cancellationToken)
           .ConfigureAwait(false);
 

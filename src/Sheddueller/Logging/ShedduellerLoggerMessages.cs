@@ -41,6 +41,14 @@ internal static partial class ShedduellerLoggerMessages
         string result);
 
     [LoggerMessage(
+        EventIdStart + 11,
+        LogLevel.Debug,
+        "Canceled {CanceledCount} queued jobs.")]
+    public static partial void QueuedJobsCanceled(
+        this ILogger logger,
+        int canceledCount);
+
+    [LoggerMessage(
         EventIdStart + 20,
         LogLevel.Debug,
         "Recurring schedule {ScheduleKey} upsert returned {Result}.")]

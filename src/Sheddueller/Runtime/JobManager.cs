@@ -17,4 +17,15 @@ internal sealed class JobManager(
 
         return result;
     }
+
+    public async ValueTask<int> CancelQueuedJobsAsync(CancellationToken cancellationToken = default)
+    {
+        var canceledCount = await store.CancelQueuedJobsAsync(
+            new CancelQueuedJobsRequest(timeProvider.GetUtcNow()),
+            cancellationToken)
+          .ConfigureAwait(false);
+        logger.QueuedJobsCanceled(canceledCount);
+
+        return canceledCount;
+    }
 }

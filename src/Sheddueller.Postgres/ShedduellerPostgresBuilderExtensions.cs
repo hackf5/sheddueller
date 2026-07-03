@@ -143,6 +143,7 @@ public static class ShedduellerPostgresBuilderExtensions
         services.Replace(ServiceDescriptor.Singleton<IJobInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         services.Replace(ServiceDescriptor.Singleton<IJobEventSink>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         services.Replace(ServiceDescriptor.Singleton<IJobEventRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
+        services.Replace(ServiceDescriptor.Singleton<IJobRetentionStore>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         services.Replace(ServiceDescriptor.Singleton<IScheduleInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         services.Replace(ServiceDescriptor.Singleton<IConcurrencyGroupInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));
         services.Replace(ServiceDescriptor.Singleton<INodeInspectionReader>(serviceProvider => serviceProvider.GetRequiredService<PostgresJobStore>()));

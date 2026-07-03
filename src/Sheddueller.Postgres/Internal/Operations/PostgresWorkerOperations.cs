@@ -60,8 +60,8 @@ internal static class PostgresWorkerOperations
           $"""
           update {context.Names.Jobs}
           set state = 'Canceled',
-              canceled_at_utc = transaction_timestamp(),
-              cancellation_observed_at_utc = transaction_timestamp(),
+              canceled_at_utc = @observed_at_utc,
+              cancellation_observed_at_utc = @observed_at_utc,
               claimed_by_node_id = null,
               claimed_at_utc = null,
               lease_token = null,
@@ -78,6 +78,7 @@ internal static class PostgresWorkerOperations
               command.Parameters.AddWithValue("job_id", request.JobId);
               command.Parameters.AddWithValue("node_id", request.NodeId);
               command.Parameters.AddWithValue("lease_token", request.LeaseToken);
+              command.Parameters.AddWithValue("observed_at_utc", request.ObservedAtUtc);
           },
           cancellationToken)
           .ConfigureAwait(false);
