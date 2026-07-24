@@ -125,6 +125,54 @@ public interface IJobStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Persists a limited live concurrency-group rate override.
+    /// </summary>
+    ValueTask SetConcurrencyRateLimitAsync(
+        SetConcurrencyRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This job store does not support concurrency-group rate limits.");
+
+    /// <summary>
+    /// Persists a code-defined concurrency-group default rate without clearing a live override.
+    /// </summary>
+    ValueTask SetConcurrencyDefaultRateLimitAsync(
+        SetConcurrencyDefaultRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This job store does not support concurrency-group rate limits.");
+
+    /// <summary>
+    /// Clears a code-defined concurrency-group default rate without clearing a live override.
+    /// </summary>
+    ValueTask ClearConcurrencyDefaultRateLimitAsync(
+        ClearConcurrencyDefaultRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This job store does not support concurrency-group rate limits.");
+
+    /// <summary>
+    /// Persists an explicitly unlimited live concurrency-group rate override.
+    /// </summary>
+    ValueTask SetConcurrencyUnlimitedRateLimitAsync(
+        SetConcurrencyUnlimitedRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This job store does not support concurrency-group rate limits.");
+
+    /// <summary>
+    /// Clears a live concurrency-group rate-limit override.
+    /// </summary>
+    ValueTask ClearConcurrencyRateLimitOverrideAsync(
+        ClearConcurrencyRateLimitOverrideRequest request,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This job store does not support concurrency-group rate limits.");
+
+    /// <summary>
+    /// Gets the live concurrency-group rate-limit override.
+    /// </summary>
+    ValueTask<ConcurrencyGroupRateLimitOverride> GetConcurrencyRateLimitOverrideAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default)
+      => ValueTask.FromResult(new ConcurrencyGroupRateLimitOverride(ConcurrencyGroupRateLimitOverrideKind.Inherit));
+
+    /// <summary>
     /// Creates or updates a recurring schedule definition.
     /// </summary>
     ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateRecurringScheduleAsync(

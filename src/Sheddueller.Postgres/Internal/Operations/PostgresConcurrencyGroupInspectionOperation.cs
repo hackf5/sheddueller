@@ -40,7 +40,21 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         return new ConcurrencyGroupInspectionDetail(
           summary,
           await ReadClaimedJobIdsAsync(context, connection, groupKey, cancellationToken).ConfigureAwait(false),
-          await ReadBlockedJobIdsAsync(context, connection, groupKey, cancellationToken).ConfigureAwait(false));
+          await ReadBlockedJobIdsAsync(context, connection, groupKey, BlockKind.Any, cancellationToken).ConfigureAwait(false))
+        {
+            ConcurrencyBlockedJobIds = await ReadBlockedJobIdsAsync(
+              context,
+              connection,
+              groupKey,
+              BlockKind.Concurrency,
+              cancellationToken).ConfigureAwait(false),
+            RateBlockedJobIds = await ReadBlockedJobIdsAsync(
+              context,
+              connection,
+              groupKey,
+              BlockKind.Rate,
+              cancellationToken).ConfigureAwait(false),
+        };
     }
 
     private static async ValueTask<long> ReadTotalCountAsync(
@@ -90,7 +104,18 @@ internal static class PostgresConcurrencyGroupInspectionOperation
               summary.current_occupancy,
               summary.blocked_count,
               summary.is_saturated,
-              summary.updated_at_utc
+              summary.updated_at_utc,
+              summary.default_rate_permit_count,
+              summary.default_rate_period,
+              summary.rate_limit_override_enabled,
+              summary.configured_rate_permit_count,
+              summary.configured_rate_period,
+              summary.effective_rate_permit_count,
+              summary.effective_rate_period,
+              summary.rate_theoretical_arrival_at_utc,
+              summary.is_rate_limited,
+              summary.concurrency_blocked_count,
+              summary.rate_blocked_count
           from summary
           {CreateWhereClause(conditions)}
           order by summary.group_key asc
@@ -118,7 +143,18 @@ internal static class PostgresConcurrencyGroupInspectionOperation
               summary.current_occupancy,
               summary.blocked_count,
               summary.is_saturated,
-              summary.updated_at_utc
+              summary.updated_at_utc,
+              summary.default_rate_permit_count,
+              summary.default_rate_period,
+              summary.rate_limit_override_enabled,
+              summary.configured_rate_permit_count,
+              summary.configured_rate_period,
+              summary.effective_rate_permit_count,
+              summary.effective_rate_period,
+              summary.rate_theoretical_arrival_at_utc,
+              summary.is_rate_limited,
+              summary.concurrency_blocked_count,
+              summary.rate_blocked_count
           from summary
           where summary.group_key = @group_key;
           """;
@@ -150,6 +186,14 @@ internal static class PostgresConcurrencyGroupInspectionOperation
             {
                 DefaultLimit = defaultLimit,
                 OverrideLimit = overrideLimit,
+                DefaultRateLimit = ReadRateLimit(reader, 8, 9),
+                HasRateLimitOverride = reader.GetBoolean(10),
+                OverrideRateLimit = ReadRateLimit(reader, 11, 12),
+                EffectiveRateLimit = ReadRateLimit(reader, 13, 14),
+                NextRatePermitAtUtc = reader.IsDBNull(15) ? null : PostgresConversion.ToDateTimeOffset(reader.GetValue(15)),
+                IsRateLimited = reader.GetBoolean(16),
+                ConcurrencyBlockedJobCount = Convert.ToInt32(reader.GetInt64(17), CultureInfo.InvariantCulture),
+                RateBlockedJobCount = Convert.ToInt32(reader.GetInt64(18), CultureInfo.InvariantCulture),
             });
         }
 
@@ -178,6 +222,12 @@ internal static class PostgresConcurrencyGroupInspectionOperation
             conditions.Add("(summary.blocked_count > 0) = @has_blocked_jobs");
             command.Parameters.AddWithValue("has_blocked_jobs", hasBlockedJobs);
         }
+
+        if (query.IsRateLimited is { } isRateLimited)
+        {
+            conditions.Add("summary.is_rate_limited = @is_rate_limited");
+            command.Parameters.AddWithValue("is_rate_limited", isRateLimited);
+        }
     }
 
     private static string CreateWhereClause(List<string> conditions)
@@ -190,29 +240,47 @@ internal static class PostgresConcurrencyGroupInspectionOperation
              union
              select group_key from {context.Names.JobConcurrencyGroups}
          ),
-         blocked as (
-             select job_group.group_key, count(*) as blocked_count
-             from {context.Names.JobConcurrencyGroups} job_group
-             join {context.Names.Jobs} job on job.job_id = job_group.job_id
-             left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
-             where job.state = 'Queued'
-               and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-               and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
-             group by job_group.group_key
-         ),
-         summary as (
+         group_state as (
              select
                  group_keys.group_key,
                  concurrency_group.default_limit,
                  concurrency_group.configured_limit as override_limit,
                  coalesce(concurrency_group.effective_limit, 1) as effective_limit,
                  coalesce(concurrency_group.in_use_count, 0) as current_occupancy,
-                 coalesce(blocked.blocked_count, 0) as blocked_count,
                  coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1) as is_saturated,
+                 concurrency_group.default_rate_permit_count,
+                 concurrency_group.default_rate_period,
+                 coalesce(concurrency_group.rate_limit_override_enabled, false) as rate_limit_override_enabled,
+                 concurrency_group.configured_rate_permit_count,
+                 concurrency_group.configured_rate_period,
+                 concurrency_group.effective_rate_permit_count,
+                 concurrency_group.effective_rate_period,
+                 concurrency_group.rate_theoretical_arrival_at_utc,
+                 concurrency_group.effective_rate_permit_count is not null
+                     and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp() as is_rate_limited,
                  concurrency_group.updated_at_utc
              from group_keys
              left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = group_keys.group_key
-             left join blocked on blocked.group_key = group_keys.group_key
+         ),
+         queued as (
+             select job_group.group_key, count(*) as queued_count
+             from {context.Names.JobConcurrencyGroups} job_group
+             join {context.Names.Jobs} job on job.job_id = job_group.job_id
+             where job.state = 'Queued'
+               and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
+             group by job_group.group_key
+         ),
+         summary as (
+             select
+                 group_state.*,
+                 case
+                     when group_state.is_saturated or group_state.is_rate_limited then coalesce(queued.queued_count, 0)
+                     else 0
+                 end as blocked_count,
+                 case when group_state.is_saturated then coalesce(queued.queued_count, 0) else 0 end as concurrency_blocked_count,
+                 case when group_state.is_rate_limited then coalesce(queued.queued_count, 0) else 0 end as rate_blocked_count
+             from group_state
+             left join queued on queued.group_key = group_state.group_key
          )
          """;
 
@@ -239,6 +307,7 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         PostgresOperationContext context,
         NpgsqlConnection connection,
         string groupKey,
+        BlockKind blockKind,
         CancellationToken cancellationToken)
       => await ReadJobIdsAsync(
         connection,
@@ -250,12 +319,37 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         where job_group.group_key = @group_key
           and job.state = 'Queued'
           and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
-          and coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
+          and ({CreateBlockCondition(blockKind)})
         order by job.priority desc, job.enqueue_sequence asc;
         """,
         groupKey,
         cancellationToken)
         .ConfigureAwait(false);
+
+    private static string CreateBlockCondition(BlockKind blockKind)
+      => blockKind switch
+      {
+          BlockKind.Concurrency => "coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)",
+          BlockKind.Rate => """
+            concurrency_group.effective_rate_permit_count is not null
+            and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
+            """,
+          _ => """
+            coalesce(concurrency_group.in_use_count, 0) >= coalesce(concurrency_group.effective_limit, 1)
+            or (
+                concurrency_group.effective_rate_permit_count is not null
+                and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
+            )
+            """,
+      };
+
+    private static ConcurrencyGroupRateLimit? ReadRateLimit(
+        NpgsqlDataReader reader,
+        int countOrdinal,
+        int periodOrdinal)
+      => reader.IsDBNull(countOrdinal)
+        ? null
+        : new ConcurrencyGroupRateLimit(reader.GetInt32(countOrdinal), reader.GetTimeSpan(periodOrdinal));
 
     private static async ValueTask<IReadOnlyList<Guid>> ReadJobIdsAsync(
         NpgsqlConnection connection,
@@ -288,5 +382,12 @@ internal static class PostgresConcurrencyGroupInspectionOperation
         {
             throw new ArgumentException("Concurrency group inspection continuation token is invalid.", nameof(query));
         }
+    }
+
+    private enum BlockKind
+    {
+        Any,
+        Concurrency,
+        Rate,
     }
 }

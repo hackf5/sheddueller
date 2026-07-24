@@ -239,6 +239,39 @@ public sealed class PostgresMigrationTests(PostgresFixture fixture) : IClassFixt
     }
 
     [Fact]
+    public async Task Migration_FreshSchema_CreatesConcurrencyRateColumns()
+    {
+        await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);
+
+        await ExecuteAsync(
+          context,
+          $"""
+          insert into {context.Table("concurrency_groups")} (
+              group_key,
+              configured_limit,
+              rate_limit_override_enabled,
+              configured_rate_permit_count,
+              configured_rate_period,
+              default_rate_permit_count,
+              default_rate_period,
+              in_use_count,
+              updated_at_utc)
+          values
+              ('override', null, true, 5, interval '1 second', 2, interval '1 minute', 0, transaction_timestamp()),
+              ('unlimited', null, true, null, null, 2, interval '1 minute', 0, transaction_timestamp()),
+              ('default', null, false, null, null, 3, interval '1 minute', 0, transaction_timestamp()),
+              ('built-in', null, false, null, null, null, null, 0, transaction_timestamp());
+          """);
+
+        (await context.ReadConcurrencyGroupAsync("override")).ShouldNotBeNull().EffectiveRateLimit
+          .ShouldBe(new ConcurrencyGroupRateLimit(5, TimeSpan.FromSeconds(1)));
+        (await context.ReadConcurrencyGroupAsync("unlimited")).ShouldNotBeNull().EffectiveRateLimit.ShouldBeNull();
+        (await context.ReadConcurrencyGroupAsync("default")).ShouldNotBeNull().EffectiveRateLimit
+          .ShouldBe(new ConcurrencyGroupRateLimit(3, TimeSpan.FromMinutes(1)));
+        (await context.ReadConcurrencyGroupAsync("built-in")).ShouldNotBeNull().EffectiveRateLimit.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Migration_FreshSchema_CreatesTagOrdinalColumnsAndIndexes()
     {
         await using var context = await PostgresTestContext.CreateMigratedAsync(fixture);

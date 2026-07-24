@@ -397,11 +397,16 @@ internal sealed class DashboardConcurrencyGroupFilters
 
     public bool HasBlockedJobsOnly { get; set; }
 
+    public bool RateLimitedOnly { get; set; }
+
     public bool? SaturatedFilter
       => this.SaturatedOnly ? true : null;
 
     public bool? HasBlockedJobsFilter
       => this.HasBlockedJobsOnly ? true : null;
+
+    public bool? RateLimitedFilter
+      => this.RateLimitedOnly ? true : null;
 
     public IReadOnlyList<ConcurrencyGroupInspectionSummary> ApplyClientFilter(
         IReadOnlyList<ConcurrencyGroupInspectionSummary> groups)
@@ -417,5 +422,6 @@ internal sealed class DashboardConcurrencyGroupFilters
         IsSaturated: this.SaturatedFilter,
         HasBlockedJobs: this.HasBlockedJobsFilter,
         PageSize: pageSize,
-        ContinuationToken: continuationToken);
+        ContinuationToken: continuationToken,
+        IsRateLimited: this.RateLimitedFilter);
 }

@@ -50,6 +50,7 @@ internal sealed class ShedduellerWorker(
                 await this.RunPeriodicStoreWorkAsync(store, stoppingToken).ConfigureAwait(false);
 
                 var claimedJob = false;
+                DateTimeOffset? nextClaimAtUtc = null;
                 while (!stoppingToken.IsCancellationRequested && this._runningJobs.Count < this._options.Value.MaxConcurrentExecutionsPerNode)
                 {
                     var now = this._timeProvider.GetUtcNow();
@@ -59,6 +60,7 @@ internal sealed class ShedduellerWorker(
 
                     if (claimResult is not ClaimJobResult.Claimed claimed)
                     {
+                        nextClaimAtUtc = ((ClaimJobResult.NoJobAvailable)claimResult).NextClaimAtUtc;
                         break;
                     }
 
@@ -72,7 +74,7 @@ internal sealed class ShedduellerWorker(
                     continue;
                 }
 
-                await this.WaitForWorkOrCapacityAsync(stoppingToken).ConfigureAwait(false);
+                await this.WaitForWorkOrCapacityAsync(nextClaimAtUtc, stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -89,22 +91,49 @@ internal sealed class ShedduellerWorker(
         this._logger.WorkerStopped(this._nodeIdProvider.NodeId);
     }
 
-    private async ValueTask WaitForWorkOrCapacityAsync(CancellationToken stoppingToken)
+    private async ValueTask WaitForWorkOrCapacityAsync(
+        DateTimeOffset? nextClaimAtUtc,
+        CancellationToken stoppingToken)
     {
-        if (this._runningJobs.IsEmpty)
+        var timeout = CalculateWaitTimeout(
+          this._options.Value.IdlePollingInterval,
+          this._timeProvider.GetUtcNow(),
+          nextClaimAtUtc);
+        if (timeout <= TimeSpan.Zero)
         {
-            await this._wakeSignal.WaitAsync(this._options.Value.IdlePollingInterval, stoppingToken).ConfigureAwait(false);
             return;
         }
 
-        var delayTask = Task.Delay(this._options.Value.IdlePollingInterval, stoppingToken);
-        var signalTask = this._wakeSignal.WaitAsync(this._options.Value.IdlePollingInterval, stoppingToken).AsTask();
+        if (this._runningJobs.IsEmpty)
+        {
+            await this._wakeSignal.WaitAsync(timeout, stoppingToken).ConfigureAwait(false);
+            return;
+        }
+
+        var delayTask = Task.Delay(timeout, stoppingToken);
+        var signalTask = this._wakeSignal.WaitAsync(timeout, stoppingToken).AsTask();
         var completedRunningTask = await Task.WhenAny(this._runningJobs.Keys.Append(delayTask).Append(signalTask)).ConfigureAwait(false);
 
         if (completedRunningTask == signalTask)
         {
             await signalTask.ConfigureAwait(false);
         }
+    }
+
+    internal static TimeSpan CalculateWaitTimeout(
+        TimeSpan idlePollingInterval,
+        DateTimeOffset nowUtc,
+        DateTimeOffset? nextClaimAtUtc)
+    {
+        if (nextClaimAtUtc is not { } nextClaim)
+        {
+            return idlePollingInterval;
+        }
+
+        var rateDelay = nextClaim - nowUtc;
+        return rateDelay <= TimeSpan.Zero
+          ? TimeSpan.Zero
+          : TimeSpan.FromTicks(Math.Min(idlePollingInterval.Ticks, rateDelay.Ticks));
     }
 
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Job failures must be persisted instead of escaping the worker.")]

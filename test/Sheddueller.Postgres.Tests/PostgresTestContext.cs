@@ -313,7 +313,20 @@ internal sealed class PostgresTestContext(
     {
         await using var command = this.DataSource.CreateCommand(
           $"""
-          select group_key, configured_limit, default_limit, effective_limit, in_use_count
+          select
+              group_key,
+              configured_limit,
+              default_limit,
+              effective_limit,
+              in_use_count,
+              rate_limit_override_enabled,
+              configured_rate_permit_count,
+              configured_rate_period,
+              default_rate_permit_count,
+              default_rate_period,
+              effective_rate_permit_count,
+              effective_rate_period,
+              rate_theoretical_arrival_at_utc
           from {this.Table("concurrency_groups")}
           where group_key = @group_key;
           """);
@@ -330,7 +343,12 @@ internal sealed class PostgresTestContext(
           reader.IsDBNull(1) ? null : reader.GetInt32(1),
           reader.IsDBNull(2) ? null : reader.GetInt32(2),
           reader.GetInt32(3),
-          reader.GetInt32(4));
+          reader.GetInt32(4),
+          reader.GetBoolean(5),
+          ReadRateLimit(reader, 6, 7),
+          ReadRateLimit(reader, 8, 9),
+          ReadRateLimit(reader, 10, 11),
+          reader.IsDBNull(12) ? null : ToDateTimeOffset(reader.GetValue(12)));
     }
 
     public async ValueTask<int> CountJobsForScheduleAsync(string scheduleKey)
@@ -400,6 +418,14 @@ internal sealed class PostgresTestContext(
           DateTime dateTime => new DateTimeOffset(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)),
           _ => throw new InvalidOperationException($"Unexpected timestamp type '{value.GetType()}'."),
       };
+
+    private static ConcurrencyGroupRateLimit? ReadRateLimit(
+        NpgsqlDataReader reader,
+        int countOrdinal,
+        int periodOrdinal)
+      => reader.IsDBNull(countOrdinal)
+        ? null
+        : new ConcurrencyGroupRateLimit(reader.GetInt32(countOrdinal), reader.GetTimeSpan(periodOrdinal));
 }
 
 internal sealed record PostgresJobRow(
@@ -464,4 +490,9 @@ internal sealed record PostgresConcurrencyGroupRow(
     int? ConfiguredLimit,
     int? DefaultLimit,
     int EffectiveLimit,
-    int InUseCount);
+    int InUseCount,
+    bool RateLimitOverrideEnabled,
+    ConcurrencyGroupRateLimit? ConfiguredRateLimit,
+    ConcurrencyGroupRateLimit? DefaultRateLimit,
+    ConcurrencyGroupRateLimit? EffectiveRateLimit,
+    DateTimeOffset? RateTheoreticalArrivalAtUtc);

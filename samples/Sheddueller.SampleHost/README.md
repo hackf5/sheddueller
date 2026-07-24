@@ -52,6 +52,7 @@ The sample applies PostgreSQL schema migrations automatically on startup and reg
 - `Permanent failure`: terminal failure without retries
 - `Delayed job`: waits 30 seconds before becoming claimable
 - `Concurrency batch`: sets a shared limit of 1 and queues several long-running jobs
+- `Rate-limited batch`: queues six jobs with concurrency 3 and a smooth rate of two starts every five seconds
 - `Idempotent reprice`: queues a 10-second reprice job with generated idempotency behind a group limit of 1; click twice quickly to see the same queued job reused
 - `Recurring demo`: creates or updates a recurring schedule that fires each minute
 - `Cancelable delayed job`: creates a queued delayed job that can be canceled from the dashboard job detail page

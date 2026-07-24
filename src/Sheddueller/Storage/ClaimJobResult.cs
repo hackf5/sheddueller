@@ -15,5 +15,6 @@ public abstract record ClaimJobResult
     /// <summary>
     /// No job is currently claimable.
     /// </summary>
-    public sealed record NoJobAvailable : ClaimJobResult;
+    /// <param name="NextClaimAtUtc">The earliest known time at which rate-limited work may become claimable.</param>
+    public sealed record NoJobAvailable(DateTimeOffset? NextClaimAtUtc = null) : ClaimJobResult;
 }

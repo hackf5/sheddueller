@@ -176,10 +176,36 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               configured_limit integer null,
               default_limit integer null,
               effective_limit integer generated always as (coalesce(configured_limit, default_limit, 1)) stored,
+              rate_limit_override_enabled boolean not null default false,
+              configured_rate_permit_count integer null,
+              configured_rate_period interval null,
+              default_rate_permit_count integer null,
+              default_rate_period interval null,
+              effective_rate_permit_count integer generated always as (
+                  case when rate_limit_override_enabled then configured_rate_permit_count else default_rate_permit_count end
+              ) stored,
+              effective_rate_period interval generated always as (
+                  case when rate_limit_override_enabled then configured_rate_period else default_rate_period end
+              ) stored,
+              rate_theoretical_arrival_at_utc timestamptz null,
               in_use_count integer not null,
               updated_at_utc timestamptz not null,
               constraint concurrency_groups_configured_limit_check check (configured_limit is null or configured_limit > 0),
               constraint concurrency_groups_default_limit_check check (default_limit is null or default_limit > 0),
+              constraint concurrency_groups_configured_rate_check check (
+                  (not rate_limit_override_enabled and configured_rate_permit_count is null and configured_rate_period is null)
+                  or (
+                      rate_limit_override_enabled
+                      and (
+                          (configured_rate_permit_count is null and configured_rate_period is null)
+                          or (configured_rate_permit_count > 0 and configured_rate_period > interval '0')
+                      )
+                  )
+              ),
+              constraint concurrency_groups_default_rate_check check (
+                  (default_rate_permit_count is null and default_rate_period is null)
+                  or (default_rate_permit_count > 0 and default_rate_period > interval '0')
+              ),
               constraint concurrency_groups_in_use_count_check check (in_use_count >= 0)
           );
 
@@ -190,10 +216,40 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               add column if not exists effective_limit integer generated always as (coalesce(configured_limit, default_limit, 1)) stored;
 
           alter table {this._names.ConcurrencyGroups}
+              add column if not exists rate_limit_override_enabled boolean not null default false,
+              add column if not exists configured_rate_permit_count integer null,
+              add column if not exists configured_rate_period interval null,
+              add column if not exists default_rate_permit_count integer null,
+              add column if not exists default_rate_period interval null,
+              add column if not exists effective_rate_permit_count integer generated always as (
+                  case when rate_limit_override_enabled then configured_rate_permit_count else default_rate_permit_count end
+              ) stored,
+              add column if not exists effective_rate_period interval generated always as (
+                  case when rate_limit_override_enabled then configured_rate_period else default_rate_period end
+              ) stored,
+              add column if not exists rate_theoretical_arrival_at_utc timestamptz null;
+
+          alter table {this._names.ConcurrencyGroups}
               drop constraint if exists concurrency_groups_configured_limit_check,
               add constraint concurrency_groups_configured_limit_check check (configured_limit is null or configured_limit > 0),
               drop constraint if exists concurrency_groups_default_limit_check,
               add constraint concurrency_groups_default_limit_check check (default_limit is null or default_limit > 0),
+              drop constraint if exists concurrency_groups_configured_rate_check,
+              add constraint concurrency_groups_configured_rate_check check (
+                  (not rate_limit_override_enabled and configured_rate_permit_count is null and configured_rate_period is null)
+                  or (
+                      rate_limit_override_enabled
+                      and (
+                          (configured_rate_permit_count is null and configured_rate_period is null)
+                          or (configured_rate_permit_count > 0 and configured_rate_period > interval '0')
+                      )
+                  )
+              ),
+              drop constraint if exists concurrency_groups_default_rate_check,
+              add constraint concurrency_groups_default_rate_check check (
+                  (default_rate_permit_count is null and default_rate_period is null)
+                  or (default_rate_permit_count > 0 and default_rate_period > interval '0')
+              ),
               drop constraint if exists concurrency_groups_in_use_count_check,
               add constraint concurrency_groups_in_use_count_check check (in_use_count >= 0);
 

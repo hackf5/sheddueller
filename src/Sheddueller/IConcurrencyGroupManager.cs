@@ -34,4 +34,54 @@ public interface IConcurrencyGroupManager
     ValueTask<int?> GetConfiguredLimitAsync(
         string groupKey,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the live rate-limit override for a concurrency group.
+    /// </summary>
+    ValueTask SetRateLimitAsync(
+        string groupKey,
+        ConcurrencyGroupRateLimit rateLimit,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This concurrency-group manager does not support rate limits.");
+
+    /// <summary>
+    /// Sets the code-defined default rate limit for a concurrency group without clearing a live override.
+    /// </summary>
+    ValueTask SetDefaultRateLimitAsync(
+        string groupKey,
+        ConcurrencyGroupRateLimit rateLimit,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This concurrency-group manager does not support rate limits.");
+
+    /// <summary>
+    /// Clears the code-defined default rate limit for a concurrency group without clearing a live override.
+    /// </summary>
+    ValueTask ClearDefaultRateLimitAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This concurrency-group manager does not support rate limits.");
+
+    /// <summary>
+    /// Sets an explicitly unlimited live rate override for a concurrency group.
+    /// </summary>
+    ValueTask SetUnlimitedRateLimitAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This concurrency-group manager does not support rate limits.");
+
+    /// <summary>
+    /// Clears the live rate-limit override for a concurrency group, falling back to its code-defined default.
+    /// </summary>
+    ValueTask ClearRateLimitOverrideAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default)
+      => throw new NotSupportedException("This concurrency-group manager does not support rate limits.");
+
+    /// <summary>
+    /// Gets the live rate-limit override for a concurrency group.
+    /// </summary>
+    ValueTask<ConcurrencyGroupRateLimitOverride> GetRateLimitOverrideAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default)
+      => ValueTask.FromResult(new ConcurrencyGroupRateLimitOverride(ConcurrencyGroupRateLimitOverrideKind.Inherit));
 }

@@ -8,4 +8,5 @@ public sealed record ConcurrencyGroupInspectionQuery(
     bool? IsSaturated = null,
     bool? HasBlockedJobs = null,
     int PageSize = 100,
-    string? ContinuationToken = null);
+    string? ContinuationToken = null,
+    bool? IsRateLimited = null);
