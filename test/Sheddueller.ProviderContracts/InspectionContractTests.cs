@@ -626,6 +626,34 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task ConcurrencyGroupView_UnusedRateLimit_ShowsAvailablePermit()
+    {
+        await using var context = await this.CreateContextAsync();
+        var rateLimit = new ConcurrencyGroupRateLimit(1, TimeSpan.FromSeconds(1));
+        var queued = Guid.NewGuid();
+        await context.Store.SetConcurrencyDefaultRateLimitAsync(
+          new SetConcurrencyDefaultRateLimitRequest("api", rateLimit, DateTimeOffset.UtcNow));
+        await context.Store.EnqueueAsync(CreateRequest(queued, groupKeys: ["api"]));
+
+        var page = await context.ConcurrencyGroupReader.SearchConcurrencyGroupsAsync(
+          new ConcurrencyGroupInspectionQuery(
+            GroupKey: "api",
+            IsRateLimited: false,
+            HasBlockedJobs: false));
+        var detail = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
+
+        page.Groups.ShouldHaveSingleItem().GroupKey.ShouldBe("api");
+        detail.ShouldNotBeNull();
+        detail.Summary.EffectiveRateLimit.ShouldBe(rateLimit);
+        detail.Summary.NextRatePermitAtUtc.ShouldBeNull();
+        detail.Summary.IsRateLimited.ShouldBeFalse();
+        detail.Summary.RateBlockedJobCount.ShouldBe(0);
+        detail.Summary.BlockedJobCount.ShouldBe(0);
+        detail.RateBlockedJobIds.ShouldBeEmpty();
+        detail.BlockedJobIds.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task ConcurrencyGroupView_RateLimitedGroup_ShowsRateStateAndBlockedJobs()
     {
         await using var context = await this.CreateContextAsync();

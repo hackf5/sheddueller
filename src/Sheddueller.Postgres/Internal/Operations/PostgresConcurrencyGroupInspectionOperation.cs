@@ -256,8 +256,10 @@ internal static class PostgresConcurrencyGroupInspectionOperation
                  concurrency_group.effective_rate_permit_count,
                  concurrency_group.effective_rate_period,
                  concurrency_group.rate_theoretical_arrival_at_utc,
-                 concurrency_group.effective_rate_permit_count is not null
-                     and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp() as is_rate_limited,
+                 coalesce(
+                     concurrency_group.effective_rate_permit_count is not null
+                         and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp(),
+                     false) as is_rate_limited,
                  concurrency_group.updated_at_utc
              from group_keys
              left join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = group_keys.group_key
