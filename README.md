@@ -120,7 +120,18 @@ Use `UsePostgres(postgres => postgres.DataSource = dataSource)` when an applicat
 
 The operational store keeps active jobs plus a bounded searchable terminal window. By default, background retention cleanup keeps completed jobs for 24 hours and failed or canceled jobs for 7 days, then deletes those terminal job rows and their tags, concurrency groups, and events. Configure `ShedduellerOptions.JobRetention` to change the windows, set a state retention to `null` to keep that state indefinitely, or set `Enabled = false` to disable cleanup.
 
-Concurrency group limits use a persisted override over a code-defined default over the built-in default of `1`. Use `IConcurrencyGroupManager.SetDefaultLimitAsync(...)` from startup or deployment seeding code so dashboard edits survive restarts. Use `SetLimitAsync(...)` for an explicit live override and `ClearLimitOverrideAsync(...)` to fall back to the code default.
+Concurrency groups independently enforce active-job capacity and an optional smooth job-start rate across the cluster. Capacity limits use a persisted override over a code-defined default over the built-in default of `1`. Rate limits use a persisted override over a code-defined default over a built-in unlimited rate.
+
+Use `IConcurrencyGroupManager.SetDefaultLimitAsync(...)` and `SetDefaultRateLimitAsync(...)` from startup or deployment seeding code so dashboard edits survive restarts. Rate permits are evenly spaced: a rate of two starts per second admits one claim every 500 milliseconds and does not accumulate burst credit while idle. Every successful claim consumes a rate permit, including retries and reclaims.
+
+```csharp
+await concurrencyGroups.SetDefaultLimitAsync("provider:happy-holiday-homes", 1);
+await concurrencyGroups.SetDefaultRateLimitAsync(
+  "provider:happy-holiday-homes",
+  new ConcurrencyGroupRateLimit(2, TimeSpan.FromSeconds(1)));
+```
+
+Use `SetLimitAsync(...)` and `SetRateLimitAsync(...)` for limited live overrides. `SetUnlimitedRateLimitAsync(...)` explicitly disables a code-defined rate, while `ClearRateLimitOverrideAsync(...)` returns to the code default. `ClearLimitOverrideAsync(...)` performs the equivalent reset for capacity.
 
 ## Enqueue Jobs
 

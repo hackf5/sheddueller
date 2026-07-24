@@ -73,6 +73,7 @@ internal static class LauncherPageRenderer
         AppendActionCard(builder, "/launch/delayed", "Delayed job", "Queues a short delayed job to exercise delayed state and not-before time.", "Enqueue job");
         AppendActionCard(builder, "/launch/many-tags", "Many tags", "Queues a tagged job with informational tags first and ceremonial tags later.", "Enqueue job");
         AppendActionCard(builder, "/launch/blocking-batch", "Concurrency batch", "Sets a shared group limit to 1 and enqueues several long jobs.", "Enqueue batch");
+        AppendActionCard(builder, "/launch/rate-limited-batch", "Rate-limited batch", "Queues six jobs with concurrency 3 and a smooth rate of two starts per five seconds.", "Enqueue batch");
         AppendActionCard(builder, "/launch/idempotent", "Idempotent reprice", "Queues one reprice-listing-3 job behind a held group slot; click twice quickly to reuse the queued job.", "Enqueue job");
         AppendActionCard(builder, "/launch/cancelable", "Cancelable delayed job", "Creates a delayed queued job that can be canceled from the dashboard.", "Enqueue job");
         builder.AppendLine("      </div>");

@@ -71,7 +71,13 @@ internal static class PostgresJobGroups
         command.Transaction = transaction;
         command.CommandText =
           $"""
-          select group_key, effective_limit, in_use_count
+          select
+              group_key,
+              effective_limit,
+              in_use_count,
+              effective_rate_permit_count,
+              rate_theoretical_arrival_at_utc is null
+                  or rate_theoretical_arrival_at_utc <= clock_timestamp() as rate_available
           from {context.Names.ConcurrencyGroups}
           where group_key = any(@group_keys)
           order by group_key asc
@@ -87,7 +93,8 @@ internal static class PostgresJobGroups
                 lockCount++;
                 var effectiveLimit = reader.GetInt32(1);
                 var inUseCount = reader.GetInt32(2);
-                if (inUseCount >= effectiveLimit)
+                var rateAvailable = reader.IsDBNull(3) || reader.GetBoolean(4);
+                if (inUseCount >= effectiveLimit || !rateAvailable)
                 {
                     return false;
                 }
@@ -105,6 +112,13 @@ internal static class PostgresJobGroups
           $"""
           update {context.Names.ConcurrencyGroups}
           set in_use_count = in_use_count + 1,
+              rate_theoretical_arrival_at_utc = case
+                  when effective_rate_permit_count is null then null
+                  else greatest(
+                      coalesce(rate_theoretical_arrival_at_utc, clock_timestamp()),
+                      clock_timestamp())
+                      + (effective_rate_period / effective_rate_permit_count)
+              end,
               updated_at_utc = transaction_timestamp()
           where group_key = any(@group_keys);
           """,

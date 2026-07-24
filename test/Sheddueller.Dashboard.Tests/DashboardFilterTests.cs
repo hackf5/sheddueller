@@ -150,6 +150,7 @@ public sealed class DashboardFilterTests
             GroupKey = "API",
             SaturatedOnly = true,
             HasBlockedJobsOnly = true,
+            RateLimitedOnly = true,
         };
         var groups = new[]
         {
@@ -164,6 +165,7 @@ public sealed class DashboardFilterTests
         query.GroupKey.ShouldBeNull();
         query.IsSaturated.ShouldBe(true);
         query.HasBlockedJobs.ShouldBe(true);
+        query.IsRateLimited.ShouldBe(true);
         query.PageSize.ShouldBe(10);
     }
 

@@ -626,6 +626,88 @@ public abstract class InspectionContractTests
     }
 
     [Fact]
+    public async Task ConcurrencyGroupView_UnusedRateLimit_ShowsAvailablePermit()
+    {
+        await using var context = await this.CreateContextAsync();
+        var rateLimit = new ConcurrencyGroupRateLimit(1, TimeSpan.FromSeconds(1));
+        var queued = Guid.NewGuid();
+        await context.Store.SetConcurrencyDefaultRateLimitAsync(
+          new SetConcurrencyDefaultRateLimitRequest("api", rateLimit, DateTimeOffset.UtcNow));
+        await context.Store.EnqueueAsync(CreateRequest(queued, groupKeys: ["api"]));
+
+        var page = await context.ConcurrencyGroupReader.SearchConcurrencyGroupsAsync(
+          new ConcurrencyGroupInspectionQuery(
+            GroupKey: "api",
+            IsRateLimited: false,
+            HasBlockedJobs: false));
+        var detail = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
+
+        page.Groups.ShouldHaveSingleItem().GroupKey.ShouldBe("api");
+        detail.ShouldNotBeNull();
+        detail.Summary.EffectiveRateLimit.ShouldBe(rateLimit);
+        detail.Summary.NextRatePermitAtUtc.ShouldBeNull();
+        detail.Summary.IsRateLimited.ShouldBeFalse();
+        detail.Summary.RateBlockedJobCount.ShouldBe(0);
+        detail.Summary.BlockedJobCount.ShouldBe(0);
+        detail.RateBlockedJobIds.ShouldBeEmpty();
+        detail.BlockedJobIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ConcurrencyGroupView_RateLimitedGroup_ShowsRateStateAndBlockedJobs()
+    {
+        await using var context = await this.CreateContextAsync();
+        var rateLimit = new ConcurrencyGroupRateLimit(1, TimeSpan.FromSeconds(1));
+        var running = Guid.NewGuid();
+        var blocked = Guid.NewGuid();
+        await context.Store.SetConcurrencyLimitAsync(new SetConcurrencyLimitRequest("api", 10, DateTimeOffset.UtcNow));
+        await context.Store.SetConcurrencyDefaultRateLimitAsync(
+          new SetConcurrencyDefaultRateLimitRequest("api", rateLimit, DateTimeOffset.UtcNow));
+        await context.Store.EnqueueAsync(CreateRequest(running, groupKeys: ["api"]));
+        await context.Store.EnqueueAsync(CreateRequest(blocked, groupKeys: ["api"]));
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(running);
+
+        var page = await context.ConcurrencyGroupReader.SearchConcurrencyGroupsAsync(
+          new ConcurrencyGroupInspectionQuery(IsRateLimited: true, HasBlockedJobs: true));
+        var detail = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
+
+        page.Groups.ShouldHaveSingleItem().GroupKey.ShouldBe("api");
+        detail.ShouldNotBeNull();
+        detail.Summary.DefaultRateLimit.ShouldBe(rateLimit);
+        detail.Summary.HasRateLimitOverride.ShouldBeFalse();
+        detail.Summary.OverrideRateLimit.ShouldBeNull();
+        detail.Summary.EffectiveRateLimit.ShouldBe(rateLimit);
+        detail.Summary.NextRatePermitAtUtc.ShouldNotBeNull();
+        detail.Summary.IsRateLimited.ShouldBeTrue();
+        detail.Summary.ConcurrencyBlockedJobCount.ShouldBe(0);
+        detail.Summary.RateBlockedJobCount.ShouldBe(1);
+        detail.Summary.BlockedJobCount.ShouldBe(1);
+        detail.ConcurrencyBlockedJobIds.ShouldBeEmpty();
+        detail.RateBlockedJobIds.ShouldBe([blocked]);
+        detail.BlockedJobIds.ShouldBe([blocked]);
+    }
+
+    [Fact]
+    public async Task ConcurrencyGroupView_UnlimitedOverride_IsVisible()
+    {
+        await using var context = await this.CreateContextAsync();
+        var defaultRate = new ConcurrencyGroupRateLimit(2, TimeSpan.FromSeconds(1));
+        await context.Store.SetConcurrencyDefaultRateLimitAsync(
+          new SetConcurrencyDefaultRateLimitRequest("api", defaultRate, DateTimeOffset.UtcNow));
+        await context.Store.SetConcurrencyUnlimitedRateLimitAsync(
+          new SetConcurrencyUnlimitedRateLimitRequest("api", DateTimeOffset.UtcNow));
+
+        var detail = await context.ConcurrencyGroupReader.GetConcurrencyGroupAsync("api");
+
+        detail.ShouldNotBeNull().Summary.ShouldSatisfyAllConditions(
+          summary => summary.DefaultRateLimit.ShouldBe(defaultRate),
+          summary => summary.HasRateLimitOverride.ShouldBeTrue(),
+          summary => summary.OverrideRateLimit.ShouldBeNull(),
+          summary => summary.EffectiveRateLimit.ShouldBeNull(),
+          summary => summary.IsRateLimited.ShouldBeFalse());
+    }
+
+    [Fact]
     public async Task ConcurrencyGroupSearch_GroupKeyFilter_IsExactAndReturnsTotalCount()
     {
         await using var context = await this.CreateContextAsync();

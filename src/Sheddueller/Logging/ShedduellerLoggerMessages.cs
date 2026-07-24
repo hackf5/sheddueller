@@ -120,6 +120,50 @@ internal static partial class ShedduellerLoggerMessages
         string groupKey);
 
     [LoggerMessage(
+        EventIdStart + 33,
+        LogLevel.Debug,
+        "Set concurrency group {GroupKey} rate limit to {PermitCount} starts per {Period}.")]
+    public static partial void ConcurrencyGroupRateLimitSet(
+        this ILogger logger,
+        string groupKey,
+        int permitCount,
+        TimeSpan period);
+
+    [LoggerMessage(
+        EventIdStart + 34,
+        LogLevel.Debug,
+        "Set concurrency group {GroupKey} default rate limit to {PermitCount} starts per {Period}.")]
+    public static partial void ConcurrencyGroupDefaultRateLimitSet(
+        this ILogger logger,
+        string groupKey,
+        int permitCount,
+        TimeSpan period);
+
+    [LoggerMessage(
+        EventIdStart + 35,
+        LogLevel.Debug,
+        "Cleared concurrency group {GroupKey} default rate limit.")]
+    public static partial void ConcurrencyGroupDefaultRateLimitCleared(
+        this ILogger logger,
+        string groupKey);
+
+    [LoggerMessage(
+        EventIdStart + 36,
+        LogLevel.Debug,
+        "Set concurrency group {GroupKey} live rate override to unlimited.")]
+    public static partial void ConcurrencyGroupUnlimitedRateLimitSet(
+        this ILogger logger,
+        string groupKey);
+
+    [LoggerMessage(
+        EventIdStart + 37,
+        LogLevel.Debug,
+        "Cleared concurrency group {GroupKey} rate-limit override.")]
+    public static partial void ConcurrencyGroupRateLimitOverrideCleared(
+        this ILogger logger,
+        string groupKey);
+
+    [LoggerMessage(
         EventIdStart + 40,
         LogLevel.Warning,
         "Failed to append durable job event for job {JobId}.")]

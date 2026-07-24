@@ -138,6 +138,32 @@ app.MapPost("/launch/blocking-batch", async (
     return RedirectWithMessage($"Queued {jobIds.Count} concurrency-demo jobs in group '{GroupKey}' with limit 1.");
 });
 
+app.MapPost("/launch/rate-limited-batch", async (
+    IConcurrencyGroupManager concurrencyGroupManager,
+    IJobEnqueuer enqueuer,
+    CancellationToken cancellationToken) =>
+{
+    const string GroupKey = "demo:rate-limited";
+    await concurrencyGroupManager.SetDefaultLimitAsync(GroupKey, 3, cancellationToken).ConfigureAwait(false);
+    await concurrencyGroupManager.SetDefaultRateLimitAsync(
+      GroupKey,
+      new ConcurrencyGroupRateLimit(2, TimeSpan.FromSeconds(5)),
+      cancellationToken).ConfigureAwait(false);
+
+    var jobIds = new List<Guid>();
+    for (var index = 1; index <= 6; index++)
+    {
+        var jobId = await enqueuer.EnqueueAsync<DemoJobService>(
+          (service, ct) => service.RunQuickAsync($"rate-limited-{index}", ct),
+          new JobSubmission(Priority: 20, ConcurrencyGroupKeys: [GroupKey]),
+          cancellationToken).ConfigureAwait(false);
+        jobIds.Add(jobId);
+    }
+
+    return RedirectWithMessage(
+      $"Queued {jobIds.Count} jobs in group '{GroupKey}' with concurrency 3 and a smooth rate of 2 starts per 5 seconds.");
+});
+
 app.MapPost("/launch/idempotent", async (
     IConcurrencyGroupManager concurrencyGroupManager,
     IJobEnqueuer enqueuer,

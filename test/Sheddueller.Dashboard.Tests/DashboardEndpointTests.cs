@@ -270,6 +270,7 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("sd-table-switch");
         html.ShouldContain("Filter by group key");
         html.ShouldContain("Saturated only");
+        html.ShouldContain("Rate-limited only");
         html.ShouldContain("Has blocked jobs");
         html.ShouldContain("type=\"checkbox\"");
         AssertAppearsBefore(html, "Saturated only", "aria-label=\"Filter by group key\"");
@@ -279,6 +280,9 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("bg_maintenance");
         html.ShouldContain("db_vacuum_ops");
         html.ShouldContain("Limit Source");
+        html.ShouldContain("Effective Rate");
+        html.ShouldContain("Rate Source");
+        html.ShouldContain("Next Permit");
         html.ShouldContain("Override");
         html.ShouldContain("Code default");
         html.ShouldContain("Built-in default");
@@ -288,6 +292,7 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("High Load");
         html.ShouldContain("Nominal");
         html.ShouldContain("Blocked Work");
+        html.ShouldContain("Rate Limited");
         html.ShouldContain("2026-04-20 12:02:01 UTC");
         html.ShouldContain("Load More Records");
         html.ShouldContain("Showing 1-4 of 4 groups with more available");
@@ -303,8 +308,13 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Actions");
         html.ShouldContain("Edit Limit");
         html.ShouldContain("Reset Override");
+        html.ShouldContain("Edit Rate Limit");
+        html.ShouldContain("Set Unlimited Rate");
+        html.ShouldContain("Reset Rate Override");
         html.ShouldContain("aria-label=\"Edit limit for concurrency group pool_etl_heavy\"");
         html.ShouldContain("aria-label=\"Reset limit override for concurrency group pool_etl_heavy\"");
+        html.ShouldContain("aria-label=\"Edit rate limit for concurrency group pool_etl_heavy\"");
+        html.ShouldContain("aria-label=\"Set unlimited rate override for concurrency group pool_etl_heavy\"");
     }
 
     [Fact]
@@ -1296,16 +1306,21 @@ public sealed class DashboardEndpointTests
               "api_sync_workers",
               EffectiveLimit: 100,
               CurrentOccupancy: 85,
-              BlockedJobCount: 0,
+              BlockedJobCount: 5,
               IsSaturated: false,
               UpdatedAtUtc.AddMinutes(-1))
             {
                 DefaultLimit = 100,
+                DefaultRateLimit = new ConcurrencyGroupRateLimit(2, TimeSpan.FromSeconds(1)),
+                EffectiveRateLimit = new ConcurrencyGroupRateLimit(2, TimeSpan.FromSeconds(1)),
+                NextRatePermitAtUtc = UpdatedAtUtc.AddSeconds(1),
+                IsRateLimited = true,
+                RateBlockedJobCount = 5,
             },
             new(
               "bg_maintenance",
-              EffectiveLimit: 1,
-              CurrentOccupancy: 0,
+              EffectiveLimit: 10,
+              CurrentOccupancy: 8,
               BlockedJobCount: 0,
               IsSaturated: false,
               UpdatedAtUtc.AddMinutes(-5)),
@@ -1325,6 +1340,7 @@ public sealed class DashboardEndpointTests
             var filtered = Groups
               .Where(group => query.GroupKey is null || string.Equals(group.GroupKey, query.GroupKey, StringComparison.Ordinal))
               .Where(group => query.IsSaturated is null || group.IsSaturated == query.IsSaturated.Value)
+              .Where(group => query.IsRateLimited is null || group.IsRateLimited == query.IsRateLimited.Value)
               .Where(group => query.HasBlockedJobs is null || (group.BlockedJobCount > 0) == query.HasBlockedJobs.Value)
               .ToArray();
             var groups = filtered

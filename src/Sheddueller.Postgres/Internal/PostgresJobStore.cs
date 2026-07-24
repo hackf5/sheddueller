@@ -177,6 +177,56 @@ internal sealed class PostgresJobStore(
         CancellationToken cancellationToken = default)
       => GetConfiguredConcurrencyLimitOperation.ExecuteAsync(this._context, groupKey, cancellationToken);
 
+    public ValueTask SetConcurrencyRateLimitAsync(
+        SetConcurrencyRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return SetConcurrencyRateLimitOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask SetConcurrencyDefaultRateLimitAsync(
+        SetConcurrencyDefaultRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return SetConcurrencyDefaultRateLimitOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask ClearConcurrencyDefaultRateLimitAsync(
+        ClearConcurrencyDefaultRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return ClearConcurrencyDefaultRateLimitOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask SetConcurrencyUnlimitedRateLimitAsync(
+        SetConcurrencyUnlimitedRateLimitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return SetConcurrencyUnlimitedRateLimitOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask ClearConcurrencyRateLimitOverrideAsync(
+        ClearConcurrencyRateLimitOverrideRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return ClearConcurrencyRateLimitOverrideOperation.ExecuteAsync(this._context, request, cancellationToken);
+    }
+
+    public ValueTask<ConcurrencyGroupRateLimitOverride> GetConcurrencyRateLimitOverrideAsync(
+        string groupKey,
+        CancellationToken cancellationToken = default)
+      => PostgresConcurrencyRateLimits.GetOverrideAsync(this._context, groupKey, cancellationToken);
+
     public ValueTask<RecurringScheduleUpsertResult> CreateOrUpdateRecurringScheduleAsync(
         UpsertRecurringScheduleRequest request,
         CancellationToken cancellationToken = default)

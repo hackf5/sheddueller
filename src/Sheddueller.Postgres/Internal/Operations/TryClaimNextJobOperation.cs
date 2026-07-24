@@ -97,8 +97,9 @@ internal static class TryClaimNextJobOperation
             return new ClaimJobResult.Claimed(claimed);
         }
 
+        var nextClaimAtUtc = await ReadNextRateLimitedClaimAtAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return new ClaimJobResult.NoJobAvailable();
+        return new ClaimJobResult.NoJobAvailable(nextClaimAtUtc);
     }
 
     private static async ValueTask<IReadOnlyList<Guid>> ReadClaimCandidatesAsync(
@@ -120,7 +121,13 @@ internal static class TryClaimNextJobOperation
                 from {context.Names.JobConcurrencyGroups} job_group
                 join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                 where job_group.job_id = job.job_id
-                  and concurrency_group.in_use_count >= concurrency_group.effective_limit
+                  and (
+                      concurrency_group.in_use_count >= concurrency_group.effective_limit
+                      or (
+                          concurrency_group.effective_rate_permit_count is not null
+                          and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
+                      )
+                  )
             )
           order by job.priority desc, job.enqueue_sequence asc
           for update of job skip locked
@@ -136,5 +143,33 @@ internal static class TryClaimNextJobOperation
         }
 
         return jobIds;
+    }
+
+    private static async ValueTask<DateTimeOffset?> ReadNextRateLimitedClaimAtAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+          $"""
+          select min(rate_blocked.next_claim_at_utc)
+          from (
+              select job.job_id, max(concurrency_group.rate_theoretical_arrival_at_utc) as next_claim_at_utc
+              from {context.Names.Jobs} job
+              join {context.Names.JobConcurrencyGroups} job_group on job_group.job_id = job.job_id
+              join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
+              where job.state = 'Queued'
+                and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
+                and concurrency_group.effective_rate_permit_count is not null
+                and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
+              group by job.job_id
+          ) rate_blocked;
+          """;
+
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is null or DBNull ? null : PostgresConversion.ToDateTimeOffset(value);
     }
 }
