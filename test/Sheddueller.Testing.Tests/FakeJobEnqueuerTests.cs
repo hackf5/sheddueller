@@ -126,6 +126,25 @@ public sealed class FakeJobEnqueuerTests
     }
 
     [Fact]
+    public async Task EnqueueMany_DependencyGraph_RecordsPrerequisiteJobIds()
+    {
+        var fake = new FakeJobEnqueuer();
+        var first = JobEnqueueItem.Create<TestJobService>(
+          (service, cancellationToken) => service.HandleAsync(new SamplePayload("first", 1), cancellationToken));
+        var second = JobEnqueueItem.Create<TestJobService>(
+          (service, cancellationToken) => service.HandleAsync(new SamplePayload("second", 2), cancellationToken));
+        var aggregate = JobEnqueueItem.Create(
+            cancellationToken => TestJobService.StaticTaskAsync("aggregate", cancellationToken))
+          .DependsOn([first, second]);
+
+        var jobIds = await fake.EnqueueManyAsync([first, second, aggregate]);
+
+        fake.EnqueuedJobs[0].PrerequisiteJobIds.ShouldBeEmpty();
+        fake.EnqueuedJobs[1].PrerequisiteJobIds.ShouldBeEmpty();
+        fake.EnqueuedJobs[2].PrerequisiteJobIds.ShouldBe([jobIds[0], jobIds[1]]);
+    }
+
+    [Fact]
     public async Task EnqueueMany_InvalidItem_DoesNotRecordAnyJobs()
     {
         var fake = new FakeJobEnqueuer();

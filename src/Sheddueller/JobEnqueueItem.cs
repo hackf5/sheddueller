@@ -7,6 +7,8 @@ using System.Linq.Expressions;
 /// </summary>
 public sealed class JobEnqueueItem
 {
+    private readonly List<JobEnqueueItem> _prerequisites = [];
+
     private JobEnqueueItem(
       Type? serviceType,
       LambdaExpression work,
@@ -22,6 +24,48 @@ public sealed class JobEnqueueItem
     internal LambdaExpression Work { get; }
 
     internal JobSubmission? Submission { get; }
+
+    internal IReadOnlyList<JobEnqueueItem> Prerequisites => this._prerequisites;
+
+    /// <summary>
+    /// Makes this job wait until the supplied prerequisite jobs are terminal.
+    /// </summary>
+    /// <param name="prerequisites">Jobs from the same atomic batch that must become terminal first.</param>
+    /// <returns>This enqueue item.</returns>
+    /// <remarks>
+    /// Terminal prerequisites include completed, failed, and canceled jobs. Dependency graphs may contain
+    /// multiple levels, but every referenced prerequisite must be submitted in the same batch.
+    /// </remarks>
+    public JobEnqueueItem DependsOn(IEnumerable<JobEnqueueItem> prerequisites)
+    {
+        ArgumentNullException.ThrowIfNull(prerequisites);
+
+        foreach (var prerequisite in prerequisites)
+        {
+            ArgumentNullException.ThrowIfNull(prerequisite, nameof(prerequisites));
+            if (ReferenceEquals(this, prerequisite))
+            {
+                throw new ArgumentException("A job cannot depend on itself.", nameof(prerequisites));
+            }
+
+            if (this._prerequisites.Contains(prerequisite))
+            {
+                throw new ArgumentException("A prerequisite job cannot be added more than once.", nameof(prerequisites));
+            }
+
+            this._prerequisites.Add(prerequisite);
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Makes this job wait until the supplied prerequisite jobs are terminal.
+    /// </summary>
+    /// <param name="prerequisites">Jobs from the same atomic batch that must become terminal first.</param>
+    /// <returns>This enqueue item.</returns>
+    public JobEnqueueItem DependsOn(params JobEnqueueItem[] prerequisites)
+      => this.DependsOn((IEnumerable<JobEnqueueItem>)prerequisites);
 
     /// <summary>
     /// Creates a batch item for a Task-returning job method call.

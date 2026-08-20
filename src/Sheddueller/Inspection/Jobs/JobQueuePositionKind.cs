@@ -21,6 +21,11 @@ public enum JobQueuePositionKind
     RetryWaiting,
 
     /// <summary>
+    /// Job is waiting for prerequisite jobs to become terminal.
+    /// </summary>
+    WaitingForDependencies,
+
+    /// <summary>
     /// Job is blocked by concurrency group saturation.
     /// </summary>
     BlockedByConcurrency,

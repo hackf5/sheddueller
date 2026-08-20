@@ -58,7 +58,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -75,7 +75,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -92,7 +92,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -109,7 +109,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -126,7 +126,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -143,7 +143,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -160,7 +160,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -177,7 +177,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
         lock (this._syncRoot)
         {
-            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null);
+            var recordedJob = this.CreateRecordedJob(preparedJob, batchId: null, batchIndex: null, prerequisiteJobIds: []);
             this._jobs.Add(recordedJob);
 
             return recordedJob.JobId;
@@ -198,7 +198,9 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
         }
 
         var jobSnapshot = jobs.ToArray();
+        ValidateDependencyGraph(jobSnapshot);
         var preparedJobs = new PreparedJob[jobSnapshot.Length];
+        var preparedByItem = new Dictionary<JobEnqueueItem, PreparedJob>(ReferenceEqualityComparer.Instance);
 
         for (var i = 0; i < jobSnapshot.Length; i++)
         {
@@ -208,6 +210,7 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
             preparedJobs[i] = await this
                 .PrepareJobAsync(JobExpressionParser.Parse(job.ServiceType, job.Work), job.Submission, cancellationToken)
                 .ConfigureAwait(false);
+            preparedByItem.Add(job, preparedJobs[i]);
         }
 
         lock (this._syncRoot)
@@ -217,7 +220,10 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
 
             for (var i = 0; i < preparedJobs.Length; i++)
             {
-                var recordedJob = this.CreateRecordedJob(preparedJobs[i], batchId, i);
+                var prerequisiteJobIds = jobSnapshot[i].Prerequisites
+                    .Select(prerequisite => preparedByItem[prerequisite].JobId)
+                    .ToArray();
+                var recordedJob = this.CreateRecordedJob(preparedJobs[i], batchId, i, prerequisiteJobIds);
                 this._jobs.Add(recordedJob);
                 jobIds[i] = recordedJob.JobId;
             }
@@ -352,7 +358,8 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
     private FakeEnqueuedJob CreateRecordedJob(
       PreparedJob preparedJob,
       Guid? batchId,
-      int? batchIndex)
+      int? batchIndex,
+      IReadOnlyList<Guid> prerequisiteJobIds)
       => new(
           preparedJob.JobId,
           this._nextEnqueueSequence++,
@@ -366,7 +373,63 @@ public sealed class FakeJobEnqueuer : IJobEnqueuer
           preparedJob.ParsedJob.SerializableParameterTypes,
           preparedJob.ParsedJob.SerializableArguments,
           preparedJob.SerializedArguments,
-          preparedJob.Submission);
+          preparedJob.Submission,
+          prerequisiteJobIds);
+
+    private static void ValidateDependencyGraph(IReadOnlyList<JobEnqueueItem> jobs)
+    {
+        var submitted = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
+        foreach (var job in jobs)
+        {
+            ArgumentNullException.ThrowIfNull(job, nameof(jobs));
+            if (!submitted.Add(job))
+            {
+                throw new ArgumentException("A job enqueue item cannot appear more than once in a batch.", nameof(jobs));
+            }
+        }
+
+        var hasDependencies = jobs.Any(static job => job.Prerequisites.Count > 0);
+        if (hasDependencies && jobs.Any(static job => job.Submission?.IdempotencyKind is not null and not JobIdempotencyKind.None))
+        {
+            throw new ArgumentException("Jobs in a dependency graph cannot use idempotency.", nameof(jobs));
+        }
+
+        foreach (var job in jobs)
+        {
+            if (job.Prerequisites.Any(prerequisite => !submitted.Contains(prerequisite)))
+            {
+                throw new ArgumentException("Every prerequisite job must be included in the same batch.", nameof(jobs));
+            }
+        }
+
+        var visiting = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
+        var visited = new HashSet<JobEnqueueItem>(ReferenceEqualityComparer.Instance);
+        foreach (var job in jobs)
+        {
+            visit(job);
+        }
+
+        void visit(JobEnqueueItem job)
+        {
+            if (visited.Contains(job))
+            {
+                return;
+            }
+
+            if (!visiting.Add(job))
+            {
+                throw new ArgumentException("Job dependency graphs cannot contain cycles.", nameof(jobs));
+            }
+
+            foreach (var prerequisite in job.Prerequisites)
+            {
+                visit(prerequisite);
+            }
+
+            visiting.Remove(job);
+            visited.Add(job);
+        }
+    }
 
     private static bool Matches(
       FakeEnqueuedJob job,

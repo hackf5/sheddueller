@@ -19,4 +19,14 @@ public sealed record JobInspectionDetail(
     /// Jobs cloned from this failed job.
     /// </summary>
     public IReadOnlyList<Guid> RetryCloneJobIds { get; init; } = [];
+
+    /// <summary>
+    /// Jobs that must become terminal before this job is claimable.
+    /// </summary>
+    public IReadOnlyList<Guid> PrerequisiteJobIds { get; init; } = [];
+
+    /// <summary>
+    /// Jobs that depend on this job becoming terminal.
+    /// </summary>
+    public IReadOnlyList<Guid> DependentJobIds { get; init; } = [];
 }

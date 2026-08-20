@@ -4,7 +4,7 @@ namespace Sheddueller.Postgres.Internal;
 
 internal sealed class PostgresNames
 {
-    public const int ExpectedSchemaVersion = 14;
+    public const int ExpectedSchemaVersion = 15;
     public const string WakeupChannel = "sheddueller_wakeup";
     public const string JobEventChannel = "sheddueller_job_event";
 
@@ -15,6 +15,7 @@ internal sealed class PostgresNames
         this.SchemaInfo = this.Table("schema_info");
         this.Jobs = this.Table("jobs");
         this.JobConcurrencyGroups = this.Table("job_concurrency_groups");
+        this.JobDependencies = this.Table("job_dependencies");
         this.JobTags = this.Table("job_tags");
         this.ConcurrencyGroups = this.Table("concurrency_groups");
         this.RecurringSchedules = this.Table("recurring_schedules");
@@ -37,6 +38,8 @@ internal sealed class PostgresNames
     public string Jobs { get; }
 
     public string JobConcurrencyGroups { get; }
+
+    public string JobDependencies { get; }
 
     public string JobTags { get; }
 

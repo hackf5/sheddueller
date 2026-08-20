@@ -178,6 +178,22 @@ Set `ShedduellerOptions.EnableJobLogCapture = true` to enable durable capture of
 
 Use `NotBeforeUtc` for delayed jobs. Use `JobIdempotencyKind.MethodAndArguments` to reuse an existing queued job with the same target method and serialized arguments.
 
+Submit dependency graphs as one atomic batch. `DependsOn` blocks a job until every referenced job in the same batch is terminal; completed, failed, and canceled prerequisites all satisfy the dependency. Graphs may contain arbitrary fan-out, fan-in, and depth.
+
+```csharp
+var fetchProfile = JobEnqueueItem.Create<ImportJobs>(
+    (jobs, ct) => jobs.FetchProfileAsync(managerId, ct));
+var fetchRates = JobEnqueueItem.Create<ImportJobs>(
+    (jobs, ct) => jobs.FetchRatesAsync(managerId, ct));
+var aggregate = JobEnqueueItem.Create<ImportJobs>(
+        (jobs, ct) => jobs.AggregateAsync(managerId, ct))
+    .DependsOn([fetchProfile, fetchRates]);
+
+await enqueuer.EnqueueManyAsync([fetchProfile, fetchRates, aggregate], cancellationToken);
+```
+
+Every prerequisite must be present in the submitted batch. Cycles, self-dependencies, duplicate items, missing prerequisites, and idempotency within dependency graphs are rejected before enqueueing.
+
 ## Recurring Schedules
 
 Recurring schedules are keyed definitions. Calling `CreateOrUpdateAsync` at startup is the intended reconciliation model.

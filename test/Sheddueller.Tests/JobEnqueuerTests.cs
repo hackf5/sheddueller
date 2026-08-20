@@ -282,6 +282,81 @@ public sealed class JobEnqueuerTests
     }
 
     [Fact]
+    public async Task EnqueueMany_DependencyGraph_PersistsArbitraryDepthUsingReturnedJobIds()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var first = JobEnqueueItem.Create<EnqueueTestService>(
+          (service, cancellationToken) => service.HandleStringAsync("first", cancellationToken));
+        var second = JobEnqueueItem.Create<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleStringAsync("second", cancellationToken))
+          .DependsOn(first);
+        var third = JobEnqueueItem.Create<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleStringAsync("third", cancellationToken))
+          .DependsOn([first, second]);
+
+        var jobIds = await enqueuer.EnqueueManyAsync([third, first, second]);
+
+        store.GetRequest(jobIds[0]).PrerequisiteJobIds.ShouldBe([jobIds[1], jobIds[2]], ignoreOrder: true);
+        store.GetRequest(jobIds[1]).PrerequisiteJobIds.ShouldBeEmpty();
+        store.GetRequest(jobIds[2]).PrerequisiteJobIds.ShouldBe([jobIds[1]]);
+    }
+
+    [Fact]
+    public async Task EnqueueMany_DependencyOutsideBatch_ThrowsWithoutPersistingJobs()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var missing = JobEnqueueItem.Create<EnqueueTestService>(
+          (service, cancellationToken) => service.HandleStringAsync("missing", cancellationToken));
+        var dependent = JobEnqueueItem.Create<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleStringAsync("dependent", cancellationToken))
+          .DependsOn(missing);
+
+        await Should.ThrowAsync<ArgumentException>(() => enqueuer.EnqueueManyAsync([dependent]).AsTask());
+
+        store.EnqueuedRequests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task EnqueueMany_CyclicDependencyGraph_ThrowsWithoutPersistingJobs()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var first = JobEnqueueItem.Create<EnqueueTestService>(
+          (service, cancellationToken) => service.HandleStringAsync("first", cancellationToken));
+        var second = JobEnqueueItem.Create<EnqueueTestService>(
+          (service, cancellationToken) => service.HandleStringAsync("second", cancellationToken));
+        first.DependsOn(second);
+        second.DependsOn(first);
+
+        await Should.ThrowAsync<ArgumentException>(() => enqueuer.EnqueueManyAsync([first, second]).AsTask());
+
+        store.EnqueuedRequests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task EnqueueMany_IdempotentDependencyGraph_ThrowsWithoutPersistingJobs()
+    {
+        using var provider = CreateProvider();
+        var enqueuer = provider.GetRequiredService<IJobEnqueuer>();
+        var store = provider.GetRequiredService<RecordingJobStore>();
+        var first = JobEnqueueItem.Create<EnqueueTestService>(
+          (service, cancellationToken) => service.HandleStringAsync("first", cancellationToken));
+        var dependent = JobEnqueueItem.Create<EnqueueTestService>(
+            (service, cancellationToken) => service.HandleStringAsync("dependent", cancellationToken),
+            new JobSubmission(IdempotencyKind: JobIdempotencyKind.MethodAndArguments))
+          .DependsOn(first);
+
+        await Should.ThrowAsync<ArgumentException>(() => enqueuer.EnqueueManyAsync([first, dependent]).AsTask());
+
+        store.EnqueuedRequests.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task EnqueueMany_ProgressAwareMethod_PersistsProgressBinding()
     {
         using var provider = CreateProvider();

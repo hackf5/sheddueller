@@ -97,6 +97,55 @@ public abstract class JobStoreContractTests
     }
 
     [Fact]
+    public async Task DependencyGraph_PrerequisitesBecomeTerminal_DependentBecomesClaimable()
+    {
+        await using var context = await this.CreateContextAsync();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var dependent = Guid.NewGuid();
+        await context.Store.EnqueueManyAsync([
+          CreateRequest(first),
+          CreateRequest(second),
+          CreateRequest(dependent, priority: 100, prerequisiteJobIds: [first, second]),
+        ]);
+
+        var firstClaim = await ClaimAsync(context.Store);
+        firstClaim.JobId.ShouldBe(first);
+        (await context.Store.MarkCompletedAsync(
+          new CompleteJobRequest(first, "node-1", firstClaim.LeaseToken, ContractClock))).ShouldBeTrue();
+
+        var secondClaim = await ClaimAsync(context.Store);
+        secondClaim.JobId.ShouldBe(second);
+        (await context.Store.MarkFailedAsync(
+          new FailJobRequest(
+            second,
+            "node-1",
+            secondClaim.LeaseToken,
+            ContractClock,
+            new JobFailureInfo("TestFailure", "failed", null)))).ShouldBeTrue();
+
+        (await ClaimAsync(context.Store)).JobId.ShouldBe(dependent);
+    }
+
+    [Fact]
+    public async Task DependencyGraph_UnfinishedPrerequisite_InspectionReportsWaitingForDependencies()
+    {
+        await using var context = await this.CreateContextAsync();
+        var prerequisite = Guid.NewGuid();
+        var dependent = Guid.NewGuid();
+        await context.Store.EnqueueManyAsync([
+          CreateRequest(prerequisite),
+          CreateRequest(dependent, priority: 100, prerequisiteJobIds: [prerequisite]),
+        ]);
+
+        var position = await GetInspectionReader(context).GetQueuePositionAsync(dependent);
+        var detail = await GetInspectionReader(context).GetJobAsync(dependent);
+
+        position.Kind.ShouldBe(JobQueuePositionKind.WaitingForDependencies);
+        detail.ShouldNotBeNull().PrerequisiteJobIds.ShouldBe([prerequisite]);
+    }
+
+    [Fact]
     public async Task EnqueueMany_DuplicateJobIdInBatch_ThrowsWithoutPersistingAnyBatchItem()
     {
         await using var context = await this.CreateContextAsync();
@@ -896,7 +945,8 @@ public abstract class JobStoreContractTests
         TimeSpan? retryBaseDelay = null,
         TimeSpan? retryMaxDelay = null,
         IReadOnlyList<string>? groupKeys = null,
-        string? idempotencyKey = null)
+        string? idempotencyKey = null,
+        IReadOnlyList<Guid>? prerequisiteJobIds = null)
       => new(
         jobId,
         priority,
@@ -911,7 +961,8 @@ public abstract class JobStoreContractTests
         retryBackoffKind,
         retryBaseDelay,
         retryMaxDelay,
-        IdempotencyKey: idempotencyKey);
+        IdempotencyKey: idempotencyKey,
+        PrerequisiteJobIds: prerequisiteJobIds);
 
     protected static UpsertRecurringScheduleRequest CreateSchedule(
         string scheduleKey,

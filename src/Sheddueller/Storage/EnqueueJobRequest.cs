@@ -26,4 +26,5 @@ public sealed record EnqueueJobRequest(
     ScheduleOccurrenceKind? ScheduleOccurrenceKind = null,
     JobInvocationTargetKind InvocationTargetKind = JobInvocationTargetKind.Instance,
     IReadOnlyList<JobMethodParameterBinding>? MethodParameterBindings = null,
-    string? IdempotencyKey = null);
+    string? IdempotencyKey = null,
+    IReadOnlyList<Guid>? PrerequisiteJobIds = null);

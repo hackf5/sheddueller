@@ -213,6 +213,32 @@
                               HrefFactory="GroupFilterHref"
                               LinkAriaLabelPrefix="Filter jobs by group" />
                 </div>
+
+                @if (_detail.PrerequisiteJobIds.Count > 0)
+                {
+                    <div class="job-detail-chip-section">
+                        <span class="job-detail-label">Prerequisites</span>
+                        <div class="job-detail-chip-list">
+                            @foreach (var prerequisiteJobId in _detail.PrerequisiteJobIds)
+                            {
+                                <JobLink CssClass="job-detail-chip" JobId="prerequisiteJobId" />
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (_detail.DependentJobIds.Count > 0)
+                {
+                    <div class="job-detail-chip-section">
+                        <span class="job-detail-label">Dependents</span>
+                        <div class="job-detail-chip-list">
+                            @foreach (var dependentJobId in _detail.DependentJobIds)
+                            {
+                                <JobLink CssClass="job-detail-chip" JobId="dependentJobId" />
+                            }
+                        </div>
+                    </div>
+                }
             </section>
 
             <div class="job-detail-operations">
