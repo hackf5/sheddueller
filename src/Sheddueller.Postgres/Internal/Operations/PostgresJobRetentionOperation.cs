@@ -63,11 +63,20 @@ internal static class PostgresJobRetentionOperation
           $"""
           with candidates as (
               select job_id
-              from {context.Names.Jobs}
+              from {context.Names.Jobs} job
               where
-                  (state = 'Completed' and @completed_before_utc is not null and completed_at_utc < @completed_before_utc)
-                  or (state = 'Failed' and @failed_before_utc is not null and failed_at_utc < @failed_before_utc)
-                  or (state = 'Canceled' and @canceled_before_utc is not null and canceled_at_utc < @canceled_before_utc)
+                  (
+                      (state = 'Completed' and @completed_before_utc is not null and completed_at_utc < @completed_before_utc)
+                      or (state = 'Failed' and @failed_before_utc is not null and failed_at_utc < @failed_before_utc)
+                      or (state = 'Canceled' and @canceled_before_utc is not null and canceled_at_utc < @canceled_before_utc)
+                  )
+                  and not exists (
+                      select 1
+                      from {context.Names.JobDependencies} dependency
+                      join {context.Names.Jobs} dependent on dependent.job_id = dependency.job_id
+                      where dependency.prerequisite_job_id = job.job_id
+                        and dependent.state not in ('Completed', 'Failed', 'Canceled')
+                  )
               order by coalesce(completed_at_utc, failed_at_utc, canceled_at_utc) asc, enqueue_sequence asc
               limit @batch_size
               for update skip locked

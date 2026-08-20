@@ -1261,6 +1261,7 @@
           { Kind: JobQueuePositionKind.Claimable, Position: { } position } => string.Create(CultureInfo.InvariantCulture, $"#{position}"),
           { Kind: JobQueuePositionKind.Claimable } => "Ready",
           { Kind: JobQueuePositionKind.Claimed } => "Running",
+          { Kind: JobQueuePositionKind.WaitingForDependencies } => "Dependencies",
           { Kind: JobQueuePositionKind.BlockedByConcurrency } => "Blocked",
           { Kind: JobQueuePositionKind.RetryWaiting } => "Retry",
           { Kind: JobQueuePositionKind.Delayed } => "Delayed",
@@ -1275,6 +1276,7 @@
       {
           JobQueuePositionKind.Claimable => "claimable",
           JobQueuePositionKind.Claimed => "claimed",
+          JobQueuePositionKind.WaitingForDependencies => "waiting",
           JobQueuePositionKind.BlockedByConcurrency => "blocked",
           JobQueuePositionKind.RetryWaiting => "waiting",
           JobQueuePositionKind.Delayed => "delayed",

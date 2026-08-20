@@ -305,6 +305,8 @@ internal static class PostgresJobInspectionOperation
         {
             Invocation = await ReadInvocationAsync(context, connection, row, cancellationToken).ConfigureAwait(false),
             RetryCloneJobIds = await ReadRetryCloneJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
+            PrerequisiteJobIds = await ReadPrerequisiteJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
+            DependentJobIds = await ReadDependentJobIdsAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false),
         };
     }
 
@@ -333,6 +335,15 @@ internal static class PostgresJobInspectionOperation
         if (row.State == JobState.Claimed)
         {
             return new JobQueuePosition(jobId, JobQueuePositionKind.Claimed, Position: null, "Job is currently claimed.");
+        }
+
+        if (await HasUnfinishedPrerequisitesAsync(context, connection, jobId, cancellationToken).ConfigureAwait(false))
+        {
+            return new JobQueuePosition(
+              jobId,
+              JobQueuePositionKind.WaitingForDependencies,
+              Position: null,
+              "Job is waiting for prerequisite jobs to become terminal.");
         }
 
         var now = await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -649,6 +660,17 @@ internal static class PostgresJobInspectionOperation
     {
         var positions = new Dictionary<Guid, JobQueuePosition>(rows.Count);
         var readyQueuedRows = new List<PostgresJobInspectionRow>();
+        var queuedJobIds = rows
+            .Where(static row => row.State == JobState.Queued)
+            .Select(static row => row.JobId)
+            .Distinct()
+            .ToArray();
+        var dependencyBlockedJobIds = await ReadDependencyBlockedJobIdsAsync(
+            context,
+            connection,
+            queuedJobIds,
+            cancellationToken)
+          .ConfigureAwait(false);
         DateTimeOffset? resolvedNowUtc = null;
 
         foreach (var row in rows)
@@ -669,6 +691,16 @@ internal static class PostgresJobInspectionOperation
                     break;
 
                 case JobState.Queued:
+                    if (dependencyBlockedJobIds.Contains(row.JobId))
+                    {
+                        positions[row.JobId] = new JobQueuePosition(
+                          row.JobId,
+                          JobQueuePositionKind.WaitingForDependencies,
+                          Position: null,
+                          "Job is waiting for prerequisite jobs to become terminal.");
+                        break;
+                    }
+
                     resolvedNowUtc ??= nowUtc ?? await ReadCurrentTimestampAsync(connection, cancellationToken).ConfigureAwait(false);
                     if (row.NotBeforeUtc is { } notBeforeUtc && notBeforeUtc > resolvedNowUtc.Value)
                     {
@@ -730,6 +762,13 @@ internal static class PostgresJobInspectionOperation
               from {context.Names.Jobs} job
               where job.state = 'Queued'
                 and (job.not_before_utc is null or job.not_before_utc <= @now_utc)
+                and not exists (
+                    select 1
+                    from {context.Names.JobDependencies} dependency
+                    join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
+                    where dependency.job_id = job.job_id
+                      and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
+                )
                 and not exists (
                     select 1
                     from {context.Names.JobConcurrencyGroups} job_group
@@ -801,6 +840,13 @@ internal static class PostgresJobInspectionOperation
               from {context.Names.Jobs} job
               where job.state = 'Queued'
                 and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
+                and not exists (
+                    select 1
+                    from {context.Names.JobDependencies} dependency
+                    join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
+                    where dependency.job_id = job.job_id
+                      and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
+                )
                 and not exists (
                     select 1
                     from {context.Names.JobConcurrencyGroups} job_group
@@ -1077,6 +1123,113 @@ internal static class PostgresJobInspectionOperation
         }
 
         return jobIds;
+    }
+
+    private static async ValueTask<IReadOnlyList<Guid>> ReadPrerequisiteJobIdsAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select prerequisite_job_id
+          from {context.Names.JobDependencies}
+          where job_id = @job_id
+          order by prerequisite_job_id;
+          """;
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        return await ReadJobIdsAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<IReadOnlyList<Guid>> ReadDependentJobIdsAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select job_id
+          from {context.Names.JobDependencies}
+          where prerequisite_job_id = @job_id
+          order by job_id;
+          """;
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        return await ReadJobIdsAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<IReadOnlyList<Guid>> ReadJobIdsAsync(
+        NpgsqlCommand command,
+        CancellationToken cancellationToken)
+    {
+        var jobIds = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            jobIds.Add(reader.GetGuid(0));
+        }
+
+        return jobIds;
+    }
+
+    private static async ValueTask<bool> HasUnfinishedPrerequisitesAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid jobId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select exists (
+              select 1
+              from {context.Names.JobDependencies} dependency
+              join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
+              where dependency.job_id = @job_id
+                and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
+          );
+          """;
+        command.Parameters.AddWithValue("job_id", jobId);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+          ?? throw new InvalidOperationException("PostgreSQL did not return a dependency status."));
+    }
+
+    private static async ValueTask<HashSet<Guid>> ReadDependencyBlockedJobIdsAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        Guid[] jobIds,
+        CancellationToken cancellationToken)
+    {
+        if (jobIds.Length == 0)
+        {
+            return [];
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+          $"""
+          select distinct dependency.job_id
+          from {context.Names.JobDependencies} dependency
+          join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
+          where dependency.job_id = any(@job_ids)
+            and prerequisite.state not in ('Completed', 'Failed', 'Canceled');
+          """;
+        command.Parameters.AddWithValue("job_ids", jobIds);
+
+        var blocked = new HashSet<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            blocked.Add(reader.GetGuid(0));
+        }
+
+        return blocked;
     }
 
     private static async ValueTask<DateTimeOffset> ReadCurrentTimestampAsync(

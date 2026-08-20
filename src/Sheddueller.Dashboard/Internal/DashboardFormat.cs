@@ -149,6 +149,7 @@ internal static class DashboardFormat
           JobQueuePositionKind.Claimable => "claimable",
           JobQueuePositionKind.Delayed => "delayed",
           JobQueuePositionKind.RetryWaiting => "retry_waiting",
+          JobQueuePositionKind.WaitingForDependencies => "waiting_for_dependencies",
           JobQueuePositionKind.BlockedByConcurrency => "blocked_by_concurrency",
           JobQueuePositionKind.Claimed => "running_active",
           JobQueuePositionKind.Terminal => "terminal",

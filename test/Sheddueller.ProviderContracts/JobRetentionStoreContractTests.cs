@@ -85,6 +85,34 @@ public abstract class JobRetentionStoreContractTests
         await AssertRetainedAsync(context.Reader, oldCompleted);
     }
 
+    [Fact]
+    public async Task CleanupTerminalJobs_TerminalPrerequisiteForActiveDependent_RetainsPrerequisite()
+    {
+        await using var context = await this.CreateRetentionContextAsync();
+        var old = DateTimeOffset.UtcNow.AddDays(-10);
+        var prerequisite = Guid.NewGuid();
+        var dependent = Guid.NewGuid();
+        await context.Store.EnqueueManyAsync([
+          CreateRequest(prerequisite, old.AddMinutes(-1), priority: 0),
+          CreateRequest(dependent, old.AddMinutes(-1), priority: 100, prerequisiteJobIds: [prerequisite]),
+        ]);
+        var claimed = await ClaimAsync(context.Store, "complete-node");
+        claimed.JobId.ShouldBe(prerequisite);
+        (await context.Store.MarkCompletedAsync(
+          new CompleteJobRequest(prerequisite, "complete-node", claimed.LeaseToken, old))).ShouldBeTrue();
+
+        var result = await context.RetentionStore.CleanupTerminalJobsAsync(
+          new JobRetentionCleanupRequest(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(-1),
+            20));
+
+        result.DeletedCount.ShouldBe(0);
+        await AssertRetainedAsync(context.Reader, prerequisite);
+        await AssertRetainedAsync(context.Reader, dependent);
+    }
+
     private static async ValueTask<Guid> CompleteJobAsync(
         IJobStore store,
         DateTimeOffset completedAtUtc)
@@ -137,6 +165,23 @@ public abstract class JobRetentionStoreContractTests
           MaxAttempts: 1));
         return jobId;
     }
+
+    private static EnqueueJobRequest CreateRequest(
+        Guid jobId,
+        DateTimeOffset enqueuedAtUtc,
+        int priority,
+        IReadOnlyList<Guid>? prerequisiteJobIds = null) => new(
+        jobId,
+        priority,
+        typeof(JobRetentionContractService).AssemblyQualifiedName!,
+        nameof(JobRetentionContractService.RunAsync),
+        [typeof(CancellationToken).AssemblyQualifiedName!],
+        new SerializedJobPayload(SystemTextJsonJobPayloadSerializer.JsonContentType, "[]"u8.ToArray()),
+        ConcurrencyGroupKeys: [],
+        enqueuedAtUtc,
+        NotBeforeUtc: null,
+        MaxAttempts: 1,
+        PrerequisiteJobIds: prerequisiteJobIds);
 
     private static async ValueTask<ClaimedJob> ClaimAsync(
         IJobStore store,

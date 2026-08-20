@@ -23,7 +23,8 @@ public sealed class FakeEnqueuedJob
       IReadOnlyList<Type> serializableParameterTypes,
       IReadOnlyList<object?> serializableArguments,
       SerializedJobPayload serializedArguments,
-      JobSubmission submission)
+      JobSubmission submission,
+      IReadOnlyList<Guid> prerequisiteJobIds)
     {
         this.JobId = jobId;
         this.EnqueueSequence = enqueueSequence;
@@ -38,6 +39,7 @@ public sealed class FakeEnqueuedJob
         this.SerializableArguments = ToReadOnlyCollection(serializableArguments);
         this.SerializedArgumentsStorage = ClonePayload(serializedArguments);
         this.Submission = submission;
+        this.PrerequisiteJobIds = ToReadOnlyCollection(prerequisiteJobIds);
     }
 
     /// <summary>
@@ -104,6 +106,11 @@ public sealed class FakeEnqueuedJob
     /// Gets the normalized submission options captured with this job.
     /// </summary>
     public JobSubmission Submission { get; }
+
+    /// <summary>
+    /// Gets the jobs in the same batch that must become terminal before this job may run.
+    /// </summary>
+    public IReadOnlyList<Guid> PrerequisiteJobIds { get; }
 
     internal SerializedJobPayload StoredSerializedArguments => this.SerializedArgumentsStorage;
 

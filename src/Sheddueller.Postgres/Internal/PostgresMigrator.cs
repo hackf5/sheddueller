@@ -117,6 +117,13 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
               primary key (job_id, group_key)
           );
 
+          create table if not exists {this._names.JobDependencies} (
+              job_id uuid not null references {this._names.Jobs}(job_id) on delete cascade,
+              prerequisite_job_id uuid not null references {this._names.Jobs}(job_id) on delete cascade,
+              primary key (job_id, prerequisite_job_id),
+              constraint job_dependencies_not_self_check check (job_id <> prerequisite_job_id)
+          );
+
           alter table {this._names.Jobs}
               add column if not exists job_event_sequence bigint not null default 0,
               add column if not exists retry_clone_source_job_id uuid null,
@@ -456,6 +463,9 @@ internal sealed class PostgresMigrator(ShedduellerPostgresOptions options) : IPo
 
           create index if not exists idx_job_concurrency_groups_group_key
               on {this._names.JobConcurrencyGroups} (group_key);
+
+          create index if not exists idx_job_dependencies_prerequisite_job_id
+              on {this._names.JobDependencies} (prerequisite_job_id);
 
           create index if not exists idx_job_tags_name_value_job_id
               on {this._names.JobTags} (name, value, job_id);

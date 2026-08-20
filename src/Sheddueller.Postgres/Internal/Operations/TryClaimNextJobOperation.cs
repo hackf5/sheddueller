@@ -118,6 +118,13 @@ internal static class TryClaimNextJobOperation
             and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
             and not exists (
                 select 1
+                from {context.Names.JobDependencies} dependency
+                join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
+                where dependency.job_id = job.job_id
+                  and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
+            )
+            and not exists (
+                select 1
                 from {context.Names.JobConcurrencyGroups} job_group
                 join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
                 where job_group.job_id = job.job_id
@@ -163,6 +170,13 @@ internal static class TryClaimNextJobOperation
               join {context.Names.ConcurrencyGroups} concurrency_group on concurrency_group.group_key = job_group.group_key
               where job.state = 'Queued'
                 and (job.not_before_utc is null or job.not_before_utc <= transaction_timestamp())
+                and not exists (
+                    select 1
+                    from {context.Names.JobDependencies} dependency
+                    join {context.Names.Jobs} prerequisite on prerequisite.job_id = dependency.prerequisite_job_id
+                    where dependency.job_id = job.job_id
+                      and prerequisite.state not in ('Completed', 'Failed', 'Canceled')
+                )
                 and concurrency_group.effective_rate_permit_count is not null
                 and concurrency_group.rate_theoretical_arrival_at_utc > clock_timestamp()
               group by job.job_id

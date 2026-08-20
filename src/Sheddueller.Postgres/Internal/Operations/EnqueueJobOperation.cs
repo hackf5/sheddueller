@@ -33,6 +33,7 @@ internal static class EnqueueJobOperation
         }
 
         var requestSnapshot = requests.ToArray();
+        ValidateDependencyGraph(requestSnapshot);
         foreach (var request in requestSnapshot)
         {
             ArgumentNullException.ThrowIfNull(request);
@@ -50,6 +51,7 @@ internal static class EnqueueJobOperation
         await CreateStagingTablesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await CopyJobsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyGroupsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
+        await CopyDependenciesAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyTagsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await CopyEventsAsync(connection, requestSnapshot, cancellationToken).ConfigureAwait(false);
         await EnsureNoDuplicateJobIdsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -57,6 +59,7 @@ internal static class EnqueueJobOperation
 
         var results = await InsertStagedJobsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await InsertStagedGroupsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
+        await InsertStagedDependenciesAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await InsertStagedTagsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await InsertStagedEventsAsync(context, connection, transaction, cancellationToken).ConfigureAwait(false);
         await PostgresMetricsRollups.RecordStagedQueuedJobsAsync(context, connection, transaction, cancellationToken)
@@ -104,6 +107,11 @@ internal static class EnqueueJobOperation
           create temp table sheddueller_enqueue_groups (
               job_id uuid not null,
               group_key text not null
+          ) on commit drop;
+
+          create temp table sheddueller_enqueue_dependencies (
+              job_id uuid not null,
+              prerequisite_job_id uuid not null
           ) on commit drop;
 
           create temp table sheddueller_enqueue_tags (
@@ -259,6 +267,34 @@ internal static class EnqueueJobOperation
                 await importer.WriteAsync(i, NpgsqlDbType.Integer, cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(tag.Name, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
                 await importer.WriteAsync(tag.Value, NpgsqlDbType.Text, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await importer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask CopyDependenciesAsync(
+        NpgsqlConnection connection,
+        EnqueueJobRequest[] requests,
+        CancellationToken cancellationToken)
+    {
+        await using var importer = await connection.BeginBinaryImportAsync(
+          """
+          copy sheddueller_enqueue_dependencies (
+              job_id,
+              prerequisite_job_id)
+          from stdin (format binary)
+          """,
+          cancellationToken)
+          .ConfigureAwait(false);
+
+        foreach (var request in requests)
+        {
+            foreach (var prerequisiteJobId in request.PrerequisiteJobIds ?? [])
+            {
+                await importer.StartRowAsync(cancellationToken).ConfigureAwait(false);
+                await importer.WriteAsync(request.JobId, NpgsqlDbType.Uuid, cancellationToken).ConfigureAwait(false);
+                await importer.WriteAsync(prerequisiteJobId, NpgsqlDbType.Uuid, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -537,6 +573,28 @@ internal static class EnqueueJobOperation
           cancellationToken)
           .ConfigureAwait(false);
 
+    private static async ValueTask InsertStagedDependenciesAsync(
+        PostgresOperationContext context,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+      => await PostgresOperationContext.ExecuteCountAsync(
+          connection,
+          transaction,
+          $"""
+          insert into {context.Names.JobDependencies} (job_id, prerequisite_job_id)
+          select dependency.job_id, dependency.prerequisite_job_id
+          from sheddueller_enqueue_dependencies dependency
+          join sheddueller_enqueue_results dependent_result on dependent_result.job_id = dependency.job_id
+          join sheddueller_enqueue_results prerequisite_result on prerequisite_result.job_id = dependency.prerequisite_job_id
+          where dependent_result.was_enqueued = true
+            and prerequisite_result.was_enqueued = true
+          on conflict (job_id, prerequisite_job_id) do nothing;
+          """,
+          static _ => { },
+          cancellationToken)
+          .ConfigureAwait(false);
+
     private static async ValueTask InsertStagedEventsAsync(
         PostgresOperationContext context,
         NpgsqlConnection connection,
@@ -616,6 +674,77 @@ internal static class EnqueueJobOperation
         }
 
         await importer.WriteAsync(value.Value, dbType, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void ValidateDependencyGraph(IReadOnlyList<EnqueueJobRequest> requests)
+    {
+        var requestsById = new Dictionary<Guid, EnqueueJobRequest>();
+        foreach (var request in requests)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (!requestsById.TryAdd(request.JobId, request))
+            {
+                throw new InvalidOperationException($"Job '{request.JobId}' appears more than once in the batch.");
+            }
+        }
+
+        var hasDependencies = requests.Any(static request => request.PrerequisiteJobIds is { Count: > 0 });
+        if (hasDependencies && requests.Any(static request => request.IdempotencyKey is not null))
+        {
+            throw new ArgumentException("Jobs in a dependency graph cannot use idempotency.", nameof(requests));
+        }
+
+        foreach (var request in requests)
+        {
+            var prerequisites = request.PrerequisiteJobIds ?? [];
+            if (prerequisites.Count != prerequisites.Distinct().Count())
+            {
+                throw new ArgumentException($"Job '{request.JobId}' contains duplicate prerequisites.", nameof(requests));
+            }
+
+            foreach (var prerequisiteJobId in prerequisites)
+            {
+                if (prerequisiteJobId == request.JobId)
+                {
+                    throw new ArgumentException($"Job '{request.JobId}' cannot depend on itself.", nameof(requests));
+                }
+
+                if (!requestsById.ContainsKey(prerequisiteJobId))
+                {
+                    throw new ArgumentException(
+                      $"Prerequisite job '{prerequisiteJobId}' for job '{request.JobId}' is not included in the batch.",
+                      nameof(requests));
+                }
+            }
+        }
+
+        var visiting = new HashSet<Guid>();
+        var visited = new HashSet<Guid>();
+        foreach (var request in requests)
+        {
+            visit(request.JobId);
+        }
+
+        void visit(Guid jobId)
+        {
+            if (visited.Contains(jobId))
+            {
+                return;
+            }
+
+            if (!visiting.Add(jobId))
+            {
+                throw new ArgumentException("Job dependency graphs cannot contain cycles.", nameof(requests));
+            }
+
+            foreach (var prerequisiteJobId in requestsById[jobId].PrerequisiteJobIds ?? [])
+            {
+                visit(prerequisiteJobId);
+            }
+
+            visiting.Remove(jobId);
+            visited.Add(jobId);
+        }
     }
 
     private static async ValueTask WriteNullableAsync(
