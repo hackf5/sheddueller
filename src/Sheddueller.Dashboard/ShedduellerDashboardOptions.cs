@@ -23,4 +23,15 @@ public sealed class ShedduellerDashboardOptions
     /// Tags with names listed here are shown first in the configured order; all other tags keep their persisted order.
     /// </summary>
     public IReadOnlyList<string> TagDisplayOrder { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets shared, read-only job views exposed by the dashboard host.
+    /// </summary>
+    public IReadOnlyList<ShedduellerDashboardJobView> JobViews { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the name of the shared job view used when a user has not chosen a personal default.
+    /// A <see langword="null" /> value uses the built-in default view.
+    /// </summary>
+    public string? DefaultJobViewName { get; set; }
 }

@@ -218,13 +218,66 @@ Cron expressions use the standard five-field format and are evaluated in UTC.
 builder.Services.AddShedduellerDashboard(options =>
 {
     options.EventRetention = TimeSpan.FromDays(14);
+    options.JobViews =
+    [
+        new ShedduellerDashboardJobView("Active Work")
+        {
+            States = [JobState.Queued, JobState.Claimed],
+            Columns =
+            [
+                new(ShedduellerDashboardJobColumnKind.JobId),
+                new(ShedduellerDashboardJobColumnKind.Enqueued),
+                new(ShedduellerDashboardJobColumnKind.State),
+                new(ShedduellerDashboardJobColumnKind.Queue),
+                new(ShedduellerDashboardJobColumnKind.Handler),
+                new(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider"),
+                new(ShedduellerDashboardJobColumnKind.Groups),
+                new(ShedduellerDashboardJobColumnKind.Progress),
+                new(ShedduellerDashboardJobColumnKind.Attempts),
+            ],
+        },
+        new ShedduellerDashboardJobView("Failures")
+        {
+            States = [JobState.Failed],
+            Sort = JobInspectionSort.NewestFirst,
+            Columns =
+            [
+                new(ShedduellerDashboardJobColumnKind.JobId),
+                new(ShedduellerDashboardJobColumnKind.TerminalTime),
+                new(ShedduellerDashboardJobColumnKind.Handler),
+                new(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider"),
+                new(ShedduellerDashboardJobColumnKind.Tag, "manager", "Manager"),
+                new(ShedduellerDashboardJobColumnKind.Tag, "external-listing", "External Listing"),
+                new(ShedduellerDashboardJobColumnKind.Disposition),
+                new(ShedduellerDashboardJobColumnKind.Attempts),
+            ],
+        },
+        new ShedduellerDashboardJobView("Listings")
+        {
+            TagContains = "domain:listing",
+            Sort = JobInspectionSort.NewestFirst,
+            Columns =
+            [
+                new(ShedduellerDashboardJobColumnKind.JobId),
+                new(ShedduellerDashboardJobColumnKind.Enqueued),
+                new(ShedduellerDashboardJobColumnKind.State),
+                new(ShedduellerDashboardJobColumnKind.Handler),
+                new(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider"),
+                new(ShedduellerDashboardJobColumnKind.Tag, "manager", "Manager"),
+                new(ShedduellerDashboardJobColumnKind.Tag, "listing-id", "Listing"),
+                new(ShedduellerDashboardJobColumnKind.Tag, "external-listing", "External Listing"),
+                new(ShedduellerDashboardJobColumnKind.Disposition),
+            ],
+        },
+    ];
+    options.DefaultJobViewName = "Active Work";
 });
 
 app.UseAntiforgery();
 app.MapShedduellerDashboard("/sheddueller");
 ```
 
-The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process.
+The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process. Configured job views are shared, read-only presets. Dashboard users can copy or create personal views that persist in browser storage for the dashboard's mounted path. A view restores filters, sort order, visible column order, and tag-derived columns; promoted tags are removed from the remaining Tags cell.
 
 ## Testing
 

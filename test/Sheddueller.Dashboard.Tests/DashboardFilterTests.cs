@@ -78,6 +78,17 @@ public sealed class DashboardFilterTests
         query.Sort.ShouldBe(JobInspectionSort.NewestFirst);
     }
 
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("?utm_source=dashboard", false)]
+    [InlineData("?state=Failed", true)]
+    [InlineData("?tag=provider%3Astreamline", true)]
+    [InlineData("?sort=NewestFirst", true)]
+    public void JobFilterQuery_RecognizedQuery_DetectsOnlyJobViewFilters(
+        string query,
+        bool expected)
+      => DashboardJobFilterQuery.HasRecognizedQuery(query).ShouldBe(expected);
+
     [Fact]
     public void JobFilterQuery_LinkGeneration_ReplacesClickedDimensionAndPreservesOthers()
     {

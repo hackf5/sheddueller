@@ -180,6 +180,61 @@ public sealed class DashboardEndpointTests
     }
 
     [Fact]
+    public async Task Jobs_SharedDefaultView_RendersConfiguredFiltersAndPromotedTagColumn()
+    {
+        await using var app = await CreateStartedDashboardAsync(configureDashboard: options =>
+        {
+            options.JobViews =
+            [
+                new ShedduellerDashboardJobView("Failures")
+                {
+                    States = [JobState.Claimed],
+                    Sort = JobInspectionSort.NewestFirst,
+                    Columns =
+                    [
+                        new(ShedduellerDashboardJobColumnKind.JobId),
+                        new(ShedduellerDashboardJobColumnKind.Handler),
+                        new(ShedduellerDashboardJobColumnKind.Tag, "tenant", "Customer"),
+                        new(ShedduellerDashboardJobColumnKind.Attempts),
+                    ],
+                },
+            ];
+            options.DefaultJobViewName = "Failures";
+        });
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs");
+
+        html.ShouldContain("Shared Presets");
+        html.ShouldContain("Failures");
+        AssertStatusCheckbox(html, "Claimed", isChecked: true);
+        AssertSelectValue(html, "Sort jobs", "NewestFirst");
+        html.ShouldContain("<th>Customer</th>");
+        html.ShouldContain("jobs-derived-tag");
+        html.ShouldContain(">acme</a>");
+        html.ShouldContain("href=\"jobs?state=Claimed&amp;tag=tenant%3Aacme&amp;sort=NewestFirst\"");
+        html.ShouldNotContain("<th>Progress</th>");
+        html.ShouldNotContain("<th>Tags</th>");
+
+        var filteredHtml = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Failed");
+        AssertStatusCheckbox(filteredHtml, "Failed", isChecked: true);
+        AssertStatusCheckbox(filteredHtml, "Claimed", isChecked: false);
+        filteredHtml.ShouldContain("<th>Customer</th>");
+    }
+
+    [Fact]
+    public async Task Jobs_BuiltInView_HidesProgressAndRendersViewControls()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs");
+
+        html.ShouldContain("aria-label=\"Select job view\"");
+        html.ShouldContain("Save As");
+        html.ShouldContain("Set Default");
+        html.ShouldContain(">Columns</span>");
+        html.ShouldNotContain("<th>Progress</th>");
+        html.ShouldContain("<th>Disposition</th>");
+    }
+
+    [Fact]
     public async Task Jobs_QueryFilters_RendersControlsAndPreservingQuickLinks()
     {
         await using var app = await CreateStartedDashboardAsync();

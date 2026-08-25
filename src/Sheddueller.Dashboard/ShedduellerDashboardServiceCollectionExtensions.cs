@@ -31,6 +31,7 @@ public static class ShedduellerDashboardServiceCollectionExtensions
           .Configure(options => configure?.Invoke(options))
           .Validate(options => options.EventRetention > TimeSpan.Zero, "ShedduellerDashboardOptions.EventRetention must be positive.")
           .Validate(DashboardTagOrder.IsValid, "ShedduellerDashboardOptions.TagDisplayOrder cannot contain null, empty, or duplicate tag names.")
+          .Validate(DashboardJobViews.IsValid, "ShedduellerDashboardOptions job views are invalid. Names and columns must be unique, the default must exist, and every layout must include JobId.")
           .ValidateOnStart();
 
         services.AddRazorComponents()
