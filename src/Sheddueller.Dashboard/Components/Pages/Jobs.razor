@@ -50,18 +50,28 @@
         </label>
         <span class="jobs-view-status">@CurrentViewStatus</span>
         <div class="jobs-view-actions">
-            <button type="button" @onclick="ToggleColumnEditor" aria-expanded="@_isColumnEditorOpen">
+            <button @ref="_columnsButton" type="button" @onclick="OpenColumnEditor" aria-expanded="@_isColumnEditorOpen">
                 <span class="material-symbols-outlined" aria-hidden="true">view_column</span>
                 <span>Columns</span>
             </button>
-            <button type="button" @onclick="SaveCurrentViewAsync" disabled="@(!CanSaveCurrentView)">
-                <span class="material-symbols-outlined" aria-hidden="true">save</span>
-                <span>Save</span>
-            </button>
-            <button type="button" @onclick="SaveViewAsAsync">
-                <span class="material-symbols-outlined" aria-hidden="true">save_as</span>
-                <span>Save As</span>
-            </button>
+            @if (CurrentView?.Source == DashboardJobViewSource.Personal)
+            {
+                <button type="button" @onclick="SaveCurrentViewAsync" disabled="@(!CanSaveCurrentView)">
+                    <span class="material-symbols-outlined" aria-hidden="true">save</span>
+                    <span>Save</span>
+                </button>
+                <button type="button" @onclick="SaveViewAsAsync">
+                    <span class="material-symbols-outlined" aria-hidden="true">save_as</span>
+                    <span>Save As</span>
+                </button>
+            }
+            else
+            {
+                <button type="button" @onclick="SaveViewAsAsync">
+                    <span class="material-symbols-outlined" aria-hidden="true">save_as</span>
+                    <span>Save As</span>
+                </button>
+            }
             <button type="button" @onclick="SetPreferredViewAsync" disabled="@(!CanSetPreferredView)">
                 <span class="material-symbols-outlined" aria-hidden="true">home</span>
                 <span>Set Default</span>
@@ -80,90 +90,15 @@
         </div>
     </section>
 
-    @if (_isColumnEditorOpen)
-    {
-        <section class="jobs-column-editor" aria-label="Configure job columns">
-            <div class="jobs-column-editor__header">
-                <div>
-                    <h2>Columns</h2>
-                    <p>Choose and order fields for this view. Job ID remains visible so job details are always reachable.</p>
-                </div>
-                <button type="button" @onclick="ToggleColumnEditor" aria-label="Close column editor">
-                    <span class="material-symbols-outlined" aria-hidden="true">close</span>
-                </button>
-            </div>
-
-            <div class="jobs-column-list">
-                @for (var index = 0; index < _columns.Count; index++)
-                {
-                    var columnIndex = index;
-                    var column = _columns[columnIndex];
-                    <div class="jobs-column-row" @key="ColumnKey(column)">
-                        @if (column.Kind == ShedduellerDashboardJobColumnKind.Tag)
-                        {
-                            <button type="button" title="Remove column" aria-label="Remove @DashboardJobViews.Heading(column) column"
-                                    @onclick="() => RemoveColumn(columnIndex)">
-                                <span class="material-symbols-outlined" aria-hidden="true">remove_circle</span>
-                            </button>
-                        }
-                        else
-                        {
-                            <input type="checkbox" checked disabled="@(column.Kind == ShedduellerDashboardJobColumnKind.JobId)"
-                                   aria-label="Show @DashboardJobViews.Heading(column) column"
-                                   @onchange="eventArgs => SetBuiltInColumnVisible(column.Kind, eventArgs)" />
-                        }
-                        <span class="jobs-column-row__name">@DashboardJobViews.Heading(column)</span>
-                        @if (column.Kind == ShedduellerDashboardJobColumnKind.Tag)
-                        {
-                            <span class="jobs-column-row__tag">tag: @column.TagName</span>
-                        }
-                        <button type="button" title="Move up" aria-label="Move @DashboardJobViews.Heading(column) column up"
-                                disabled="@(columnIndex == 0)" @onclick="() => MoveColumn(columnIndex, -1)">
-                            <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
-                        </button>
-                        <button type="button" title="Move down" aria-label="Move @DashboardJobViews.Heading(column) column down"
-                                disabled="@(columnIndex == _columns.Count - 1)" @onclick="() => MoveColumn(columnIndex, 1)">
-                            <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
-                        </button>
-                    </div>
-                }
-                @foreach (var kind in HiddenBuiltInColumns)
-                {
-                    <label class="jobs-column-row jobs-column-row--hidden" @key="kind">
-                        <input type="checkbox" aria-label="Show @DashboardJobViews.Heading(new(kind)) column"
-                               @onchange="eventArgs => SetBuiltInColumnVisible(kind, eventArgs)" />
-                        <span class="jobs-column-row__name">@DashboardJobViews.Heading(new(kind))</span>
-                        <span class="jobs-column-row__tag">hidden</span>
-                    </label>
-                }
-            </div>
-
-            <div class="jobs-tag-column-form">
-                <label>
-                    <span>Tag name</span>
-                    <input list="jobs-observed-tag-names" @bind="_newTagName" placeholder="provider" />
-                </label>
-                <datalist id="jobs-observed-tag-names">
-                    @foreach (var tagName in ObservedTagNames)
-                    {
-                        <option value="@tagName"></option>
-                    }
-                </datalist>
-                <label>
-                    <span>Heading <span class="jobs-field-optional">optional</span></span>
-                    <input @bind="_newTagHeading" placeholder="Provider" />
-                </label>
-                <button type="button" @onclick="AddTagColumn">
-                    <span class="material-symbols-outlined" aria-hidden="true">add</span>
-                    <span>Add Tag Column</span>
-                </button>
-                <button type="button" @onclick="ResetColumns">
-                    <span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>
-                    <span>Reset Layout</span>
-                </button>
-            </div>
-        </section>
-    }
+    <JobColumnConfigurator IsOpen="_isColumnEditorOpen" Columns="_columns"
+                           HiddenBuiltInColumns="HiddenBuiltInColumns" ObservedTagNames="ObservedTagNames"
+                           IsPersonalView="@(CurrentView?.Source == DashboardJobViewSource.Personal)" IsDirty="_isViewDirty"
+                           CloseRequested="CloseColumnEditorAsync" SaveRequested="SaveCurrentViewAsync"
+                           SaveAsRequested="SaveViewAsAsync" ResetRequested="ResetColumns"
+                           AutoFitRequested="AutoFitAllColumnsAsync" ResetWidthsRequested="ResetColumnWidths"
+                           ColumnMoved="MoveColumn" VisibilityChanged="SetBuiltInColumnVisible"
+                           TagColumnEdited="EditTagColumn" TagColumnRemoved="RemoveColumn"
+                           TagColumnAdded="AddTagColumn" ColumnWidthResetRequested="ResetColumnWidth" />
 
     <section class="jobs-filter-bar" aria-label="Job filters">
         <div class="jobs-status-filter" role="group" aria-label="Filter by status">
@@ -242,9 +177,23 @@
                     </colgroup>
                     <thead>
                         <tr>
-                            @foreach (var column in _columns)
+                            @for (var index = 0; index < _columns.Count; index++)
                             {
-                                <th class="@ColumnHeaderClass(column)" @key="ColumnKey(column)">@DashboardJobViews.Heading(column)</th>
+                                var columnIndex = index;
+                                var column = _columns[columnIndex];
+                                <th class="@ColumnHeaderClass(column)" @key="ColumnKey(column)">
+                                    <span>@DashboardJobViews.Heading(column)</span>
+                                    <span class="jobs-table__resize-handle" role="separator" tabindex="0"
+                                          title="Drag to resize. Double-click to fit loaded values."
+                                          aria-label="Resize @DashboardJobViews.Heading(column) column"
+                                          aria-orientation="vertical" aria-valuemin="@DashboardJobColumnWidths.MinimumOverride"
+                                          aria-valuemax="@DashboardJobColumnWidths.MaximumOverride" aria-valuenow="@ColumnWidth(column)"
+                                          data-sd-column-resizer data-column-index="@columnIndex"
+                                          data-min-width="@DashboardJobColumnWidths.MinimumOverride"
+                                          data-max-width="@DashboardJobColumnWidths.MaximumOverride"
+                                          @ondblclick="() => AutoFitColumnAsync(columnIndex)"
+                                          @onkeydown="eventArgs => HandleColumnWidthKeyAsync(columnIndex, eventArgs)"></span>
+                                </th>
                             }
                         </tr>
                     </thead>
@@ -268,10 +217,10 @@
                                                 <td><JobLink CssClass="jobs-id-link" JobId="job.JobId" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Enqueued:
-                                                <td><TimestampBlock BaseClass="jobs-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" /></td>
+                                                <td><TimestampBlock BaseClass="jobs-timestamp" Value="job.EnqueuedAtUtc" AllowFutureRelative="false" Inline /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.TerminalTime:
-                                                <td><TimestampBlock BaseClass="jobs-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" /></td>
+                                                <td><TimestampBlock BaseClass="jobs-timestamp" Value="DashboardFormat.TerminalTimestamp(job)" AllowFutureRelative="false" Inline /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.State:
                                                 <td><StateBadge BaseClass="jobs-state" State="job.State" Href="@StateFilterHref(job.State)"
@@ -299,7 +248,8 @@
                                             case ShedduellerDashboardJobColumnKind.Groups:
                                                 <td><ChipList ClassPrefix="jobs-chip" Values="job.ConcurrencyGroupKeys"
                                                               Title="@DashboardFormat.GroupKeysTitle(job.ConcurrencyGroupKeys)"
-                                                              HrefFactory="GroupFilterHref" LinkAriaLabelPrefix="Filter jobs by group" /></td>
+                                                              HrefFactory="GroupFilterHref" LinkAriaLabelPrefix="Filter jobs by group"
+                                                              MaxVisible="2" /></td>
                                                 break;
                                             case ShedduellerDashboardJobColumnKind.Priority:
                                                 <td class="jobs-table__number">@job.Priority</td>
@@ -397,9 +347,7 @@
         gap: 4px;
     }
 
-    .jobs-view-actions button,
-    .jobs-column-editor button,
-    .jobs-tag-column-form button {
+    .jobs-view-actions button {
         display: inline-flex;
         min-height: 32px;
         align-items: center;
@@ -417,129 +365,22 @@
         text-transform: uppercase;
     }
 
-    .jobs-view-actions button:hover:not(:disabled),
-    .jobs-column-editor button:hover:not(:disabled),
-    .jobs-tag-column-form button:hover:not(:disabled) {
+    .jobs-view-actions button:hover:not(:disabled) {
         border-color: var(--sd-primary);
         color: var(--sd-primary);
     }
 
-    .jobs-view-actions button:disabled,
-    .jobs-column-editor button:disabled {
+    .jobs-view-actions button:disabled {
         cursor: default;
         opacity: 0.5;
     }
 
-    .jobs-view-actions .material-symbols-outlined,
-    .jobs-column-editor .material-symbols-outlined,
-    .jobs-tag-column-form .material-symbols-outlined {
+    .jobs-view-actions .material-symbols-outlined {
         font-size: 16px;
     }
 
     .jobs-view-actions .jobs-view-delete {
         color: var(--sd-error);
-    }
-
-    .jobs-column-editor {
-        display: grid;
-        gap: 12px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: var(--sd-radius);
-        background: var(--sd-surface-lowest);
-        padding: 12px;
-    }
-
-    .jobs-column-editor__header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .jobs-column-editor__header h2 {
-        font-size: 14px;
-        line-height: 20px;
-    }
-
-    .jobs-column-editor__header p {
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        line-height: 16px;
-    }
-
-    .jobs-column-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-        gap: 4px;
-    }
-
-    .jobs-column-row {
-        display: grid;
-        min-height: 34px;
-        align-items: center;
-        gap: 6px;
-        grid-template-columns: 28px minmax(80px, 1fr) minmax(0, auto) 28px 28px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-low);
-        padding: 3px 4px;
-    }
-
-    .jobs-column-row--hidden {
-        grid-template-columns: 28px minmax(80px, 1fr) auto;
-        color: var(--sd-on-surface-variant);
-        opacity: 0.8;
-    }
-
-    .jobs-column-row button {
-        min-height: 26px;
-        padding: 3px;
-    }
-
-    .jobs-column-row__name {
-        overflow: hidden;
-        font-size: 11px;
-        font-weight: 600;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .jobs-column-row__tag,
-    .jobs-field-optional {
-        overflow: hidden;
-        color: var(--sd-on-surface-variant);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        font-size: 10px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .jobs-tag-column-form {
-        display: flex;
-        align-items: end;
-        flex-wrap: wrap;
-        gap: 8px;
-        border-top: 1px solid var(--sd-outline-variant);
-        padding-top: 12px;
-    }
-
-    .jobs-tag-column-form label {
-        display: grid;
-        min-width: 180px;
-        gap: 3px;
-        color: var(--sd-on-surface-variant);
-        font-size: 11px;
-        font-weight: 600;
-    }
-
-    .jobs-tag-column-form input {
-        min-height: 32px;
-        border: 1px solid var(--sd-outline-variant);
-        border-radius: 2px;
-        background: var(--sd-surface-lowest);
-        color: var(--sd-on-surface);
-        padding: 6px 8px;
-        font-size: 12px;
     }
 
     .jobs-filter-bar {
@@ -765,8 +606,8 @@
     }
 
     .jobs-table {
-        width: 100%;
-        min-width: 100%;
+        width: auto;
+        min-width: 0;
         border-collapse: collapse;
         table-layout: fixed;
         white-space: nowrap;
@@ -788,12 +629,45 @@
     }
 
     .jobs-table th {
+        position: relative;
         color: var(--sd-on-surface-variant);
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.05em;
         line-height: 12px;
         text-transform: uppercase;
+    }
+
+    .jobs-table__resize-handle {
+        position: absolute;
+        inset: 0 -4px 0 auto;
+        z-index: 3;
+        display: block;
+        width: 9px;
+        cursor: col-resize;
+        outline: none;
+        touch-action: none;
+    }
+
+    .jobs-table__resize-handle::after {
+        position: absolute;
+        top: 20%;
+        right: 4px;
+        width: 1px;
+        height: 60%;
+        background: transparent;
+        content: "";
+    }
+
+    .jobs-table__resize-handle:hover::after,
+    .jobs-table__resize-handle:focus-visible::after,
+    .jobs-table--resizing .jobs-table__resize-handle::after {
+        width: 2px;
+        background: var(--sd-primary);
+    }
+
+    .jobs-table--resizing {
+        user-select: none;
     }
 
     .jobs-table td {
@@ -861,6 +735,32 @@
         align-items: center;
         gap: 4px;
         overflow: visible;
+    }
+
+    .jobs-table .sd-chip-list {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        align-content: center;
+        flex-wrap: wrap;
+    }
+
+    .jobs-table .sd-chip-list>.sd-chip {
+        display: -webkit-box;
+        min-width: 0;
+        max-width: 100%;
+        flex: 0 1 auto;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        text-overflow: clip;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+    }
+
+    .jobs-table .sd-chip-overflow {
+        min-width: 0;
+        max-width: 100%;
     }
 
     .jobs-chip {
@@ -1042,12 +942,28 @@
 
     .jobs-timestamp {
         display: flex;
-        flex-direction: column;
-        gap: 1px;
+        min-width: 0;
+        align-items: baseline;
+        gap: 4px;
+        overflow: hidden;
+        white-space: nowrap;
     }
 
     .jobs-timestamp__relative {
+        flex: 0 0 auto;
         color: var(--sd-on-surface);
+    }
+
+    .jobs-timestamp__separator {
+        flex: 0 0 auto;
+        color: var(--sd-outline);
+    }
+
+    .jobs-timestamp__absolute {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .jobs-timestamp__absolute,
@@ -1160,6 +1076,8 @@
     private readonly List<ShedduellerDashboardJobColumn> _columns = [];
     private readonly List<DashboardResolvedJobView> _views = [];
     private readonly List<DashboardStoredJobView> _storedViews = [];
+    private DotNetObjectReference<Jobs>? _columnResizeReceiver;
+    private ElementReference _columnsButton;
     private JobInspectionPage? _page;
     private JobInspectionQuery _lastQuery = new(PageSize: DefaultPageSize);
     private CancellationTokenSource? _filterDebounceCts;
@@ -1168,8 +1086,6 @@
     private string? _pendingFilterNavigationUri;
     private string _selectedViewKey = DashboardJobViews.BuiltInKey;
     private string _preferredViewKey = DashboardJobViews.BuiltInKey;
-    private string _newTagName = string.Empty;
-    private string _newTagHeading = string.Empty;
     private int _queryVersion;
     private JobsActionSeverity _actionSeverity = JobsActionSeverity.Success;
     private bool _isLoading;
@@ -1178,6 +1094,7 @@
     private bool _isColumnEditorOpen;
     private bool _isViewDirty;
     private bool _hasExplicitInitialQuery;
+    private bool _columnResizingRegistered;
     private bool _viewStorageLoaded;
 
     private IReadOnlyList<DashboardResolvedJobView> SharedViews
@@ -1199,10 +1116,20 @@
       => !this._isViewDirty && !this.IsCurrentViewPreferred;
 
     private string CurrentViewStatus
-      => string.Concat(
-        this.CurrentView?.Name ?? "Custom",
-        this._isViewDirty ? " · Modified" : string.Empty,
-        this.IsCurrentViewPreferred ? " · Default" : string.Empty);
+    {
+        get
+        {
+            var name = this.CurrentView?.Name ?? "Custom";
+            if (this._isViewDirty)
+            {
+                return string.Concat(name, " · Unsaved changes");
+            }
+
+            return this.IsCurrentViewPreferred && this.CurrentView?.Source != DashboardJobViewSource.BuiltIn
+              ? string.Concat(name, " · Default view")
+              : name;
+        }
+    }
 
     private IReadOnlyList<ShedduellerDashboardJobColumnKind> HiddenBuiltInColumns
       =>
@@ -1222,7 +1149,13 @@
       ];
 
     private string TableStyle
-      => string.Create(CultureInfo.InvariantCulture, $"min-width: {this._columns.Sum(ColumnWidth)}px");
+    {
+        get
+        {
+            var width = DashboardJobColumnWidths.Total(this._columns);
+            return string.Create(CultureInfo.InvariantCulture, $"width: {width}px; min-width: {width}px");
+        }
+    }
 
     private string HeaderText
       => this._page is null ? "Reading scheduler job records." : this.ResultRangeText;
@@ -1294,21 +1227,39 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || this._viewStorageLoaded)
+        if (!this._columnResizingRegistered)
         {
-            return;
+            this._columnResizeReceiver ??= DotNetObjectReference.Create(this);
+            await JsRuntime.InvokeVoidAsync(
+              "shedduellerJobViews.registerTableColumnResizing",
+              this._columnResizeReceiver);
+            this._columnResizingRegistered = true;
         }
 
-        this._viewStorageLoaded = true;
-        await this.LoadStoredViewsAsync();
+        if (firstRender && !this._viewStorageLoaded)
+        {
+            this._viewStorageLoaded = true;
+            await this.LoadStoredViewsAsync();
+        }
     }
 
-    private protected override ValueTask DisposePageAsync()
+    private protected override async ValueTask DisposePageAsync()
     {
         Navigation.LocationChanged -= this.OnLocationChanged;
         LiveUpdates.JobEventPublished -= this.OnJobEventPublishedAsync;
         this.CancelPendingFilterLoad();
-        return ValueTask.CompletedTask;
+        if (this._columnResizingRegistered)
+        {
+            try
+            {
+                await JsRuntime.InvokeVoidAsync("shedduellerJobViews.unregisterTableColumnResizing");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        this._columnResizeReceiver?.Dispose();
     }
 
     private void InitializeConfiguredViews()
@@ -1581,80 +1532,179 @@
         }
     }
 
-    private void ToggleColumnEditor()
-      => this._isColumnEditorOpen = !this._isColumnEditorOpen;
+    private void OpenColumnEditor()
+      => this._isColumnEditorOpen = true;
 
-    private void SetBuiltInColumnVisible(
-        ShedduellerDashboardJobColumnKind kind,
-        ChangeEventArgs eventArgs)
+    private async Task CloseColumnEditorAsync()
     {
-        var visible = eventArgs.Value is bool selected && selected;
-        var index = this._columns.FindIndex(column => column.Kind == kind);
-        if (visible && index < 0)
+        this._isColumnEditorOpen = false;
+        await this._columnsButton.FocusAsync();
+    }
+
+    private void SetBuiltInColumnVisible((ShedduellerDashboardJobColumnKind Kind, bool Visible) change)
+    {
+        if (DashboardJobColumnEditor.SetBuiltInVisibility(this._columns, change.Kind, change.Visible))
         {
-            this._columns.Add(new ShedduellerDashboardJobColumn(kind));
-            this.MarkViewDirty();
-        }
-        else if (!visible && index >= 0 && kind != ShedduellerDashboardJobColumnKind.JobId)
-        {
-            this._columns.RemoveAt(index);
             this.MarkViewDirty();
         }
     }
 
-    private void MoveColumn(
-        int index,
-        int offset)
+    private void MoveColumn((int FromIndex, int ToIndex) move)
     {
-        var target = index + offset;
-        if (index < 0 || index >= this._columns.Count || target < 0 || target >= this._columns.Count)
+        if (DashboardJobColumnEditor.Move(this._columns, move.FromIndex, move.ToIndex))
         {
-            return;
+            this.MarkViewDirty();
         }
-
-        var column = this._columns[index];
-        this._columns.RemoveAt(index);
-        this._columns.Insert(target, column);
-        this.MarkViewDirty();
     }
 
     private void RemoveColumn(int index)
     {
-        if (index < 0 || index >= this._columns.Count
-            || this._columns[index].Kind != ShedduellerDashboardJobColumnKind.Tag)
+        if (!DashboardJobColumnEditor.RemoveTag(this._columns, index))
         {
             return;
         }
 
-        this._columns.RemoveAt(index);
         this.MarkViewDirty();
     }
 
-    private void AddTagColumn()
+    private void AddTagColumn(ShedduellerDashboardJobColumn column)
     {
-        if (string.IsNullOrWhiteSpace(this._newTagName))
+        if (!DashboardJobColumnEditor.TryAddTag(
+            this._columns,
+            column.TagName ?? string.Empty,
+            column.Heading,
+            out var error))
         {
-            this.SetActionError("Enter a tag name to promote.");
+            this.SetActionError(error!);
             return;
         }
 
-        var tagName = this._newTagName.Trim();
-        if (this._columns.Any(column =>
-            column.Kind == ShedduellerDashboardJobColumnKind.Tag
-            && string.Equals(column.TagName, tagName, StringComparison.OrdinalIgnoreCase)))
-        {
-            this.SetActionError("That tag already has a promoted column.");
-            return;
-        }
-
-        this._columns.Add(new ShedduellerDashboardJobColumn(
-          ShedduellerDashboardJobColumnKind.Tag,
-          tagName,
-          string.IsNullOrWhiteSpace(this._newTagHeading) ? null : this._newTagHeading.Trim()));
-        this._newTagName = string.Empty;
-        this._newTagHeading = string.Empty;
         this.ClearActionAlert();
         this.MarkViewDirty();
+    }
+
+    private void EditTagColumn((int Index, ShedduellerDashboardJobColumn Column) change)
+    {
+        if (!DashboardJobColumnEditor.TryUpdateTag(
+            this._columns,
+            change.Index,
+            change.Column.TagName ?? string.Empty,
+            change.Column.Heading,
+            out var error))
+        {
+            this.SetActionError(error!);
+            return;
+        }
+
+        this.ClearActionAlert();
+        this.MarkViewDirty();
+    }
+
+    [JSInvokable]
+    public Task SetColumnWidthFromResizeAsync(
+        int columnIndex,
+        int width)
+      => this.InvokeAsync(() =>
+      {
+          this.SetColumnWidth(columnIndex, width);
+          this.StateHasChanged();
+      });
+
+    private Task HandleColumnWidthKeyAsync(
+        int columnIndex,
+        KeyboardEventArgs eventArgs)
+    {
+        if (columnIndex < 0 || columnIndex >= this._columns.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        var currentWidth = ColumnWidth(this._columns[columnIndex]);
+        var step = eventArgs.ShiftKey ? 32 : 8;
+        var nextWidth = eventArgs.Key switch
+        {
+            "ArrowLeft" => currentWidth - step,
+            "ArrowRight" => currentWidth + step,
+            "Home" => DashboardJobColumnWidths.MinimumOverride,
+            "End" => DashboardJobColumnWidths.MaximumOverride,
+            _ => currentWidth,
+        };
+
+        if (nextWidth != currentWidth)
+        {
+            this.SetColumnWidth(
+              columnIndex,
+              Math.Clamp(
+                nextWidth,
+                DashboardJobColumnWidths.MinimumOverride,
+                DashboardJobColumnWidths.MaximumOverride));
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task AutoFitColumnAsync(int columnIndex)
+    {
+        var widths = await this.MeasureAutoFitWidthsAsync();
+        if (columnIndex >= 0 && columnIndex < widths.Count)
+        {
+            this.SetColumnWidth(columnIndex, widths[columnIndex]);
+        }
+    }
+
+    private async Task AutoFitAllColumnsAsync()
+    {
+        var widths = await this.MeasureAutoFitWidthsAsync();
+        var changed = false;
+        for (var index = 0; index < Math.Min(this._columns.Count, widths.Count); index++)
+        {
+            changed |= DashboardJobColumnWidths.Set(this._columns, index, widths[index]);
+        }
+
+        if (changed)
+        {
+            this.MarkViewDirty();
+        }
+    }
+
+    private async Task<IReadOnlyList<int>> MeasureAutoFitWidthsAsync()
+    {
+        var minimums = this._columns
+          .Select(column => DashboardJobColumnWidths.AutoFitMinimum(column.Kind))
+          .ToArray();
+        var maximums = this._columns
+          .Select(column => DashboardJobColumnWidths.AutoFitMaximum(column.Kind))
+          .ToArray();
+        return await JsRuntime.InvokeAsync<int[]>(
+          "shedduellerJobViews.measureJobColumnWidths",
+          minimums,
+          maximums);
+    }
+
+    private void ResetColumnWidth(int columnIndex)
+    {
+        if (DashboardJobColumnWidths.Set(this._columns, columnIndex, width: null))
+        {
+            this.MarkViewDirty();
+        }
+    }
+
+    private void ResetColumnWidths()
+    {
+        if (DashboardJobColumnWidths.Reset(this._columns))
+        {
+            this.MarkViewDirty();
+        }
+    }
+
+    private void SetColumnWidth(
+        int columnIndex,
+        int width)
+    {
+        if (DashboardJobColumnWidths.Set(this._columns, columnIndex, width))
+        {
+            this.MarkViewDirty();
+        }
     }
 
     private void ResetColumns()
@@ -1730,21 +1780,7 @@
         : column.Kind.ToString();
 
     private static int ColumnWidth(ShedduellerDashboardJobColumn column)
-      => column.Kind switch
-      {
-          ShedduellerDashboardJobColumnKind.JobId => 64,
-          ShedduellerDashboardJobColumnKind.Enqueued or ShedduellerDashboardJobColumnKind.TerminalTime => 160,
-          ShedduellerDashboardJobColumnKind.State => 112,
-          ShedduellerDashboardJobColumnKind.Queue => 96,
-          ShedduellerDashboardJobColumnKind.Handler => 220,
-          ShedduellerDashboardJobColumnKind.Tags => 320,
-          ShedduellerDashboardJobColumnKind.Progress => 200,
-          ShedduellerDashboardJobColumnKind.Disposition => 144,
-          ShedduellerDashboardJobColumnKind.Groups => 180,
-          ShedduellerDashboardJobColumnKind.Priority or ShedduellerDashboardJobColumnKind.Attempts => 56,
-          ShedduellerDashboardJobColumnKind.Tag => 160,
-          _ => 144,
-      };
+      => DashboardJobColumnWidths.Get(column);
 
     private static string ColumnWidthStyle(ShedduellerDashboardJobColumn column)
       => string.Create(CultureInfo.InvariantCulture, $"width: {ColumnWidth(column)}px");

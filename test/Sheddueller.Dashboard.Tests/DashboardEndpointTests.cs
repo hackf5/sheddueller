@@ -131,7 +131,7 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         AssertShellRefresh(html);
         html.ShouldContain($"href=\"jobs/{StubJobInspectionReader.JobId:D}\"");
-        html.ShouldContain("<th>Queue</th>");
+        html.ShouldContain(">Queue</span>");
         html.ShouldContain("Running");
         html.ShouldContain("#1");
     }
@@ -207,17 +207,17 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Failures");
         AssertStatusCheckbox(html, "Claimed", isChecked: true);
         AssertSelectValue(html, "Sort jobs", "NewestFirst");
-        html.ShouldContain("<th>Customer</th>");
+        html.ShouldContain(">Customer</span>");
         html.ShouldContain("jobs-derived-tag");
         html.ShouldContain(">acme</a>");
         html.ShouldContain("href=\"jobs?state=Claimed&amp;tag=tenant%3Aacme&amp;sort=NewestFirst\"");
-        html.ShouldNotContain("<th>Progress</th>");
-        html.ShouldNotContain("<th>Tags</th>");
+        html.ShouldNotContain(">Progress</span>");
+        html.ShouldNotContain(">Tags</span>");
 
         var filteredHtml = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Failed");
         AssertStatusCheckbox(filteredHtml, "Failed", isChecked: true);
         AssertStatusCheckbox(filteredHtml, "Claimed", isChecked: false);
-        filteredHtml.ShouldContain("<th>Customer</th>");
+        filteredHtml.ShouldContain(">Customer</span>");
     }
 
     [Fact]
@@ -230,8 +230,16 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("Save As");
         html.ShouldContain("Set Default");
         html.ShouldContain(">Columns</span>");
-        html.ShouldNotContain("<th>Progress</th>");
-        html.ShouldContain("<th>Disposition</th>");
+        html.ShouldNotContain("Default &#xB7; Default");
+        html.ShouldNotContain(">Save</span>");
+        html.ShouldNotContain(">Progress</span>");
+        html.ShouldContain(">Disposition</span>");
+        html.ShouldContain("style=\"width: 1568px; min-width: 1568px\"");
+        html.ShouldContain("data-sd-column-resizer");
+        html.ShouldContain("jobs-timestamp jobs-timestamp--inline");
+        html.ShouldContain("jobs-timestamp__separator");
+        html.ShouldContain(">12:00 UTC</span>");
+        html.ShouldContain("title=\"2026-04-20 12:00:00 UTC\"");
     }
 
     [Fact]

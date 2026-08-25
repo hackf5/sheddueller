@@ -1,8 +1,16 @@
 @implements IAsyncDisposable
 
-<div class="@CssClass">
-    <span class="@RelativeClass">@DashboardFormat.Relative(Value, CurrentNowUtc, Prefix, EmptyText, AllowFutureRelative)</span>
-    <span class="@AbsoluteClass">@DashboardFormat.Utc(Value)</span>
+<div class="@CssClass" title="@Tooltip" aria-label="@AccessibleLabel">
+    <span class="@RelativeClass">@RelativeText</span>
+    @if (Inline && Value is not null)
+    {
+        <span class="@SeparatorClass" aria-hidden="true">·</span>
+        <span class="@AbsoluteClass">@DashboardFormat.UtcMinute(Value)</span>
+    }
+    else if (!Inline)
+    {
+        <span class="@AbsoluteClass">@DashboardFormat.Utc(Value)</span>
+    }
 </div>
 
 @code {
@@ -30,6 +38,9 @@
     public bool AlignEnd { get; set; }
 
     [Parameter]
+    public bool Inline { get; set; }
+
+    [Parameter]
     public string EmptyText { get; set; } = "-";
 
     [Parameter]
@@ -41,16 +52,31 @@
     private DateTimeOffset CurrentNowUtc
       => this.NowUtc ?? this._nowUtc;
 
+    private string RelativeText
+      => DashboardFormat.Relative(this.Value, this.CurrentNowUtc, this.Prefix, this.EmptyText, this.AllowFutureRelative);
+
+    private string? Tooltip
+      => this.Inline && this.Value is not null ? DashboardFormat.Utc(this.Value) : null;
+
+    private string? AccessibleLabel
+      => this.Inline && this.Value is not null
+        ? string.Concat(this.RelativeText, ", ", DashboardFormat.Utc(this.Value))
+        : null;
+
     private string CssClass
-      => this.AlignEnd
-        ? string.Concat(this.BaseClass, " ", this.BaseClass, "--end")
-        : this.BaseClass;
+      => string.Concat(
+        this.BaseClass,
+        this.Inline ? string.Concat(" ", this.BaseClass, "--inline") : string.Empty,
+        this.AlignEnd ? string.Concat(" ", this.BaseClass, "--end") : string.Empty);
 
     private string RelativeClass
       => string.Concat(this.BaseClass, "__relative");
 
     private string AbsoluteClass
       => string.Concat(this.BaseClass, "__absolute");
+
+    private string SeparatorClass
+      => string.Concat(this.BaseClass, "__separator");
 
     protected override Task OnAfterRenderAsync(bool firstRender)
     {

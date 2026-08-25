@@ -9,4 +9,11 @@ namespace Sheddueller.Dashboard;
 public sealed record ShedduellerDashboardJobColumn(
     ShedduellerDashboardJobColumnKind Kind,
     string? TagName = null,
-    string? Heading = null);
+    string? Heading = null)
+{
+    /// <summary>
+    /// Gets an optional per-view width override in pixels.
+    /// A <see langword="null" /> value uses the dashboard default for the column kind.
+    /// </summary>
+    public int? Width { get; init; }
+}

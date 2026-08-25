@@ -277,7 +277,7 @@ app.UseAntiforgery();
 app.MapShedduellerDashboard("/sheddueller");
 ```
 
-The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process. Configured job views are shared, read-only presets. Dashboard users can copy or create personal views that persist in browser storage for the dashboard's mounted path. A view restores filters, sort order, visible column order, and tag-derived columns; promoted tags are removed from the remaining Tags cell.
+The dashboard uses the configured Sheddueller provider and can be hosted by a worker process or a client-only web process. Configured job views are shared, read-only presets. Dashboard users can copy or create personal views that persist in browser storage for the dashboard's mounted path. A view restores filters, sort order, visible column order, per-column width overrides, and tag-derived columns; promoted tags are removed from the remaining Tags cell. Column widths can be set in host presets with the optional `Width` property or resized and auto-fitted from the dashboard.
 
 ## Testing
 

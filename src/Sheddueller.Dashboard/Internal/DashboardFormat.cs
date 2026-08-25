@@ -251,6 +251,9 @@ internal static class DashboardFormat
     public static string Utc(DateTimeOffset? value)
       => value?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
 
+    public static string UtcMinute(DateTimeOffset? value)
+      => value?.ToUniversalTime().ToString("HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
+
     public static string UtcClock(
         DateTimeOffset value,
         bool includeMilliseconds = false)

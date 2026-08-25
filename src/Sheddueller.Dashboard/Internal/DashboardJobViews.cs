@@ -170,7 +170,9 @@ internal static class DashboardJobViews
         var hasJobId = false;
         foreach (var column in columns)
         {
-            if (column is null || !Enum.IsDefined(column.Kind))
+            if (column is null
+                || !Enum.IsDefined(column.Kind)
+                || !DashboardJobColumnWidths.IsValid(column.Width))
             {
                 return false;
             }
@@ -208,7 +210,10 @@ internal static class DashboardJobViews
                 TagName = column.TagName!.Trim(),
                 Heading = Normalize(column.Heading),
             }
-            : new ShedduellerDashboardJobColumn(column.Kind)),
+            : new ShedduellerDashboardJobColumn(column.Kind)
+            {
+                Width = column.Width,
+            }),
       ];
 
     private static string? Normalize(string? value)

@@ -39,6 +39,8 @@ public sealed class DashboardFormatTests
         DashboardFormat.Relative(now.AddMinutes(-42), now).ShouldBe("42m ago");
         DashboardFormat.Relative(now.AddHours(3), now).ShouldBe("in 3h");
         DashboardFormat.Utc(now).ShouldBe("2026-04-20 12:00:00 UTC");
+        DashboardFormat.UtcMinute(now).ShouldBe("12:00 UTC");
+        DashboardFormat.UtcMinute(null).ShouldBeEmpty();
     }
 
     [Fact]
@@ -168,6 +170,20 @@ public sealed class DashboardFormatTests
             JobViews = [validView],
             DefaultJobViewName = "Missing",
         }).ShouldBeFalse();
+        DashboardJobViews.IsValid(new ShedduellerDashboardOptions
+        {
+            JobViews =
+            [
+                validView with
+                {
+                    Columns =
+                    [
+                        new(ShedduellerDashboardJobColumnKind.JobId),
+                        new ShedduellerDashboardJobColumn(ShedduellerDashboardJobColumnKind.Handler) { Width = 47 },
+                    ],
+                },
+            ],
+        }).ShouldBeFalse();
     }
 
     [Fact]
@@ -213,7 +229,10 @@ public sealed class DashboardFormatTests
                         Columns =
                         [
                             new(ShedduellerDashboardJobColumnKind.JobId),
-                            new(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider"),
+                            new ShedduellerDashboardJobColumn(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider")
+                            {
+                                Width = 124,
+                            },
                         ],
                     },
                 },
@@ -228,6 +247,7 @@ public sealed class DashboardFormatTests
         restored.PreferredViewKey.ShouldBe(payload.PreferredViewKey);
         restored.Views.Single().View.TagContains.ShouldBe("domain:listing");
         restored.Views.Single().View.Columns![1].TagName.ShouldBe("provider");
+        restored.Views.Single().View.Columns![1].Width.ShouldBe(124);
     }
 
     [Fact]
