@@ -131,7 +131,7 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?group=tenant-acme\"");
         AssertShellRefresh(html);
         html.ShouldContain($"href=\"jobs/{StubJobInspectionReader.JobId:D}\"");
-        html.ShouldContain("<th>Queue</th>");
+        html.ShouldContain(">Queue</span>");
         html.ShouldContain("Running");
         html.ShouldContain("#1");
     }
@@ -177,6 +177,69 @@ public sealed class DashboardEndpointTests
         html.ShouldContain("href=\"jobs?tag=schedule%3Adaily_rollup\"");
         html.ShouldContain("href=\"jobs?tag=source%3Astub\"");
         html.ShouldContain("aria-label=\"Additional tags: domain:payments, tenant:acme, schedule:daily_rollup, source:stub\"");
+    }
+
+    [Fact]
+    public async Task Jobs_SharedDefaultView_RendersConfiguredFiltersAndPromotedTagColumn()
+    {
+        await using var app = await CreateStartedDashboardAsync(configureDashboard: options =>
+        {
+            options.JobViews =
+            [
+                new ShedduellerDashboardJobView("Failures")
+                {
+                    States = [JobState.Claimed],
+                    Sort = JobInspectionSort.NewestFirst,
+                    Columns =
+                    [
+                        new(ShedduellerDashboardJobColumnKind.JobId),
+                        new(ShedduellerDashboardJobColumnKind.Handler),
+                        new(ShedduellerDashboardJobColumnKind.Tag, "tenant", "Customer"),
+                        new(ShedduellerDashboardJobColumnKind.Attempts),
+                    ],
+                },
+            ];
+            options.DefaultJobViewName = "Failures";
+        });
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs");
+
+        html.ShouldContain("Shared Presets");
+        html.ShouldContain("Failures");
+        AssertStatusCheckbox(html, "Claimed", isChecked: true);
+        AssertSelectValue(html, "Sort jobs", "NewestFirst");
+        html.ShouldContain(">Customer</span>");
+        html.ShouldContain("jobs-derived-tag");
+        html.ShouldContain(">acme</a>");
+        html.ShouldContain("href=\"jobs?state=Claimed&amp;tag=tenant%3Aacme&amp;sort=NewestFirst\"");
+        html.ShouldNotContain(">Progress</span>");
+        html.ShouldNotContain(">Tags</span>");
+
+        var filteredHtml = await GetOkHtmlAsync(app, "/sheddueller/jobs?state=Failed");
+        AssertStatusCheckbox(filteredHtml, "Failed", isChecked: true);
+        AssertStatusCheckbox(filteredHtml, "Claimed", isChecked: false);
+        filteredHtml.ShouldContain(">Customer</span>");
+    }
+
+    [Fact]
+    public async Task Jobs_BuiltInView_HidesProgressAndRendersViewControls()
+    {
+        await using var app = await CreateStartedDashboardAsync();
+        var html = await GetOkHtmlAsync(app, "/sheddueller/jobs");
+
+        html.ShouldContain("aria-label=\"Select job view\"");
+        html.ShouldContain("Save As");
+        html.ShouldContain("Set Default");
+        html.ShouldContain(">Columns</span>");
+        html.ShouldNotContain("Default &#xB7; Default");
+        html.ShouldNotContain(">Save</span>");
+        html.ShouldNotContain(">Progress</span>");
+        html.ShouldContain(">Disposition</span>");
+        html.ShouldContain("style=\"width: 1568px; min-width: 1568px\"");
+        html.ShouldContain("data-sd-column-resizer");
+        html.ShouldContain("jobs-timestamp jobs-timestamp--inline");
+        html.ShouldContain("jobs-timestamp__separator");
+        html.ShouldContain(">12:00 UTC</span>");
+        html.ShouldContain("title=\"2026-04-20 12:00:00 UTC\"");
     }
 
     [Fact]

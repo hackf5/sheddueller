@@ -1,6 +1,7 @@
 namespace Sheddueller.Dashboard.Tests;
 
 using System.Globalization;
+using System.Text.Json;
 
 using Sheddueller.Dashboard.Internal;
 using Sheddueller.Inspection.Jobs;
@@ -38,6 +39,8 @@ public sealed class DashboardFormatTests
         DashboardFormat.Relative(now.AddMinutes(-42), now).ShouldBe("42m ago");
         DashboardFormat.Relative(now.AddHours(3), now).ShouldBe("in 3h");
         DashboardFormat.Utc(now).ShouldBe("2026-04-20 12:00:00 UTC");
+        DashboardFormat.UtcMinute(now).ShouldBe("12:00 UTC");
+        DashboardFormat.UtcMinute(null).ShouldBeEmpty();
     }
 
     [Fact]
@@ -132,6 +135,119 @@ public sealed class DashboardFormatTests
         DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = [" tenant ", "domain"] }).ShouldBeTrue();
         DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = ["tenant", " tenant "] }).ShouldBeFalse();
         DashboardTagOrder.IsValid(new ShedduellerDashboardOptions { TagDisplayOrder = ["tenant", " "] }).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void JobViews_OptionsValidation_RequiresUniqueNamesValidColumnsAndExistingDefault()
+    {
+        var validView = new ShedduellerDashboardJobView("Failures")
+        {
+            States = [JobState.Failed],
+            Sort = JobInspectionSort.NewestFirst,
+            Columns =
+            [
+                new(ShedduellerDashboardJobColumnKind.JobId),
+                new(ShedduellerDashboardJobColumnKind.Handler),
+                new(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider"),
+            ],
+        };
+
+        DashboardJobViews.IsValid(new ShedduellerDashboardOptions
+        {
+            JobViews = [validView],
+            DefaultJobViewName = " failures ",
+        }).ShouldBeTrue();
+        DashboardJobViews.IsValid(new ShedduellerDashboardOptions
+        {
+            JobViews = [validView, validView with { Name = " failures " }],
+        }).ShouldBeFalse();
+        DashboardJobViews.IsValid(new ShedduellerDashboardOptions
+        {
+            JobViews = [validView with { Columns = [new(ShedduellerDashboardJobColumnKind.Handler)] }],
+        }).ShouldBeFalse();
+        DashboardJobViews.IsValid(new ShedduellerDashboardOptions
+        {
+            JobViews = [validView],
+            DefaultJobViewName = "Missing",
+        }).ShouldBeFalse();
+        DashboardJobViews.IsValid(new ShedduellerDashboardOptions
+        {
+            JobViews =
+            [
+                validView with
+                {
+                    Columns =
+                    [
+                        new(ShedduellerDashboardJobColumnKind.JobId),
+                        new ShedduellerDashboardJobColumn(ShedduellerDashboardJobColumnKind.Handler) { Width = 47 },
+                    ],
+                },
+            ],
+        }).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void JobViews_PromotedTags_ExtractsDistinctValuesAndRemovesResidualTags()
+    {
+        var tags = new[]
+        {
+            new JobTag("source", "channel"),
+            new JobTag("Provider", "streamline"),
+            new JobTag("provider", "streamline"),
+            new JobTag("provider", "rentals-united"),
+            new JobTag("listing-id", "42"),
+        };
+        var columns = new[]
+        {
+            new ShedduellerDashboardJobColumn(ShedduellerDashboardJobColumnKind.JobId),
+            new ShedduellerDashboardJobColumn(ShedduellerDashboardJobColumnKind.Tag, "provider"),
+        };
+
+        DashboardJobViews.GetTagValues(tags, "provider")
+          .ShouldBe([new JobTag("Provider", "streamline"), new JobTag("provider", "rentals-united")]);
+        DashboardJobViews.GetResidualTags(tags, columns)
+          .ShouldBe([new JobTag("source", "channel"), new JobTag("listing-id", "42")]);
+        DashboardJobViews.BuiltInColumns.ShouldNotContain(
+          column => column.Kind == ShedduellerDashboardJobColumnKind.Progress);
+    }
+
+    [Fact]
+    public void JobViews_StoragePayload_RoundTripsVersionPreferenceAndDefinition()
+    {
+        var id = Guid.Parse("ab40ef11-b70d-44c9-8a91-3c356f45da73").ToString("D");
+        var payload = new DashboardJobViewStoragePayload
+        {
+            PreferredViewKey = DashboardJobViews.PersonalKey(id),
+            Views =
+            [
+                new DashboardStoredJobView
+                {
+                    Id = id,
+                    View = new ShedduellerDashboardJobView("Listings")
+                    {
+                        TagContains = "domain:listing",
+                        Columns =
+                        [
+                            new(ShedduellerDashboardJobColumnKind.JobId),
+                            new ShedduellerDashboardJobColumn(ShedduellerDashboardJobColumnKind.Tag, "provider", "Provider")
+                            {
+                                Width = 124,
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        var json = JsonSerializer.Serialize(payload);
+        var restored = JsonSerializer.Deserialize<DashboardJobViewStoragePayload>(json);
+
+        restored.ShouldNotBeNull();
+        restored.Version.ShouldBe(DashboardJobViewStoragePayload.CurrentVersion);
+        restored.PreferredViewKey.ShouldBe(payload.PreferredViewKey);
+        restored.Views.Single().View.TagContains.ShouldBe("domain:listing");
+        restored.Views.Single().View.Columns![1].TagName.ShouldBe("provider");
+        restored.Views.Single().View.Columns![1].Width.ShouldBe(124);
     }
 
     [Fact]

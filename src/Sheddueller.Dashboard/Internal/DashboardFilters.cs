@@ -160,6 +160,16 @@ internal static class DashboardJobFilterQuery
     public static DashboardJobFilters ParseUri(string uri)
       => ParseQuery(new Uri(uri, UriKind.Absolute).Query);
 
+    public static bool HasRecognizedQuery(string queryString)
+    {
+        var query = QueryHelpers.ParseQuery(queryString);
+        return query.ContainsKey(StateParameter)
+          || query.ContainsKey(HandlerParameter)
+          || query.ContainsKey(TagParameter)
+          || query.ContainsKey(GroupParameter)
+          || query.ContainsKey(SortParameter);
+    }
+
     public static DashboardJobFilters ParseQuery(string queryString)
     {
         var filters = new DashboardJobFilters();
